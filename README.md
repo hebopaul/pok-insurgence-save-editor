@@ -4,6 +4,12 @@ A desktop GUI for editing `Game.rxdata` save files from [Pokémon Insurgence](ht
 
 ---
 
+## Download
+
+Grab the latest `.exe` from the [Releases](https://github.com/hebopaul/pok-insurgence-save-editor/releases) page — no installation required.
+
+---
+
 ## Features
 
 - **Trainer** — edit money, Battle Points, and badges
@@ -19,22 +25,9 @@ A desktop GUI for editing `Game.rxdata` save files from [Pokémon Insurgence](ht
 
 ---
 
-## Requirements
-
-- Python 3.8+
-- [rubymarshal](https://pypi.org/project/rubymarshal/)
-
-```bash
-pip install rubymarshal
-```
-
----
-
 ## Usage
 
-```bash
-python save_editor.py
-```
+Double-click `Pokemon Insurgence Save Editor.exe` to launch.
 
 The editor auto-loads `Game.rxdata` from the default Insurgence save location on startup. You can also click **Load Save** to open any `.rxdata` file manually.
 
@@ -53,6 +46,17 @@ Item IDs in the Bag tab use the standard values found on community wikis and che
 - Save files are Ruby Marshal 4.8 streams — no encryption, no checksum.
 - Changing a Pokémon's nature or shiny status recalculates its PID. This also affects gender in some species.
 - Level and stat fields are written directly; the game recalculates derived values on next load.
+
+---
+
+## Running from source
+
+Requires Python 3.8+ and [rubymarshal](https://pypi.org/project/rubymarshal/):
+
+```bash
+pip install rubymarshal
+python save_editor.py
+```
 
 ---
 

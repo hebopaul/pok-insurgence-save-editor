@@ -1,5 +1,10 @@
 build/
 dist/
+sandbox/
+.claude/
 __pycache__/
 *.spec
 *.pyc
+cli-memory.md
+reproduce_bug.py
+

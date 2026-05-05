@@ -8,6 +8,39 @@ import os, shutil, re, sys
 
 from rubymarshal.reader import loads
 from rubymarshal.writer import writes
+
+from rubymarshal.writer import Writer
+from rubymarshal.constants import TYPE_FIXNUM, TYPE_BIGNUM
+import math
+
+class Ruby18Writer(Writer):
+    def write_int(self, obj):
+        if -1073741824 <= obj <= 1073741823:
+            self.fd.write(TYPE_FIXNUM)
+            self.write_long(obj)
+        else:
+            if not self.must_write(obj): return
+            self.fd.write(TYPE_BIGNUM)
+            self.fd.write(b'+' if obj >= 0 else b'-')
+            obj = abs(obj)
+            size = int(math.ceil(obj.bit_length() / 16.0))
+            self.write_long(size)
+            for i in range(size):
+                self.write_short(obj % 65536)
+                obj //= 65536
+                
+    def write_bytes(self, obj):
+        if not self.must_write(obj): return
+        super().write_bytes(obj)
+
+    def write_string(self, obj):
+        if not self.must_write(obj): return
+        super().write_string(obj)
+
+    def write_float(self, obj):
+        if not self.must_write(obj): return
+        super().write_float(obj)
+
 from rubymarshal.classes import RubyObject
 
 def resource_path(relative: str) -> str:
@@ -15,9 +48,16 @@ def resource_path(relative: str) -> str:
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, relative)
 
-DEFAULT_SAVE = os.path.join(
-    os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence", "Game.rxdata"
-)
+def get_latest_save_file() -> str:
+    base_dir = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
+    if not os.path.isdir(base_dir):
+        return ""
+    rx_files = [os.path.join(base_dir, f) for f in os.listdir(base_dir) if f.lower().endswith(".rxdata")]
+    if not rx_files:
+        return ""
+    return max(rx_files, key=os.path.getmtime)
+
+DEFAULT_SAVE_DIR = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
 
 STATS   = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]
 NATURES = ["Hardy","Lonely","Brave","Adamant","Naughty","Bold","Docile","Relaxed",
@@ -151,7 +191,7 @@ class Editor(tk.Tk):
         self.bag_idx      = None
         self.storage      = None
         self.storage_idx  = None
-        self.save_path    = DEFAULT_SAVE
+        self.save_path    = get_latest_save_file() or os.path.join(DEFAULT_SAVE_DIR, "Game.rxdata")
         self.trainer_id   = 0
         self.secret_id    = 0
 
@@ -271,7 +311,7 @@ class Editor(tk.Tk):
         lf = ttk.LabelFrame(parent, text="Core Stats", padding=6)
         lf.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
         for i, (key, lbl) in enumerate([
-            ("species_id","Species ID"),("nickname","Nickname"),("level","Level"),
+            ("species_id","Species ID"),("nickname","Nickname"),
             ("hp","Current HP"),("totalhp","Max HP"),("attack","Attack"),
             ("defense","Defense"),("spatk","Sp.Atk"),("spdef","Sp.Def"),
             ("speed","Speed"),("exp","Experience"),
@@ -644,7 +684,6 @@ class Editor(tk.Tk):
 
                 for i, (key, lbl, val) in enumerate([
                     ("species_id","Species ID",str(sp)),("nickname","Nickname",nick),
-                    ("level","Level",str(a.get("@level",0))),
                     ("hp","HP",str(a.get("@hp",0))),("totalhp","Max HP",str(a.get("@totalhp",0))),
                 ]):
                     sv[key] = tk.StringVar(value=val)
@@ -765,7 +804,7 @@ class Editor(tk.Tk):
                 pid = a.get("@personalID", 0) or 0
                 v["_pkmn_obj"] = party[slot]
                 for key, attr in [
-                    ("species_id","@species"),("level","@level"),("hp","@hp"),
+                    ("species_id","@species"),("hp","@hp"),
                     ("totalhp","@totalhp"),("attack","@attack"),("defense","@defense"),
                     ("spatk","@spatk"),("spdef","@spdef"),("speed","@speed"),
                     ("exp","@exp"),("item","@item"),("happiness","@happiness"),
@@ -825,7 +864,7 @@ class Editor(tk.Tk):
                 except: return default
 
             for key, attr in [
-                ("hp","@hp"),("totalhp","@totalhp"),("level","@level"),
+                ("hp","@hp"),("totalhp","@totalhp"),
                 ("attack","@attack"),("defense","@defense"),("spatk","@spatk"),
                 ("spdef","@spdef"),("speed","@speed"),("exp","@exp"),
                 ("item","@item"),("happiness","@happiness"),("status","@status"),
@@ -841,13 +880,20 @@ class Editor(tk.Tk):
                 if isinstance(ev, list) and j < len(ev): ev[j] = min(252, max(0, gi(f"ev_{key}")))
             a["@iv"] = iv; a["@ev"] = ev
 
+            old_pid = a.get("@personalID", 0) or 0
+            old_nat = NATURES[old_pid % 25] if old_pid else ""
+            old_shiny = is_shiny(old_pid, self.trainer_id, self.secret_id)
+            old_ab = old_pid & 1
+            
             nat_name = v["nature_idx"].get()
-            nat_i    = NATURES.index(nat_name) if nat_name in NATURES else (a.get("@personalID",0) or 0) % 25
+            nat_i    = NATURES.index(nat_name) if nat_name in NATURES else old_pid % 25
             shiny    = bool(v["shiny"].get())
             ab       = gi("ability_slot")
-            new_pid  = find_pid(nat_i, shiny, self.trainer_id, self.secret_id)
-            new_pid  = (new_pid & 0xFFFFFFFE) | (ab & 1)
-            a["@personalID"] = new_pid
+            
+            if nat_name != old_nat or shiny != old_shiny or ab != old_ab:
+                new_pid  = find_pid(nat_i, shiny, self.trainer_id, self.secret_id)
+                new_pid  = (new_pid & 0xFFFFFFFE) | (ab & 1)
+                a["@personalID"] = new_pid
             if "@abilityflag" in a: a["@abilityflag"] = ab
 
             moves = a.get("@moves", [])
@@ -857,7 +903,8 @@ class Editor(tk.Tk):
                     moves[i].attributes["@pp"] = gi(f"movepp{i}")
 
             nick = v["nickname"].get()
-            if nick: a["@name"] = nick.encode("utf-8")
+            if nick and nick != ds(a.get("@name", b"")):
+                a["@name"] = nick.encode("utf-8")
 
     def _apply_bag(self):
         if not isinstance(self.bag, RubyObject): return
@@ -890,22 +937,30 @@ class Editor(tk.Tk):
                     except: return default
 
                 for key, attr in [
-                    ("species_id","@species"),("level","@level"),("hp","@hp"),
+                    ("species_id","@species"),("hp","@hp"),
                     ("totalhp","@totalhp"),("item","@item"),("happiness","@happiness"),
                     ("status","@status"),("exp","@exp"),
                 ]:
                     a[attr] = gi(key)
 
                 nick = sv["nickname"].get()
-                if nick: a["@name"] = nick.encode("utf-8")
+                if nick and nick != ds(a.get("@name", b"")):
+                    a["@name"] = nick.encode("utf-8")
 
+                old_pid = a.get("@personalID", 0) or 0
+                old_nat = NATURES[old_pid % 25] if old_pid else ""
+                old_shiny = is_shiny(old_pid, self.trainer_id, self.secret_id)
+                old_ab = old_pid & 1
+                
                 nat_name = sv["nature_idx"].get()
-                nat_i    = NATURES.index(nat_name) if nat_name in NATURES else (a.get("@personalID",0) or 0) % 25
+                nat_i    = NATURES.index(nat_name) if nat_name in NATURES else old_pid % 25
                 shiny    = bool(sv["shiny"].get())
                 ab       = gi("ability_slot")
-                new_pid  = find_pid(nat_i, shiny, self.trainer_id, self.secret_id)
-                new_pid  = (new_pid & 0xFFFFFFFE) | (ab & 1)
-                a["@personalID"] = new_pid
+                
+                if nat_name != old_nat or shiny != old_shiny or ab != old_ab:
+                    new_pid  = find_pid(nat_i, shiny, self.trainer_id, self.secret_id)
+                    new_pid  = (new_pid & 0xFFFFFFFE) | (ab & 1)
+                    a["@personalID"] = new_pid
                 if "@abilityflag" in a: a["@abilityflag"] = ab
 
                 iv = a.get("@iv", [0]*6)
@@ -931,17 +986,17 @@ class Editor(tk.Tk):
         raw = self.raw
 
         try:
-            trainer_bytes = writes(self.trainer)
+            trainer_bytes = writes(self.trainer, cls=Ruby18Writer)
         except Exception as e:
             messagebox.showerror("Serialization error", f"Trainer: {e}"); return
 
         bag_bytes = storage_bytes = None
         if self.bag is not None and self.bag_idx is not None:
-            try:    bag_bytes     = writes(self.bag)
+            try:    bag_bytes     = writes(self.bag, cls=Ruby18Writer)
             except Exception as e:
                 messagebox.showerror("Serialization error", f"Bag: {e}"); return
         if self.storage is not None and self.storage_idx is not None:
-            try:    storage_bytes = writes(self.storage)
+            try:    storage_bytes = writes(self.storage, cls=Ruby18Writer)
             except Exception as e:
                 messagebox.showerror("Serialization error", f"Storage: {e}"); return
 
