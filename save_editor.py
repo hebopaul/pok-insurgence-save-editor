@@ -818,7 +818,7 @@ class Editor(tk.Tk):
                 pid = a.get("@personalID", 0) or 0
                 v["_pkmn_obj"] = party[slot]
                 for key, attr in [
-                    ("species_id","@species"),("form","@form"),("hp","@hp"),
+                    ("species_id","@species"),("hp","@hp"),
                     ("totalhp","@totalhp"),("attack","@attack"),("defense","@defense"),
                     ("spatk","@spatk"),("spdef","@spdef"),("speed","@speed"),
                     ("exp","@exp"),("item","@item"),("happiness","@happiness"),
@@ -878,7 +878,7 @@ class Editor(tk.Tk):
                 except: return default
 
             for key, attr in [
-                ("hp","@hp"),("totalhp","@totalhp"),("form","@form"),
+                ("hp","@hp"),("totalhp","@totalhp"),
                 ("attack","@attack"),("defense","@defense"),("spatk","@spatk"),
                 ("spdef","@spdef"),("speed","@speed"),("exp","@exp"),
                 ("item","@item"),("happiness","@happiness"),("status","@status"),
@@ -892,6 +892,7 @@ class Editor(tk.Tk):
                 key = stat.lower()
                 if isinstance(iv, list) and j < len(iv): iv[j] = min(31,  max(0, gi(f"iv_{key}")))
                 if isinstance(ev, list) and j < len(ev): ev[j] = min(252, max(0, gi(f"ev_{key}")))
+            a["@form"] = max(0, min(gi("form"), 99))
             a["@iv"] = iv; a["@ev"] = ev
 
             old_pid = a.get("@personalID", 0) or 0
@@ -951,13 +952,14 @@ class Editor(tk.Tk):
                     except: return default
 
                 for key, attr in [
-                    ("species_id","@species"),("form","@form"),("hp","@hp"),
+                    ("species_id","@species"),("hp","@hp"),
                     ("totalhp","@totalhp"),("item","@item"),("happiness","@happiness"),
                     ("status","@status"),("exp","@exp"),
                 ]:
                     a[attr] = gi(key)
 
                 nick = sv["nickname"].get()
+                a["@form"] = max(0, min(gi("form"), 99))
                 if nick and nick != ds(a.get("@name", b"")):
                     a["@name"] = nick.encode("utf-8")
 
