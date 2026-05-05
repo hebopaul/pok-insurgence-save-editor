@@ -324,7 +324,7 @@ class Editor(tk.Tk):
         lf = ttk.LabelFrame(parent, text="Core Stats", padding=6)
         lf.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
         for i, (key, lbl) in enumerate([
-            ("species_id","Species ID"),("nickname","Nickname"),
+            ("species_id","Species ID"),("form","Form ID"),("nickname","Nickname"),
             ("hp","Current HP"),("totalhp","Max HP"),("attack","Attack"),
             ("defense","Defense"),("spatk","Sp.Atk"),("spdef","Sp.Def"),
             ("speed","Speed"),("exp","Experience"),
@@ -696,7 +696,7 @@ class Editor(tk.Tk):
                 bp = ttk.Frame(sf); bp.pack(side="left", padx=4)
 
                 for i, (key, lbl, val) in enumerate([
-                    ("species_id","Species ID",str(sp)),("nickname","Nickname",nick),
+                    ("species_id","Species ID",str(sp)),("form","Form ID",str(a.get("@form",0))),("nickname","Nickname",nick),
                     ("hp","HP",str(a.get("@hp",0))),("totalhp","Max HP",str(a.get("@totalhp",0))),
                 ]):
                     sv[key] = tk.StringVar(value=val)
@@ -818,7 +818,7 @@ class Editor(tk.Tk):
                 pid = a.get("@personalID", 0) or 0
                 v["_pkmn_obj"] = party[slot]
                 for key, attr in [
-                    ("species_id","@species"),("hp","@hp"),
+                    ("species_id","@species"),("form","@form"),("hp","@hp"),
                     ("totalhp","@totalhp"),("attack","@attack"),("defense","@defense"),
                     ("spatk","@spatk"),("spdef","@spdef"),("speed","@speed"),
                     ("exp","@exp"),("item","@item"),("happiness","@happiness"),
@@ -878,7 +878,7 @@ class Editor(tk.Tk):
                 except: return default
 
             for key, attr in [
-                ("hp","@hp"),("totalhp","@totalhp"),
+                ("hp","@hp"),("totalhp","@totalhp"),("form","@form"),
                 ("attack","@attack"),("defense","@defense"),("spatk","@spatk"),
                 ("spdef","@spdef"),("speed","@speed"),("exp","@exp"),
                 ("item","@item"),("happiness","@happiness"),("status","@status"),
@@ -951,7 +951,7 @@ class Editor(tk.Tk):
                     except: return default
 
                 for key, attr in [
-                    ("species_id","@species"),("hp","@hp"),
+                    ("species_id","@species"),("form","@form"),("hp","@hp"),
                     ("totalhp","@totalhp"),("item","@item"),("happiness","@happiness"),
                     ("status","@status"),("exp","@exp"),
                 ]:
