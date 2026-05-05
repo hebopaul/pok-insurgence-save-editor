@@ -52,7 +52,11 @@ def get_latest_save_file() -> str:
     base_dir = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
     if not os.path.isdir(base_dir):
         return ""
-    rx_files = [os.path.join(base_dir, f) for f in os.listdir(base_dir) if f.lower().endswith(".rxdata")]
+    # Only load actual save slots, not the game's automatic backups
+    rx_files = [
+        os.path.join(base_dir, f) for f in os.listdir(base_dir) 
+        if f.lower().startswith("game") and f.lower().endswith(".rxdata")
+    ]
     if not rx_files:
         return ""
     return max(rx_files, key=os.path.getmtime)
