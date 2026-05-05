@@ -4,13 +4,20 @@ Pokemon Insurgence Save Editor
 """
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import os, shutil, re
+import os, shutil, re, sys
 
 from rubymarshal.reader import loads
 from rubymarshal.writer import writes
 from rubymarshal.classes import RubyObject
 
-DEFAULT_SAVE = r"C:\Users\hebo\Saved Games\Pokemon Insurgence\Game.rxdata"
+def resource_path(relative: str) -> str:
+    """Resolve paths for both normal runs and PyInstaller bundles."""
+    base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base, relative)
+
+DEFAULT_SAVE = os.path.join(
+    os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence", "Game.rxdata"
+)
 
 STATS   = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]
 NATURES = ["Hardy","Lonely","Brave","Adamant","Naughty","Bold","Docile","Relaxed",
@@ -48,7 +55,7 @@ def _item_category(iid: int, name: str) -> str:
     return "Items"
 
 def _load_item_data():
-    item_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), "item_ids.txt")
+    item_file = resource_path("item_ids.txt")
     names: dict[int, str] = {}
     cats:  dict[int, str] = {}
     if not os.path.exists(item_file):
@@ -127,6 +134,15 @@ class Editor(tk.Tk):
         self.title("Pokemon Insurgence Save Editor")
         self.resizable(True, True)
         self.minsize(900, 600)
+
+        # Icon
+        try:
+            self.iconbitmap(resource_path("icon.ico"))
+        except Exception:
+            pass
+
+        # Native Windows theme — much cleaner than the default
+        ttk.Style().theme_use("vista")
 
         self.raw          = None
         self.positions    = []
