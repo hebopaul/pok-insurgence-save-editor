@@ -8,3 +8,5 @@ __pycache__/
 cli-memory.md
 reproduce_bug.py
 
+findings.md
+release_notes.md
