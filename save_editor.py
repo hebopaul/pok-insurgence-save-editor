@@ -175,6 +175,15 @@ class Editor(tk.Tk):
         self.resizable(True, True)
         self.minsize(900, 600)
 
+        # Fix taskbar icon on Windows
+        if os.name == "nt":
+            import ctypes
+            try:
+                myappid = "hebopaul.pokemoninsurgencesaveeditor.1.0"
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+            except Exception:
+                pass
+
         # Icon
         try:
             self.iconbitmap(resource_path("icon.ico"))
@@ -775,8 +784,9 @@ class Editor(tk.Tk):
         self.save_path   = path
 
         ta = trainer.attributes
-        self.trainer_id = ta.get("@trainerID",  0) or 0
-        self.secret_id  = ta.get("@trainerSID", 0) or 0
+        full_id = ta.get("@id", 0) or 0
+        self.trainer_id = full_id & 0xFFFF
+        self.secret_id  = full_id >> 16
 
         self._fill_trainer()
         self._fill_party()
