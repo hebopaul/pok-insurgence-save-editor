@@ -5,7 +5,7 @@ Pokemon Insurgence Save Editor
 """
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import os, shutil, re, sys
+import os, shutil, re, sys, time, copy
 
 from rubymarshal.reader import loads
 from rubymarshal.writer import writes
@@ -69,6 +69,72 @@ NATURES = ["Hardy","Lonely","Brave","Adamant","Naughty","Bold","Docile","Relaxed
            "Impish","Lax","Timid","Hasty","Serious","Jolly","Naive","Modest","Mild",
            "Quiet","Bashful","Rash","Calm","Gentle","Sassy","Careful","Quirky"]
 
+POKEMON_TYPES = [
+    "Normal","Fire","Water","Electric","Grass","Ice","Fighting","Poison",
+    "Ground","Flying","Psychic","Bug","Rock","Ghost","Dragon","Dark","Steel","Fairy",
+]
+PKMN_STAGE_LIST  = ["All", "Baby", "1", "2", "3"]
+PKMN_RARITY_LIST = ["All", "Common", "Legendary", "Mythical"]
+def _exp_for_level(growth: str, level: int) -> int:
+    n = level
+    if growth == "fast":
+        return 4 * n**3 // 5
+    elif growth == "medium-slow":
+        return max(0, int(6 * n**3 / 5 - 15 * n**2 / 4 + 100 * n / 3 - 140))
+    elif growth == "slow":
+        return 5 * n**3 // 4
+    elif growth == "erratic":
+        if n <= 50:  return n**3 * (100 - n) // 50
+        elif n <= 68: return n**3 * (150 - n) // 100
+        elif n <= 98: return n**3 * ((1911 - 10 * n) // 3) // 500
+        else:         return n**3 * (160 - n) // 100
+    elif growth == "fluctuating":
+        if n <= 15:  return n**3 * ((n + 1) // 3 + 24) // 50
+        elif n <= 35: return n**3 * (n + 14) // 50
+        else:         return n**3 * (n // 2 + 32) // 50
+    else:  # medium-fast (default)
+        return n**3
+
+def _default_level(stage: str, rarity: str) -> int:
+    if rarity in ("Legendary", "Mythical"):
+        return 50
+    return {"Baby": 5, "1": 15, "2": 35, "3": 50}.get(stage, 15)
+
+def _load_pokemon_data():
+    path = resource_path("pokemon_data.txt")
+    data = {}
+    if not os.path.exists(path):
+        return data
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) < 12:
+                continue
+            try:
+                sid = int(parts[0])
+                if sid in data:
+                    continue
+                data[sid] = {
+                    "name":   parts[1],
+                    "type1":  parts[2],
+                    "type2":  parts[3],
+                    "stage":  parts[4],
+                    "rarity": parts[5],
+                    "hp":  int(parts[6]),
+                    "atk": int(parts[7]),
+                    "def": int(parts[8]),
+                    "spa": int(parts[9]),
+                    "spd": int(parts[10]),
+                    "spe": int(parts[11]),
+                    "growth": parts[12] if len(parts) > 12 else "medium-fast",
+                }
+            except (ValueError, IndexError):
+                pass
+    return data
+
 # Pocket 0 = unused, 1 = Items, 2 = Medicine, 3 = Balls, 4 = TMs, 5 = Berries,
 # 6 = Mail, 7 = Battle Items, 8 = Key Items
 POCKET_NAMES = ["Pocket 0","Items","Medicine","Poke Balls","TMs & HMs",
@@ -120,6 +186,7 @@ def _load_item_data():
 
 ITEM_NAMES, ITEM_CATS = _load_item_data()
 ITEM_CAT_LIST = ["All"] + sorted(set(ITEM_CATS.values()))
+PKMN_DATA = _load_pokemon_data()
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -317,9 +384,15 @@ class Editor(tk.Tk):
         for slot in range(6):
             frame = ttk.Frame(self.party_nb, padding=8)
             self.party_nb.add(frame, text=f" Slot {slot+1} ")
+<<<<<<< Updated upstream
             self.pkmn_vars.append(self._build_pkmn_slot(frame, is_party=True, slot_idx=slot))
 
     def _build_pkmn_slot(self, parent, is_party=False, slot_idx=0, box_idx=None):
+=======
+            self.pkmn_vars.append(self._build_pkmn_slot(frame, slot))
+
+    def _build_pkmn_slot(self, parent, slot: int = 0):
+>>>>>>> Stashed changes
         v = {}
         v["add_frame"] = ttk.Frame(parent)
         ttk.Button(v["add_frame"], text=" + Add New Pokémon ", 
@@ -399,6 +472,10 @@ class Editor(tk.Tk):
         e.columnconfigure(0, weight=1)
         e.columnconfigure(1, weight=1)
         v["_pkmn_obj"] = None
+
+        add_btn = ttk.Button(parent, text="+ Add Pokémon to this slot",
+                             command=lambda s=slot: self._add_to_party_slot(s))
+        v["add_btn"] = add_btn
         return v
 
     def _heal_slot(self, v):
@@ -760,7 +837,13 @@ class Editor(tk.Tk):
             slot_vars = []
             for si, pkmn in enumerate(pokemon_list):
                 if not isinstance(pkmn, RubyObject):
-                    slot_vars.append(None); continue
+                    ef = ttk.LabelFrame(inner, text=f"Slot {si}: Empty", padding=4)
+                    ef.pack(fill="x", pady=2, padx=2)
+                    ttk.Button(ef, text="+ Add Pokémon",
+                               command=lambda b=bi, s=si, bx=box: self._add_to_box_slot(b, s, bx)
+                               ).pack(padx=4, pady=2)
+                    slot_vars.append(None)
+                    continue
 
                 a    = pkmn.attributes
                 nick = ds(a.get("@name", b""))
@@ -823,6 +906,7 @@ class Editor(tk.Tk):
 
             self.box_vars.append((bi, box, slot_vars))
 
+<<<<<<< Updated upstream
 
     def _add_new_pkmn(self, slot_idx, box_idx=None):
         def on_select(species_id):
@@ -878,6 +962,271 @@ class Editor(tk.Tk):
                 if isinstance(p, RubyObject): return p
         return None
 
+=======
+    # ── pokemon picker / add ─────────────────────────────────────────────────
+
+    def _open_pokemon_picker(self, callback):
+        """Popup to browse and pick a species. Calls callback(species_id) on confirm."""
+        dlg = tk.Toplevel(self)
+        dlg.title("Pick Pokémon")
+        dlg.geometry("620x520")
+        dlg.resizable(True, True)
+        dlg.grab_set()
+
+        # ── filter row ──
+        top = ttk.Frame(dlg, padding=(8, 8, 8, 4))
+        top.pack(fill="x")
+
+        ttk.Label(top, text="Name:").pack(side="left")
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(top, textvariable=search_var, width=14)
+        search_entry.pack(side="left", padx=(4, 12))
+
+        ttk.Label(top, text="Type:").pack(side="left")
+        type_var = tk.StringVar(value="All")
+        ttk.Combobox(top, textvariable=type_var,
+                     values=["All"] + POKEMON_TYPES, width=10, state="readonly").pack(side="left", padx=(4, 8))
+
+        ttk.Label(top, text="Stage:").pack(side="left")
+        stage_var = tk.StringVar(value="All")
+        ttk.Combobox(top, textvariable=stage_var,
+                     values=PKMN_STAGE_LIST, width=6, state="readonly").pack(side="left", padx=(4, 8))
+
+        ttk.Label(top, text="Rarity:").pack(side="left")
+        rarity_var = tk.StringVar(value="All")
+        ttk.Combobox(top, textvariable=rarity_var,
+                     values=PKMN_RARITY_LIST, width=10, state="readonly").pack(side="left", padx=4)
+
+        # ── listbox ──
+        lf = ttk.Frame(dlg, padding=(8, 0, 8, 4))
+        lf.pack(fill="both", expand=True)
+        lb  = tk.Listbox(lf, font=("Courier", 9), activestyle="dotbox", selectmode="single")
+        vsb = ttk.Scrollbar(lf, orient="vertical",   command=lb.yview)
+        hsb = ttk.Scrollbar(lf, orient="horizontal", command=lb.xview)
+        lb.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        lb.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        lf.rowconfigure(0, weight=1)
+        lf.columnconfigure(0, weight=1)
+
+        filtered: list[tuple[int, str]] = []
+
+        def refresh(*_):
+            nonlocal filtered
+            q      = search_var.get().strip().lower()
+            typ    = type_var.get()
+            stage  = stage_var.get()
+            rarity = rarity_var.get()
+
+            if PKMN_DATA:
+                items = list(PKMN_DATA.items())
+                if typ != "All":
+                    items = [(sid, d) for sid, d in items
+                             if d["type1"] == typ or d["type2"] == typ]
+                if stage != "All":
+                    items = [(sid, d) for sid, d in items if d["stage"] == stage]
+                if rarity != "All":
+                    items = [(sid, d) for sid, d in items if d["rarity"] == rarity]
+                if q:
+                    items = [(sid, d) for sid, d in items
+                             if q in d["name"].lower() or q in str(sid)]
+                items.sort(key=lambda x: x[0])
+                filtered = [(sid, d["name"]) for sid, d in items]
+                lb.delete(0, tk.END)
+                for sid, _ in filtered:
+                    d = PKMN_DATA[sid]
+                    t2   = f"/{d['type2']}" if d["type2"] else ""
+                    line = f"  #{sid:4d}  {d['name']:<14}  {d['type1'] + t2:<18}  Stage {d['stage']:<5}  {d['rarity']}"
+                    lb.insert(tk.END, line)
+            else:
+                filtered = []
+                lb.delete(0, tk.END)
+                lb.insert(tk.END, "  (pokemon_data.txt not found)")
+                lb.insert(tk.END, "  Run generate_pokemon_data.py first,")
+                lb.insert(tk.END, "  or enter a species ID below.")
+
+        search_var.trace_add("write", refresh)
+        type_var.trace_add("write",   refresh)
+        stage_var.trace_add("write",  refresh)
+        rarity_var.trace_add("write", refresh)
+        refresh()
+        search_entry.focus_set()
+
+        # ── manual ID fallback + buttons ──
+        bf = ttk.Frame(dlg, padding=(8, 0, 8, 8))
+        bf.pack(fill="x")
+
+        manual_var = tk.StringVar()
+        ttk.Label(bf, text="Species ID:").pack(side="left")
+        ttk.Entry(bf, textvariable=manual_var, width=7).pack(side="left", padx=(4, 8))
+
+        def do_select(*_):
+            # Prefer listbox selection; fall back to manual ID field
+            sel = lb.curselection()
+            if sel and filtered:
+                sid, _ = filtered[sel[0]]
+            else:
+                try:
+                    sid = int(manual_var.get())
+                except ValueError:
+                    messagebox.showerror("Input error", "Select a Pokémon or enter a species ID.", parent=dlg)
+                    return
+            callback(sid)
+            dlg.destroy()
+
+        lb.bind("<Double-Button-1>", do_select)
+        lb.bind("<Return>",          do_select)
+
+        ttk.Button(bf, text="Select", width=9, command=do_select).pack(side="left", padx=4)
+        ttk.Button(bf, text="Cancel", width=9, command=dlg.destroy).pack(side="left", padx=4)
+        count = len(PKMN_DATA)
+        ttk.Label(bf, text=f"{count} species loaded" if count else "No data file",
+                  foreground="gray").pack(side="right", padx=8)
+
+    def _find_template_pokemon(self):
+        """Return any existing RubyObject Pokémon to use as a deep-copy template.
+        Prefer a box Pokémon over a party Pokémon — box Pokémon lack party-specific
+        attributes (e.g. @hypermode) that would be unexpected on a stored Pokémon."""
+        if self.storage:
+            for box in self.storage.attributes.get("@boxes", []):
+                if isinstance(box, RubyObject):
+                    for p in box.attributes.get("@pokemon", []):
+                        if isinstance(p, RubyObject): return p
+        if self.trainer:
+            for p in self.trainer.attributes.get("@party", []):
+                if isinstance(p, RubyObject): return p
+        return None
+
+    def _create_pokemon_obj(self, species_id: int) -> RubyObject:
+        d      = PKMN_DATA.get(species_id, {})
+        stage  = d.get("stage",  "1")
+        rarity = d.get("rarity", "Common")
+        level  = _default_level(stage, rarity)
+
+        hp_b  = d.get("hp",  0)
+        atk_b = d.get("atk", 0)
+        def_b = d.get("def", 0)
+        spa_b = d.get("spa", 0)
+        spd_b = d.get("spd", 0)
+        spe_b = d.get("spe", 0)
+
+        iv_hp  = min(31, hp_b  // 4)
+        iv_atk = min(31, atk_b // 4)
+        iv_def = min(31, def_b // 4)
+        iv_spa = min(31, spa_b // 4)
+        iv_spd = min(31, spd_b // 4)
+        iv_spe = min(31, spe_b // 4)
+
+        total_hp = (2 * hp_b + iv_hp)  * level // 100 + level + 10
+        def calc(b, iv): return (2 * b + iv) * level // 100 + 5
+
+        name_str = d.get("name", f"#{species_id}")
+        growth   = d.get("growth", "medium-fast")
+        exp      = _exp_for_level(growth, level)
+        pid      = find_pid(NATURES.index("Hardy"), False, self.trainer_id, self.secret_id)
+
+        ot_name     = b""
+        combined_id = 0
+        if self.trainer:
+            ot_name     = self.trainer.attributes.get("@name", b"") or b""
+            combined_id = self.trainer_id | (self.secret_id << 16)
+
+        # Deep-copy a real Pokémon from the save as a structural template.
+        # This guarantees every Insurgence-specific attribute is present with the
+        # correct Ruby class names on sub-objects (moves, etc.).
+        template = self._find_template_pokemon()
+        if template:
+            pkmn = copy.deepcopy(template)
+            # Zero out all move slots so the new Pokémon starts with no moves
+            for mv in pkmn.attributes.get("@moves", []):
+                if isinstance(mv, RubyObject):
+                    mv.attributes["@id"]    = 0
+                    mv.attributes["@pp"]    = 0
+                    mv.attributes["@ppup"]  = 0
+                    mv.attributes.pop("@totalpp", None)
+        else:
+            # Fallback: no existing Pokémon in save — build from scratch
+            pkmn = RubyObject("PokeBattle_Pokemon", {
+                "@moves": [RubyObject("PBMove", {"@id": 0, "@pp": 0, "@ppup": 0})
+                           for _ in range(4)],
+                "@iv": [0]*6, "@ev": [0]*6, "@ribbons": [],
+            })
+
+        a = pkmn.attributes
+        a["@species"]      = species_id
+        a["@name"]         = name_str.encode("utf-8")
+        a["@personalID"]   = pid
+        a["@hp"]           = total_hp
+        a["@totalhp"]      = total_hp
+        a["@attack"]       = calc(atk_b, iv_atk)
+        a["@defense"]      = calc(def_b, iv_def)
+        a["@spatk"]        = calc(spa_b, iv_spa)
+        a["@spdef"]        = calc(spd_b, iv_spd)
+        a["@speed"]        = calc(spe_b, iv_spe)
+        a["@exp"]          = exp
+        a["@item"]         = 0
+        a["@happiness"]    = 70
+        a["@status"]       = 0
+        a["@statusCount"]  = 0
+        a["@ballused"]     = 4
+        a["@obtainLevel"]  = level
+        a["@obtainMode"]   = 0
+        a["@obtainMap"]    = 0
+        a["@obtainText"]   = None
+        a["@timeReceived"] = int(time.time())
+        a["@iv"]           = [iv_hp, iv_atk, iv_def, iv_spa, iv_spd, iv_spe]
+        a["@ev"]           = [0, 0, 0, 0, 0, 0]
+        a["@form"]         = 0
+        a["@abilityflag"]  = 0
+        a["@trainerID"]    = combined_id
+        a["@ot"]           = ot_name
+        a["@otgender"]     = 0
+        a["@eggsteps"]     = 0
+        a["@markings"]     = 0
+        a["@fused"]        = None
+        a["@mail"]         = None
+        a["@hatchedMap"]   = 0
+        a["@language"]     = 3
+        return pkmn
+
+    def _add_to_party_slot(self, slot: int):
+        if not self.trainer:
+            messagebox.showerror("No save loaded", "Load a save file first."); return
+        def on_pick(sid):
+            party = self.trainer.attributes.setdefault("@party", [])
+            while len(party) <= slot:
+                party.append(None)
+            party[slot] = self._create_pokemon_obj(sid)
+            self._fill_party()
+            name = PKMN_DATA.get(sid, {}).get("name", f"#{sid}")
+            self.status.config(
+                text=f"Added {name} to party slot {slot+1}. Click Save to write.",
+                foreground="blue")
+        self._open_pokemon_picker(on_pick)
+
+    def _add_to_box_slot(self, box_idx: int, slot_idx: int, box: RubyObject):
+        if not self.trainer:
+            messagebox.showerror("No save loaded", "Load a save file first."); return
+        def on_pick(sid):
+            pokemon_list = box.attributes.get("@pokemon", [])
+            while len(pokemon_list) <= slot_idx:
+                pokemon_list.append(None)
+            pokemon_list[slot_idx] = self._create_pokemon_obj(sid)
+            box.attributes["@pokemon"] = pokemon_list
+            # Point the PC to this box so it opens here directly, avoiding
+            # pbSwitchBoxToRight which can crash on nil slots in previously-empty boxes.
+            if isinstance(self.storage, RubyObject):
+                self.storage.attributes["@currentBox"] = box_idx
+            self._populate_boxes()
+            self.boxes_nb.select(box_idx)
+            name = PKMN_DATA.get(sid, {}).get("name", f"#{sid}")
+            self.status.config(
+                text=f"Added {name} to box {box_idx+1}. PC will open at this box. Click Save to write.",
+                foreground="blue")
+        self._open_pokemon_picker(on_pick)
+
+>>>>>>> Stashed changes
     # ── load ─────────────────────────────────────────────────────────────────
 
     def _ask_load(self):
@@ -1048,8 +1397,15 @@ class Editor(tk.Tk):
                 for key, val in v.items():
                     if isinstance(val, (tk.StringVar, tk.BooleanVar)):
                         val.set("")
+<<<<<<< Updated upstream
                 for f in v["_frames"]: f.grid_forget()
                 v["add_frame"].pack(expand=True, fill="both")
+=======
+                v["add_btn"].grid(row=3, column=0, columnspan=3, pady=20)
+                continue
+
+            v["add_btn"].grid_remove()
+>>>>>>> Stashed changes
 
     # ── apply UI → objects ────────────────────────────────────────────────────
 
