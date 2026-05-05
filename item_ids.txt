@@ -1,0 +1,809 @@
+1. # Pokémon Insurgence Item IDs (CE Ready)
+2. # By Zode
+3. ID | Item
+4. 0003 | Repel
+5. 0005 | Super Repel
+6. 0007 | Max Repel
+7. 0009 | Black Flute
+8. 0011 | White Flute
+9. 0013 | Honey
+10. 0015 | Escape Rope
+11. 0017 | Red Shard
+12. 0019 | Yellow Shard
+13. 0021 | Blue Shard
+14. 0023 | Green Shard
+15. 0025 | Fire Stone
+16. 0027 | Thunderstone
+17. 0029 | Water Stone
+18. 0031 | Leaf Stone
+19. 0033 | Moon Stone
+20. 0035 | Sun Stone
+21. 0037 | Dusk Stone
+22. 0039 | Dawn Stone
+23. 0041 | Shiny Stone
+24. 0043 | Red Apricorn
+25. 0045 | Ylw Apricorn
+26. 0047 | Blu Apricorn
+27. 0049 | Grn Apricorn
+28. 0051 | Pnk Apricorn
+29. 0053 | Wht Apricorn
+30. 0055 | Blk Apricorn
+31. 0057 | Helix Fossil
+32. 0059 | Dome Fossil
+33. 0061 | Old Amber
+34. 0063 | Root Fossil
+35. 0065 | Claw Fossil
+36. 0067 | Skull Fossil
+37. 0069 | Armor Fossil
+38. 0071 | Cover Fossil
+39. 0073 | Plume Fossil
+40. 0075 | Pretty Wing
+41. 0077 | TinyMushroom
+42. 0079 | Big Mushroom
+43. 0081 | BalmMushroom
+44. 0083 | Pearl
+45. 0085 | Big Pearl
+46. 0087 | Pearl String
+47. 0089 | Stardust
+48. 0091 | Star Piece
+49. 0093 | Comet Shard
+50. 0095 | Nugget
+51. 0097 | Big Nugget
+52. 0099 | Heart Scale
+53. 0101 | Slowpoketail
+54. 0103 | Rare Bone
+55. 0105 | Relic Copper
+56. 0107 | Relic Silver
+57. 0109 | Relic Gold
+58. 0111 | Relic Vase
+59. 0113 | Relic Band
+60. 0115 | Relic Statue
+61. 0117 | Relic Crown
+62. 0119 | Growth Mulch
+63. 0121 | Damp Mulch
+64. 0123 | Stable Mulch
+65. 0125 | Gooey Mulch
+66. 0127 | Shoal Salt
+67. 0129 | Shoal Shell
+68. 0131 | Odd Keystone
+69. 0133 | Air Balloon
+70. 0135 | BrightPowder
+71. 0137 | Eviolite
+72. 0139 | Float Stone
+73. 0141 | Destiny Knot
+74. 0143 | Rocky Helmet
+75. 0145 | Eject Button
+76. 0147 | Red Card
+77. 0149 | Shed Shell
+78. 0151 | Smoke Ball
+79. 0153 | Lucky Egg
+80. 0155 | Exp. Share
+81. 0157 | Amulet Coin
+82. 0159 | Soothe Bell
+83. 0161 | Cleanse Tag
+84. 0163 | Choice Band
+85. 0165 | Choice Specs
+86. 0167 | Choice Scarf
+87. 0169 | Heat Rock
+88. 0171 | Damp Rock
+89. 0173 | Smooth Rock
+90. 0175 | Icy Rock
+91. 0177 | Light Clay
+92. 0179 | Grip Claw
+93. 0181 | Binding Band
+94. 0183 | Big Root
+95. 0185 | Black Sludge
+96. 0187 | Leftovers
+97. 0189 | Shell Bell
+98. 0191 | Mental Herb
+99. 0193 | White Herb
+100. 0195 | Power Herb
+101. 0197 | Absorb Bulb
+102. 0199 | Cell Battery
+103. 0201 | Life Orb
+104. 0203 | Expert Belt
+105. 0205 | Metronome
+106. 0207 | Muscle Band
+107. 0209 | Wise Glasses
+108. 0211 | Razor Claw
+109. 0213 | Scope Lens
+110. 0215 | Wide Lens
+111. 0217 | Zoom Lens
+112. 0219 | King's Rock
+113. 0221 | Razor Fang
+114. 0223 | Lagging Tail
+115. 0225 | Quick Claw
+116. 0227 | Focus Band
+117. 0229 | Focus Sash
+118. 0231 | Flame Orb
+119. 0233 | Toxic Orb
+120. 0235 | Sticky Barb
+121. 0237 | Iron Ball
+122. 0239 | Ring Target
+123. 0241 | Macho Brace
+124. 0243 | Power Weight
+125. 0245 | Power Bracer
+126. 0247 | Power Belt
+127. 0249 | Power Lens
+128. 0251 | Power Band
+129. 0253 | Power Anklet
+130. 0255 | Lax Incense
+131. 0257 | Full Incense
+132. 0259 | Luck Incense
+133. 0261 | Pure Incense
+134. 0263 | Sea Incense
+135. 0265 | Wave Incense
+136. 0267 | Rose Incense
+137. 0269 | Odd Incense
+138. 0271 | Rock Incense
+139. 0273 | Charcoal
+140. 0275 | Mystic Water
+141. 0277 | Magnet
+142. 0279 | Miracle Seed
+143. 0281 | NeverMeltIce
+144. 0283 | Black Belt
+145. 0285 | Poison Barb
+146. 0287 | Soft Sand
+147. 0289 | Sharp Beak
+148. 0291 | TwistedSpoon
+149. 0293 | SilverPowder
+150. 0295 | Hard Stone
+151. 0297 | Spell Tag
+152. 0299 | Dragon Fang
+153. 0301 | BlackGlasses
+154. 0303 | Metal Coat
+155. 0305 | Silk Scarf
+156. 0307 | Flame Plate
+157. 0309 | Splash Plate
+158. 0311 | Zap Plate
+159. 0313 | Meadow Plate
+160. 0315 | Icicle Plate
+161. 0317 | Fist Plate
+162. 0319 | Toxic Plate
+163. 0321 | Earth Plate
+164. 0323 | Sky Plate
+165. 0325 | Mind Plate
+166. 0327 | Insect Plate
+167. 0329 | Stone Plate
+168. 0331 | Spooky Plate
+169. 0333 | Draco Plate
+170. 0335 | Dread Plate
+171. 0337 | Iron Plate
+172. 0339 | Fire Gem
+173. 0341 | Water Gem
+174. 0343 | Electric Gem
+175. 0345 | Grass Gem
+176. 0347 | Ice Gem
+177. 0349 | Fighting Gem
+178. 0351 | Poison Gem
+179. 0353 | Ground Gem
+180. 0355 | Flying Gem
+181. 0357 | Psychic Gem
+182. 0359 | Bug Gem
+183. 0361 | Rock Gem
+184. 0363 | Ghost Gem
+185. 0365 | Dragon Gem
+186. 0367 | Dark Gem
+187. 0369 | Steel Gem
+188. 0371 | Normal Gem
+189. 0373 | Light Ball
+190. 0375 | Lucky Punch
+191. 0377 | Metal Powder
+192. 0379 | Quick Powder
+193. 0381 | Thick Club
+194. 0383 | Stick
+195. 0385 | Soul Dew
+196. 0387 | DeepSeaTooth
+197. 0389 | DeepSeaScale
+198. 0391 | Adamant Orb
+199. 0393 | Lustrous Orb
+200. 0395 | Griseous Orb
+201. 0397 | Douse Drive
+202. 0399 | Shock Drive
+203. 0401 | Burn Drive
+204. 0403 | Chill Drive
+205. 0405 | Everstone
+206. 0407 | Dragon Scale
+207. 0409 | Up-Grade
+208. 0411 | Dubious Disc
+209. 0413 | Protector
+210. 0415 | Electirizer
+211. 0417 | Magmarizer
+212. 0419 | Reaper Cloth
+213. 0421 | Prism Scale
+214. 0423 | Oval Stone
+215. 0425 | Red Scarf
+216. 0427 | Blue Scarf
+217. 0429 | Pink Scarf
+218. 0431 | Green Scarf
+219. 0433 | Yellow Scarf
+220. 0435 | Potion
+221. 0437 | Super Potion
+222. 0439 | Hyper Potion
+223. 0441 | Max Potion
+224. 0443 | Full Restore
+225. 0445 | Sacred Ash
+226. 0447 | Awakening
+227. 0449 | Antidote
+228. 0451 | Burn Heal
+229. 0453 | Parlyz Heal
+230. 0455 | Ice Heal
+231. 0457 | Full Heal
+232. 0459 | Lava Cookie
+233. 0461 | Old Gateau
+234. 0463 | Casteliacone
+235. 0465 | Revive
+236. 0467 | Max Revive
+237. 0469 | Berry Juice
+238. 0471 | RageCandyBar
+239. 0473 | Sweet Heart
+240. 0475 | Fresh Water
+241. 0477 | Soda Pop
+242. 0479 | Lemonade
+243. 0481 | Moomoo Milk
+244. 0483 | EnergyPowder
+245. 0485 | Energy Root
+246. 0487 | Heal Powder
+247. 0489 | Revival Herb
+248. 0491 | Ether
+249. 0493 | Max Ether
+250. 0495 | Elixir
+251. 0497 | Max Elixir
+252. 0499 | PP Up
+253. 0501 | PP Max
+254. 0503 | HP Up
+255. 0505 | Protein
+256. 0507 | Iron
+257. 0509 | Calcium
+258. 0511 | Zinc
+259. 0513 | Carbos
+260. 0515 | Health Wing
+261. 0517 | Muscle Wing
+262. 0519 | Resist Wing
+263. 0521 | Genius Wing
+264. 0523 | Clever Wing
+265. 0525 | Swift Wing
+266. 0527 | Rare Candy
+267. 0529 | Master Ball
+268. 0531 | Ultra Ball
+269. 0533 | Great Ball
+270. 0535 | Poké Ball
+271. 0537 | Safari Ball
+272. 0539 | Sport Ball
+273. 0541 | Net Ball
+274. 0543 | Dive Ball
+275. 0545 | Nest Ball
+276. 0547 | Repeat Ball
+277. 0549 | Timer Ball
+278. 0551 | Luxury Ball
+279. 0553 | Premier Ball
+280. 0555 | Dusk Ball
+281. 0557 | Heal Ball
+282. 0559 | Quick Ball
+283. 0561 | Cherish Ball
+284. 0563 | Fast Ball
+285. 0565 | Level Ball
+286. 0567 | Lure Ball
+287. 0569 | Heavy Ball
+288. 0571 | Love Ball
+289. 0573 | Friend Ball
+290. 0575 | Moon Ball
+291. 0577 | TM01 Hone Claws
+292. 0579 | TM02 Dragon Claw
+293. 0581 | TM03 Bulldoze
+294. 0583 | TM04 Calm Mind
+295. 0585 | TM05 Roar
+296. 0587 | TM06 Toxic
+297. 0589 | TM07 Hail
+298. 0591 | TM08 Bulk Up
+299. 0593 | TM09 Dragon Pulse
+300. 0595 | TM10 Hidden Power
+301. 0597 | TM11 Sunny Day
+302. 0599 | TM12 Taunt
+303. 0601 | TM13 Ice Beam
+304. 0603 | TM14 Blizzard
+305. 0605 | TM15 Hyper Beam
+306. 0607 | TM16 Light Screen
+307. 0609 | TM17 Protect
+308. 0611 | TM18 Rain Dance
+309. 0613 | TM19 Snatch
+310. 0615 | TM20 Safeguard
+311. 0617 | TM21 Frustration
+312. 0619 | TM22 Solar Beam
+313. 0621 | TM23 Iron Tail
+314. 0623 | TM24 Thunderbolt
+315. 0625 | TM25 Thunder
+316. 0627 | TM26 Earthquake
+317. 0629 | TM27 Return
+318. 0631 | TM28 Dig
+319. 0633 | TM29 Psychic
+320. 0635 | TM30 Shadow Ball
+321. 0637 | TM31 Brick Break
+322. 0639 | TM32 Double Team
+323. 0641 | TM33 Reflect
+324. 0643 | TM34 Sludge Wave
+325. 0645 | TM35 Flamethrower
+326. 0647 | TM36 Sludge Bomb
+327. 0649 | TM37 Sandstorm
+328. 0651 | TM38 Fire Blast
+329. 0653 | TM39 Rock Tomb
+330. 0655 | TM40 Aerial Ace
+331. 0657 | TM41 Torment
+332. 0659 | TM42 Facade
+333. 0661 | TM43 Flame Charge
+334. 0663 | TM44 Rest
+335. 0665 | TM45 Attract
+336. 0667 | TM46 Thief
+337. 0669 | TM47 Low Sweep
+338. 0671 | TM48 Scald
+339. 0673 | TM49 Recycle
+340. 0675 | TM50 Overheat
+341. 0677 | TM51 Roost
+342. 0679 | TM52 Focus Blast
+343. 0681 | TM53 Energy Ball
+344. 0683 | TM54 False Swipe
+345. 0685 | TM55 Brine
+346. 0687 | TM56 Fling
+347. 0689 | TM57 Charge Beam
+348. 0691 | TM58 Psyshock
+349. 0693 | TM59 Skill Swap
+350. 0695 | TM60 Dragon Tail
+351. 0697 | TM61 Will-O-Wisp
+352. 0699 | TM62 New Moon
+353. 0701 | TM63 Embargo
+354. 0703 | TM64 Explosion
+355. 0705 | TM65 Shadow Claw
+356. 0707 | TM66 Payback
+357. 0709 | TM67 Retaliate
+358. 0711 | TM68 Giga Impact
+359. 0713 | TM69 Rock Polish
+360. 0715 | TM70 Jet Stream
+361. 0717 | TM71 Stone Edge
+362. 0719 | TM72 Psych Up
+363. 0721 | TM73 Thunder Wave
+364. 0723 | TM74 Gyro Ball
+365. 0725 | TM75 Swords Dance
+366. 0727 | TM76 Venoshock
+367. 0729 | TM77 Wild Charge
+368. 0731 | TM78 Drain Punch
+369. 0733 | TM79 Volt Switch
+370. 0735 | TM80 Rock Slide
+371. 0737 | TM81 X-Scissor
+372. 0739 | TM82 Livewire
+373. 0741 | TM83 Shock Wave
+374. 0743 | TM84 Poison Jab
+375. 0745 | TM85 Dream Eater
+376. 0747 | TM86 Grass Knot
+377. 0749 | TM87 Swagger
+378. 0751 | TM88 Power-Up Punch
+379. 0753 | TM89 U-turn
+380. 0755 | TM90 Substitute
+381. 0757 | TM91 Flash Cannon
+382. 0759 | TM92 Trick Room
+383. 0761 | TM93 Draco Jet
+384. 0763 | TM94 Smack Down
+385. 0765 | TM95 Sleep Talk
+386. 0767 | HM01 Cut
+387. 0769 | HM02 Fly
+388. 0771 | HM03 Surf
+389. 0773 | HM04 Strength
+390. 0775 | HM05 Waterfall
+391. 0777 | HM06 Dive
+392. 0779 | Cheri Berry
+393. 0781 | Chesto Berry
+394. 0783 | Pecha Berry
+395. 0785 | Rawst Berry
+396. 0787 | Aspear Berry
+397. 0789 | Leppa Berry
+398. 0791 | Oran Berry
+399. 0793 | Persim Berry
+400. 0795 | Lum Berry
+401. 0797 | Sitrus Berry
+402. 0799 | Figy Berry
+403. 0801 | Wiki Berry
+404. 0803 | Mago Berry
+405. 0805 | Aguav Berry
+406. 0807 | Iapapa Berry
+407. 0809 | Razz Berry
+408. 0811 | Bluk Berry
+409. 0813 | Nanab Berry
+410. 0815 | Wepear Berry
+411. 0817 | Pinap Berry
+412. 0819 | Pomeg Berry
+413. 0821 | Kelpsy Berry
+414. 0823 | Qualot Berry
+415. 0825 | Hondew Berry
+416. 0827 | Grepa Berry
+417. 0829 | Tamato Berry
+418. 0831 | Cornn Berry
+419. 0833 | Magost Berry
+420. 0835 | Rabuta Berry
+421. 0837 | Nomel Berry
+422. 0839 | Spelon Berry
+423. 0841 | Pamtre Berry
+424. 0843 | Watmel Berry
+425. 0845 | Durin Berry
+426. 0847 | Belue Berry
+427. 0849 | Occa Berry
+428. 0851 | Passho Berry
+429. 0853 | Wacan Berry
+430. 0855 | Rindo Berry
+431. 0857 | Yache Berry
+432. 0859 | Chople Berry
+433. 0861 | Kebia Berry
+434. 0863 | Shuca Berry
+435. 0865 | Coba Berry
+436. 0867 | Payapa Berry
+437. 0869 | Tanga Berry
+438. 0871 | Charti Berry
+439. 0873 | Kasib Berry
+440. 0875 | Haban Berry
+441. 0877 | Colbur Berry
+442. 0879 | Babiri Berry
+443. 0881 | Chilan Berry
+444. 0883 | Liechi Berry
+445. 0885 | Ganlon Berry
+446. 0887 | Salac Berry
+447. 0889 | Petaya Berry
+448. 0891 | Apicot Berry
+449. 0893 | Lansat Berry
+450. 0895 | Starf Berry
+451. 0897 | Enigma Berry
+452. 0899 | Micle Berry
+453. 0901 | Custap Berry
+454. 0903 | Jaboca Berry
+455. 0905 | Rowap Berry
+456. 0907 | Grass Mail
+457. 0909 | Flame Mail
+458. 0911 | Bubble Mail
+459. 0913 | Bloom Mail
+460. 0915 | Tunnel Mail
+461. 0917 | Steel Mail
+462. 0919 | Heart Mail
+463. 0921 | Snow Mail
+464. 0923 | Space Mail
+465. 0925 | Air Mail
+466. 0927 | Mosaic Mail
+467. 0929 | Brick Mail
+468. 0931 | X Attack
+469. 0933 | X Attack 2
+470. 0935 | X Attack 3
+471. 0937 | X Attack 6
+472. 0939 | X Defend
+473. 0941 | X Defend 2
+474. 0943 | X Defend 3
+475. 0945 | X Defend 6
+476. 0947 | X Special
+477. 0949 | X Special 2
+478. 0951 | X Special 3
+479. 0953 | X Special 6
+480. 0955 | X Sp. Def
+481. 0957 | X Sp. Def 2
+482. 0959 | X Sp. Def 3
+483. 0961 | X Sp. Def 6
+484. 0963 | X Speed
+485. 0965 | X Speed 2
+486. 0967 | X Speed 3
+487. 0969 | X Speed 6
+488. 0971 | X Accuracy
+489. 0973 | X Accuracy 2
+490. 0975 | X Accuracy 3
+491. 0977 | X Accuracy 6
+492. 0979 | Dire Hit
+493. 0981 | Dire Hit 2
+494. 0983 | Dire Hit 3
+495. 0985 | Guard Spec.
+496. 0987 | Reset Urge
+497. 0989 | Ability Urge
+498. 0991 | Item Urge
+499. 0993 | Item Drop
+500. 0995 | Blue Flute
+501. 0997 | Yellow Flute
+502. 0999 | Red Flute
+503. 1001 | Poké Doll
+504. 1003 | Fluffy Tail
+505. 1005 | Poké Toy
+506. 1007 | Bicycle
+507. 1009 | Old Rod
+508. 1011 | Good Rod
+509. 1013 | Super Rod
+510. 1015 | Itemfinder
+511. 1017 | Dowsing MCHN
+512. 1019 | Poké Radar
+513. 1021 | Town Map
+514. 1023 | Poké Flute
+515. 1025 | Coin Case
+516. 1027 | Soot Sack
+517. 1029 | Silph Scope
+518. 1031 | Devon Scope
+519. 1033 | Squirtbottle
+520. 1035 | Sprayduck
+521. 1037 | Wailmer Pail
+522. 1039 | Gracidea
+523. 1041 | Aurora Ticket
+524. 1043 | Old Sea Map
+525. 1045 | DNA Splicers
+526. 1047 | Reveal Glass
+527. 1049 | Oval Charm
+528. 1051 | Shiny Charm
+529. 1053 | Omega Photograph
+530. 1055 | Continent Rope
+531. 1057 | Ocean Quay
+532. 1059 | Wilson's Autograph
+533. 1061 | Hacker Photograph
+534. 1063 | Burnt Photograph
+535. 1065 | VIP License
+536. 1067 | Basement Key
+537. 1069 | Neurometer
+538. 1071 | Hacker Ticket
+539. 1073 | Hacker Ticket
+540. 1075 | Hacker Ticket 2
+541. 1077 | Hacker Engine
+542. 1079 | IV Stone
+543. 1083 | TM?? Dark Epitaph
+544. 1085 | TM97 Frost Breath
+545. 1087 | TM98 Acrobatics
+546. 1089 | TM99 Dark Pulse
+547. 1091 | TM100 Dazzling Gleam
+548. 1093 | TM102 Achilles Heel
+549. 1095 | TM103 Avalanche
+550. 1097 | TM104 Silver Wind
+551. 1099 | TM105 Lunar Cannon
+552. 1101 | TM106 Incinerate
+553. 1103 | TM?? Razor Storm
+554. 1105 | Nuzlocke Ball
+555. 1107 | Hacker Template
+556. 1109 | Mewtwo Armor
+557. 1111 | Joy Scent
+558. 1113 | Excite Scent
+559. 1115 | Vivid Scent
+560. 1117 | Time Flute
+561. 1119 | Saddle
+562. 1121 | TM96 Steel Wing
+563. 1123 | Fire Seal
+564. 1125 | Heart Seal
+565. 1127 | Ele-Seal
+566. 1129 | Question Seal
+567. 1131 | Star Seal
+568. 1133 | Ancient Tome
+569. 1135 | Dolly
+570. 1137 | Machete
+571. 1139 | Instant Lapras
+572. 1141 | Jetpack
+573. 1143 | Pickaxe
+574. 1145 | Scuba Gear
+575. 1147 | Hiking Boots
+576. 1149 | Medical License
+577. 1151 | Piece of Paper
+578. 1153 | Cinnabar Ticket
+579. 1155 | Rocket Boots
+580. 1157 | Flashlight
+581. 1159 | TM107 Sky Drop
+582. 1161 | TM108 Ally Switch
+583. 1163 | TM109 Echoed Voice
+584. 1165 | TM110 Round
+585. 1167 | TM111 Captivate
+586. 1169 | TM112 Permafrost
+587. 1171 | TM113 Snarl
+588. 1173 | TM114 Corrode
+589. 1175 | TM115 Confide
+590. 1177 | TM116 Pluck
+591. 1179 | TM117 Dragonify
+592. 1181 | TM118 Quash
+593. 1183 | TM119 Wildfire
+594. 1185 | TM120 Dark Matter
+595. 1187 | TM121 Cloudforce
+596. 1189 | TM122 Plutoforce
+597. 1191 | TM123 Lunaforce
+598. 1193 | TM124 Graviforce
+599. 1195 | Blackticket
+600. 1197 | Millenium Engine
+601. 1199 | Piece of Paper
+602. 1201 | Dinoticket
+603. 1203 | Music Ticket
+604. 1205 | License Template
+605. 1207 | Dream Stone
+606. 1209 | YOU HACKED!
+607. 1211 | Go-Goggles
+608. 1213 | HMXX Tesseract
+609. 1215 | TM125 Rock Climb
+610. 1217 | Weatherstone
+611. 1219 | AB: Protect
+612. 1221 | AB: Sleep Powder
+613. 1223 | AB: Thunder Wave
+614. 1225 | AB: Toxic
+615. 1227 | AB: Confuse Ray
+616. 1229 | AB: Medusa Ray
+617. 1231 | AB: False Swipe
+618. 1233 | RB: V-Create
+619. 1235 | RB: Doom Desire
+620. 1237 | RB: Seed Flare
+621. 1239 | RB: Mist Ball
+622. 1241 | RB: Luster Purge
+623. 1243 | RB: Roar of Time
+624. 1245 | RB: Spacial Rend
+625. 1247 | RB: Sacred Sword
+626. 1249 | RB: Dark Void
+627. 1251 | Scizorite
+628. 1253 | Garchompite
+629. 1255 | Mawilite
+630. 1257 | Aerodactylite
+631. 1259 | Lucarionite
+632. 1261 | Absolite
+633. 1263 | Blastoisinite
+634. 1265 | Charizardite X
+635. 1267 | Venusaurite
+636. 1269 | Blazikenite
+637. 1271 | Mewtwonite Y
+638. 1273 | Charizardite Y
+639. 1275 | Mewtwonite X
+640. 1277 | Gengarite
+641. 1279 | Gardevoirite
+642. 1281 | Pinsirite
+643. 1283 | Heracrossite
+644. 1285 | Alakazite
+645. 1287 | Banettite
+646. 1289 | Ampharosite
+647. 1291 | Tyranitarite
+648. 1293 | Steelixite Z
+649. 1295 | Cacturnite
+650. 1297 | Dugtrinite
+651. 1299 | Reuniclite
+652. 1301 | Sceptite
+653. 1303 | Swampertite
+654. 1305 | Bisharpite
+655. 1307 | Old Golurkite
+656. 1309 | Aggronite
+657. 1311 | TM126 Spikes
+658. 1313 | Time Caller
+659. 1315 | TM127 Toxic
+660. 1317 | Golurkite
+661. 1319 | TM128 Wormhole
+662. 1321 | Abomasite
+663. 1323 | Azure Flute
+664. 1325 | Tower Photograph
+665. 1327 | Ability Capsule
+666. 1329 | Typhlosionite
+667. 1331 | Feraligatite
+668. 1333 | Meganiumite
+669. 1335 | Gyaradosite
+670. 1337 | Houndoomite
+671. 1339 | Manectrite
+672. 1341 | Medichamite
+673. 1343 | Kangaskhanite
+674. 1345 | Crest of Aroma
+675. 1347 | Stargate
+676. 1349 | Helixite
+677. 1351 | Crawdite
+678. 1353 | EXP Share 2
+679. 1355 | Weakness Policy
+680. 1357 | Skeleton Key
+681. 1359 | Tower Photograph
+682. 1361 | Latiosite
+683. 1363 | Latiasite
+684. 1365 | Rainbow Wing
+685. 1367 | Silver Wing
+686. 1369 | Milotite
+687. 1371 | POLITOEDITE
+688. 1373 | Nuzlocke Badge
+689. 1375 | Assault Vest
+690. 1377 | Sachet
+691. 1379 | Whipped Dream
+692. 1381 | Kanto Cap
+693. 1383 | Kanto Coat
+694. 1385 | Kanto Shirt
+695. 1387 | Kanto Pack
+696. 1389 | Kanto Pants
+697. 1391 | Kanto Shoes
+698. 1393 | Headband
+699. 1395 | Miner's Helmet
+700. 1397 | Police Hat
+701. 1399 | Fedora
+702. 1401 | Poop Hat
+703. 1403 | Clown Hat
+704. 1405 | The Cat's Hat
+705. 1407 | Straw Hat
+706. 1409 | Beret
+707. 1411 | Beanie
+708. 1413 | Youngster Cap
+709. 1415 | Quartz Flute
+710. 1417 | Eevite
+711. 1419 | Marowite
+712. 1421 | Flygonite
+713. 1423 | Shiftrite
+714. 1425 | Donphanite
+715. 1427 | Sablenite
+716. 1429 | Altarianite
+717. 1431 | Salamancite
+718. 1433 | Metagrossite
+719. 1435 | Lopunnite
+720. 1437 | Audinite
+721. 1439 | Delta Charizardite
+722. 1441 | Delta Venusaurite
+723. 1443 | Delta Blastoisinite
+724. 1445 | Slowbronite
+725. 1447 | Pixie Plate
+726. 1449 | Jumpsuit
+727. 1451 | Purple Pack
+728. 1453 | Jumppants
+729. 1455 | Jumpshoes
+730. 1457 | Girafarigite
+731. 1459 | Sunflorite Z
+732. 1461 | Sunflorite O
+733. 1463 | Red Shirt
+734. 1465 | Blue Shirt
+735. 1467 | Green Shirt
+736. 1469 | Purple Shirt
+737. 1471 | Black Shirt
+738. 1473 | Orange Shirt
+739. 1475 | Pink Shirt
+740. 1477 | Yellow Shirt
+741. 1479 | Diancite
+742. 1481 | Crobatite
+743. 1483 | Groudonite
+744. 1485 | Kyogrite O
+745. 1487 | Zoronite
+746. 1489 | Delta Bisharpite
+747. 1491 | Stunfiskite
+748. 1493 | Florgite
+749. 1495 | Zebstrikite
+750. 1497 | Delta Gardevoirite
+751. 1499 | Kingdrite
+752. 1501 | Victreebite
+753. 1503 | Magmortite
+754. 1505 | Zekrom Armor
+755. 1507 | Tyranitar Armor
+756. 1509 | Leavanny Armor
+757. 1511 | Flygon Armor
+758. 1513 | Cameruptite
+759. 1515 | Sharpedonite
+760. 1517 | Pidgeotite
+761. 1519 | Beedrite
+762. 1521 | Glalitite
+763. 1523 | Steelixite O
+764. 1525 | Galladite
+765. 1527 | Rayquazite
+766. 1529 | Green Pack
+767. 1531 | Safety Goggles
+768. 1533 | Jirachite
+769. 1535 | Victinite
+770. 1539 | East's Will
+771. 1541 | No Hat
+772. 1543 | Trick Rock
+773. 1545 | Dark Rock
+774. 1547 | Jaw Fossil
+775. 1549 | Sail Fossil
+776. 1551 | Tablet
+777. 1553 | Blue Orb
+778. 1555 | Red Orb
+779. 1557 | Purple Hair Dye
+780. 1559 | Blue Hair Dye
+781. 1561 | Brown Hair Dye
+782. 1563 | Black Hair Dye
+783. 1565 | Red Hair Dye
+784. 1567 | Blond Hair Dye
+785. 1569 | Mega Ring
+786. 1571 | Mysterious Scroll
+787. 1573 | Blue Pants
+788. 1575 | Red Pants
+789. 1577 | Green Pants
+790. 1579 | Gray Pants
+791. 1581 | Delta Scizorite
+792. 1583 | Magcargonite
+793. 1585 | Gothitite
+794. 1587 | Spiritombite
+795. 1589 | Old Photo
+796. 1591 | Magic Cookie
+797. 1593 | Spicy Curry
+798. 1595 | HP Pill
+799. 1597 | Attack Pill
+800. 1599 | Defense Pill
+801. 1601 | Sp. Attack Pill
+802. 1603 | Sp. Defense Pill
+803. 1605 | Speed Pill
+804. 1607 | Miltankite
+805. 1609 | VIP Pass
+806. 1611 | Delta Galladite
+807. 1613 | Cat Ears
+808. 1615 | Devil Horns
+809. 1617 | Silver Crown
