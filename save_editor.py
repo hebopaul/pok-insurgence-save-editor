@@ -1,3 +1,4 @@
+from pokemon_data import POKEMON_DATA
 #!/usr/bin/env python3
 """
 Pokemon Insurgence Save Editor
@@ -316,12 +317,18 @@ class Editor(tk.Tk):
         for slot in range(6):
             frame = ttk.Frame(self.party_nb, padding=8)
             self.party_nb.add(frame, text=f" Slot {slot+1} ")
-            self.pkmn_vars.append(self._build_pkmn_slot(frame))
+            self.pkmn_vars.append(self._build_pkmn_slot(frame, is_party=True, slot_idx=slot))
 
-    def _build_pkmn_slot(self, parent):
+    def _build_pkmn_slot(self, parent, is_party=False, slot_idx=0, box_idx=None):
         v = {}
+        v["add_frame"] = ttk.Frame(parent)
+        ttk.Button(v["add_frame"], text=" + Add New Pokémon ", 
+                   command=lambda: self._add_new_pkmn(slot_idx, box_idx)).pack(expand=True, pady=40 if box_idx is not None else 100)
 
-        lf = ttk.LabelFrame(parent, text="Core Stats", padding=6)
+        v["editor_frame"] = ttk.Frame(parent)
+        e = v["editor_frame"]
+
+        lf = ttk.LabelFrame(e, text="Core Stats", padding=6)
         lf.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
         for i, (key, lbl) in enumerate([
             ("species_id","Species ID"),("form","Form ID"),("nickname","Nickname"),
@@ -333,7 +340,7 @@ class Editor(tk.Tk):
             ttk.Label(lf, text=lbl+":", width=14, anchor="e").grid(row=i, column=0, sticky="e", pady=2)
             ttk.Entry(lf, textvariable=v[key], width=10).grid(row=i, column=1, sticky="w", pady=2, padx=3)
 
-        rf = ttk.LabelFrame(parent, text="Extra", padding=6)
+        rf = ttk.LabelFrame(e, text="Extra", padding=6)
         rf.grid(row=0, column=1, sticky="nsew", padx=4, pady=4)
         for i, (key, lbl) in enumerate([
             ("item","Held Item ID"),("happiness","Happiness"),
@@ -358,28 +365,28 @@ class Editor(tk.Tk):
         ttk.Label(rf, text="Shiny:", width=14, anchor="e").grid(row=r, column=0, sticky="e", pady=2)
         ttk.Checkbutton(rf, variable=v["shiny"]).grid(row=r, column=1, sticky="w", padx=3)
 
-        bf = ttk.LabelFrame(parent, text="Quick Actions", padding=6)
+        bf = ttk.LabelFrame(e, text="Quick Actions", padding=6)
         bf.grid(row=0, column=2, sticky="n", padx=4, pady=4)
         ttk.Button(bf, text="Heal",       width=12, command=lambda vv=v: self._heal_slot(vv)).pack(pady=2)
         ttk.Button(bf, text="Max IVs",    width=12, command=lambda vv=v: self._max_ivs(vv)).pack(pady=2)
         ttk.Button(bf, text="Zero EVs",   width=12, command=lambda vv=v: self._zero_evs(vv)).pack(pady=2)
         ttk.Button(bf, text="Restore PP", width=12, command=lambda vv=v: self._restore_pp(vv)).pack(pady=2)
 
-        ivf = ttk.LabelFrame(parent, text="IVs  (0–31)", padding=6)
+        ivf = ttk.LabelFrame(e, text="IVs  (0–31)", padding=6)
         ivf.grid(row=1, column=0, sticky="ew", padx=4, pady=4)
         for i, stat in enumerate(STATS):
             v["iv_"+stat.lower()] = tk.StringVar()
             ttk.Label(ivf, text=stat, width=5).grid(row=0, column=i)
             ttk.Entry(ivf, textvariable=v["iv_"+stat.lower()], width=4).grid(row=1, column=i)
 
-        evf = ttk.LabelFrame(parent, text="EVs  (0–252, total ≤510)", padding=6)
+        evf = ttk.LabelFrame(e, text="EVs  (0–252, total ≤510)", padding=6)
         evf.grid(row=1, column=1, sticky="ew", padx=4, pady=4)
         for i, stat in enumerate(STATS):
             v["ev_"+stat.lower()] = tk.StringVar()
             ttk.Label(evf, text=stat, width=5).grid(row=0, column=i)
             ttk.Entry(evf, textvariable=v["ev_"+stat.lower()], width=4).grid(row=1, column=i)
 
-        mf = ttk.LabelFrame(parent, text="Moves", padding=6)
+        mf = ttk.LabelFrame(e, text="Moves", padding=6)
         mf.grid(row=2, column=0, columnspan=3, sticky="ew", padx=4, pady=4)
         for i in range(4):
             v[f"move{i}"]   = tk.StringVar()
@@ -389,8 +396,8 @@ class Editor(tk.Tk):
             ttk.Label(mf, text="PP:", width=4).grid(row=0, column=i*4+2)
             ttk.Entry(mf, textvariable=v[f"movepp{i}"], width=5).grid(row=0, column=i*4+3, padx=2)
 
-        parent.columnconfigure(0, weight=1)
-        parent.columnconfigure(1, weight=1)
+        e.columnconfigure(0, weight=1)
+        e.columnconfigure(1, weight=1)
         v["_pkmn_obj"] = None
         return v
 
@@ -419,6 +426,82 @@ class Editor(tk.Tk):
                 totalpp = moves[i].attributes.get("@totalpp", 0)
                 if totalpp:
                     v[f"movepp{i}"].set(str(totalpp))
+
+
+    def _open_pkmn_picker(self, callback):
+        win = tk.Toplevel(self)
+        win.title("Select Pokémon")
+        win.geometry("700x600")
+        win.transient(self); win.grab_set()
+
+        top = ttk.Frame(win, padding=10); top.pack(fill="x")
+        ttk.Label(top, text="Search:").pack(side="left")
+        search_var = tk.StringVar()
+        ent = ttk.Entry(top, textvariable=search_var)
+        ent.pack(side="left", padx=5, fill="x", expand=True)
+        ent.focus_set()
+
+        filters = ttk.Frame(win, padding=5); filters.pack(fill="x")
+        
+        ttk.Label(filters, text="Type:").pack(side="left", padx=2)
+        type_var = tk.StringVar(value="All")
+        types = ["All", "Normal", "Fire", "Water", "Grass", "Electric", "Ice", "Fighting", "Poison", "Ground", "Flying", "Psychic", "Bug", "Rock", "Ghost", "Dragon", "Steel", "Dark", "Fairy"]
+        ttk.Combobox(filters, textvariable=type_var, values=types, width=10, state="readonly").pack(side="left", padx=2)
+
+        ttk.Label(filters, text="Stage:").pack(side="left", padx=2)
+        stage_var = tk.StringVar(value="All")
+        stages = ["All", "1st Stage", "2nd Stage", "3rd Stage", "Mega"]
+        ttk.Combobox(filters, textvariable=stage_var, values=stages, width=10, state="readonly").pack(side="left", padx=2)
+
+        ttk.Label(filters, text="Rarity:").pack(side="left", padx=2)
+        rarity_var = tk.StringVar(value="All")
+        rarities = ["All", "Standard", "Legendary", "Mythical"]
+        ttk.Combobox(filters, textvariable=rarity_var, values=rarities, width=10, state="readonly").pack(side="left", padx=2)
+
+        frame = ttk.Frame(win, padding=10); frame.pack(fill="both", expand=True)
+        tree = ttk.Treeview(frame, columns=("id", "name", "types", "stage", "rarity"), show="headings", selectmode="browse")
+        tree.heading("id", text="ID"); tree.column("id", width=50)
+        tree.heading("name", text="Name"); tree.column("name", width=150)
+        tree.heading("types", text="Types"); tree.column("types", width=120)
+        tree.heading("stage", text="Stage"); tree.column("stage", width=80)
+        tree.heading("rarity", text="Rarity"); tree.column("rarity", width=80)
+        
+        vsb = ttk.Scrollbar(frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=vsb.set)
+        tree.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="right", fill="y")
+
+        def refresh(*_):
+            tree.delete(*tree.get_children())
+            search = search_var.get().lower()
+            t_filter = type_var.get()
+            s_filter = stage_var.get()
+            r_filter = rarity_var.get()
+
+            for pid, p in POKEMON_DATA.items():
+                if search and search not in p["name"].lower() and search not in str(pid): continue
+                if t_filter != "All" and t_filter not in [p["t1"], p["t2"]]: continue
+                if s_filter != "All" and s_filter != p.get("stage", "Unknown"): continue
+                if r_filter != "All" and r_filter != p.get("rarity", "Standard"): continue
+                
+                t_str = p["t1"] + (f"/{p['t2']}" if p["t2"] else "")
+                tree.insert("", "end", values=(pid, p["name"], t_str, p.get("stage", "Unknown"), p.get("rarity", "Standard")))
+
+        search_var.trace_add("write", refresh)
+        type_var.trace_add("write", refresh)
+        stage_var.trace_add("write", refresh)
+        rarity_var.trace_add("write", refresh)
+        refresh()
+
+        def on_select(*_):
+            sel = tree.selection()
+            if not sel: return
+            vals = tree.item(sel[0], "values")
+            win.destroy()
+            callback(int(vals[0]))
+
+        tree.bind("<Double-1>", on_select)
+        ttk.Button(win, text="Select", command=on_select).pack(pady=5)
 
     # ── Bag tab ──────────────────────────────────────────────────────────────
 
@@ -740,6 +823,61 @@ class Editor(tk.Tk):
 
             self.box_vars.append((bi, box, slot_vars))
 
+
+    def _add_new_pkmn(self, slot_idx, box_idx=None):
+        def on_select(species_id):
+            template = self._get_template_pkmn()
+            if not template:
+                messagebox.showerror("Error", "Could not find a Pokémon template in this save file.")
+                return
+            
+            # Deep clone template
+            from rubymarshal.writer import writes
+            from rubymarshal.reader import loads
+            new_pkmn = loads(writes(template, cls=Ruby18Writer))
+            
+            # Reset basics
+            p = POKEMON_DATA.get(species_id, {})
+            new_pkmn.attributes["@species"] = species_id
+            new_pkmn.attributes["@name"] = p.get("name", "Unknown").encode("utf-8")
+            new_pkmn.attributes["@exp"] = 0
+            new_pkmn.attributes["@hp"] = 10
+            new_pkmn.attributes["@totalhp"] = 10
+            new_pkmn.attributes["@item"] = 0
+            new_pkmn.attributes["@status"] = 0
+            new_pkmn.attributes["@statusCount"] = 0
+            new_pkmn.attributes["@moves"] = [] # Game will usually fix this on load
+            
+            if box_idx is not None:
+                boxes = self.storage.attributes.get("@boxes", [])
+                box = boxes[box_idx]
+                pokemon_list = box.attributes.get("@pokemon", [])
+                while len(pokemon_list) <= slot_idx: pokemon_list.append(None)
+                pokemon_list[slot_idx] = new_pkmn
+                self._populate_boxes()
+                self.boxes_nb.select(box_idx)
+            else:
+                party = self.trainer.attributes.get("@party", [])
+                while len(party) <= slot_idx: party.append(None)
+                party[slot_idx] = new_pkmn
+                self._fill_party()
+                self.party_nb.select(slot_idx)
+
+        self._open_pkmn_picker(on_select)
+
+    def _get_template_pkmn(self):
+        # Look in party
+        party = self.trainer.attributes.get("@party", [])
+        for p in party:
+            if isinstance(p, RubyObject): return p
+        # Look in boxes
+        boxes = self.storage.attributes.get("@boxes", [])
+        for b in boxes:
+            if not isinstance(b, RubyObject): continue
+            for p in b.attributes.get("@pokemon", []):
+                if isinstance(p, RubyObject): return p
+        return None
+
     # ── load ─────────────────────────────────────────────────────────────────
 
     def _ask_load(self):
@@ -810,6 +948,61 @@ class Editor(tk.Tk):
         for i, bv in enumerate(self.badge_vars):
             bv.set(badges[i] if isinstance(badges, list) and i < len(badges) else False)
 
+
+    def _fill_pkmn_slot(self, v, pkmn, label_prefix="", tab_parent=None, tab_idx=None, title_frame=None):
+        if isinstance(pkmn, RubyObject):
+            a   = pkmn.attributes
+            pid = a.get("@personalID", 0) or 0
+            v["_pkmn_obj"] = pkmn
+            for key, attr in [
+                ("species_id","@species"),("form","@form"),("hp","@hp"),
+                ("totalhp","@totalhp"),("attack","@attack"),("defense","@defense"),
+                ("spatk","@spatk"),("spdef","@spdef"),("speed","@speed"),
+                ("exp","@exp"),("item","@item"),("happiness","@happiness"),
+                ("status","@status"),("ball","@ballused"),("obtain_lv","@obtainLevel"),
+            ]:
+                v[key].set(str(a.get(attr, 0)))
+            v["nickname"].set(ds(a.get("@name", b"")))
+            v["nature_idx"].set(NATURES[pid % 25])
+            v["shiny"].set(is_shiny(pid, self.trainer_id, self.secret_id))
+            ab = a.get("@abilityflag", None)
+            v["ability_slot"].set(str(ab if isinstance(ab, int) else pid & 1))
+            iv = a.get("@iv", [])
+            ev = a.get("@ev", [])
+            for j, stat in enumerate(STATS):
+                key = stat.lower()
+                v[f"iv_{key}"].set(str(iv[j] if isinstance(iv, list) and j < len(iv) else 0))
+                v[f"ev_{key}"].set(str(ev[j] if isinstance(ev, list) and j < len(ev) else 0))
+            moves = a.get("@moves", [])
+            for i in range(4):
+                if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
+                    v[f"move{i}"].set(str(moves[i].attributes.get("@id", 0)))
+                    v[f"movepp{i}"].set(str(moves[i].attributes.get("@pp", 0)))
+                else:
+                    v[f"move{i}"].set("0"); v[f"movepp{i}"].set("0")
+            
+            v["add_frame"].pack_forget()
+            v["editor_frame"].pack(fill="both", expand=True)
+            
+            sp    = a.get("@species", 0)
+            nick  = ds(a.get("@name", b""))
+            label = (nick or f"Species#{sp}") + f" [#{sp}]"
+            if tab_parent and tab_idx is not None:
+                tab_parent.tab(tab_idx, text=f" {label[:16]} ")
+            if title_frame:
+                title_frame.config(text=f"{label_prefix}: {label}")
+        else:
+            v["_pkmn_obj"] = None
+            for key, val in v.items():
+                if isinstance(val, (tk.StringVar, tk.BooleanVar)):
+                    val.set("")
+            v["editor_frame"].pack_forget()
+            v["add_frame"].pack(expand=True, fill="both")
+            if tab_parent and tab_idx is not None:
+                tab_parent.tab(tab_idx, text=f" {label_prefix} (empty)")
+            if title_frame:
+                title_frame.config(text=f"{label_prefix} (empty)")
+
     def _fill_party(self):
         party = self.trainer.attributes.get("@party", [])
         for slot, v in enumerate(self.pkmn_vars):
@@ -847,12 +1040,16 @@ class Editor(tk.Tk):
                 nick  = ds(a.get("@name", b""))
                 label = (nick or f"Species#{sp}") + f" [#{sp}]"
                 self.party_nb.tab(slot, text=f" {label[:16]} ")
+                v["add_frame"].pack_forget()
+                # Note: frames are already gridded in _build_pkmn_slot
             else:
                 v["_pkmn_obj"] = None
                 self.party_nb.tab(slot, text=f" Slot {slot+1} (empty)")
                 for key, val in v.items():
                     if isinstance(val, (tk.StringVar, tk.BooleanVar)):
                         val.set("")
+                for f in v["_frames"]: f.grid_forget()
+                v["add_frame"].pack(expand=True, fill="both")
 
     # ── apply UI → objects ────────────────────────────────────────────────────
 
