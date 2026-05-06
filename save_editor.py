@@ -508,12 +508,20 @@ class Editor(tk.Tk):
         mf = ttk.LabelFrame(e, text="Moves", padding=6)
         mf.grid(row=2, column=0, columnspan=3, sticky="ew", padx=4, pady=4)
         for i in range(4):
-            v[f"move{i}"]   = tk.StringVar()
-            v[f"movepp{i}"] = tk.StringVar()
-            ttk.Label(mf, text=f"Move {i+1} ID:", anchor="e", width=10).grid(row=0, column=i*4,   padx=2)
-            ttk.Entry(mf, textvariable=v[f"move{i}"],   width=6).grid(row=0, column=i*4+1, padx=2)
-            ttk.Label(mf, text="PP:", width=4).grid(row=0, column=i*4+2)
-            ttk.Entry(mf, textvariable=v[f"movepp{i}"], width=5).grid(row=0, column=i*4+3, padx=2)
+            v[f"move{i}"]       = tk.StringVar(value="0")
+            v[f"move{i}_name"]  = tk.StringVar(value="—")
+            v[f"movepp{i}"]     = tk.StringVar(value="0")
+            v[f"move{i}_maxpp"] = tk.StringVar(value="/0")
+            ttk.Label(mf, text=f"Move {i+1}:", anchor="e", width=8).grid(row=i, column=0, sticky="e", padx=(2,0), pady=2)
+            ttk.Label(mf, textvariable=v[f"move{i}_name"], width=20, anchor="w",
+                      relief="sunken").grid(row=i, column=1, sticky="ew", padx=2, pady=2)
+            ttk.Button(mf, text="Change", width=7,
+                       command=lambda vv=v, ii=i: self._change_move(vv, ii)
+                       ).grid(row=i, column=2, padx=(4,2), pady=2)
+            ttk.Label(mf, text="PP:", anchor="e").grid(row=i, column=3, sticky="e", padx=(8,0))
+            ttk.Entry(mf, textvariable=v[f"movepp{i}"], width=4).grid(row=i, column=4, padx=2)
+            ttk.Label(mf, textvariable=v[f"move{i}_maxpp"], anchor="w", width=4).grid(row=i, column=5, sticky="w")
+        mf.columnconfigure(1, weight=1)
 
         e.columnconfigure(0, weight=1)
         e.columnconfigure(1, weight=1)
@@ -947,6 +955,37 @@ class Editor(tk.Tk):
                 sv["_pkmn_obj"] = pkmn
                 ttk.Button(bp, text="Max IVs", width=8, command=lambda vv=sv: self._max_ivs(vv)).pack(pady=2)
                 ttk.Button(bp, text="Heal",    width=8, command=lambda vv=sv: self._heal_slot(vv)).pack(pady=2)
+
+                # Moves panel
+                mp = ttk.LabelFrame(sf, text="Moves", padding=4)
+                mp.pack(side="left", padx=4, fill="y")
+                box_moves = a.get("@moves", [])
+                for i in range(4):
+                    sv[f"move{i}"]       = tk.StringVar(value="0")
+                    sv[f"move{i}_name"]  = tk.StringVar(value="—")
+                    sv[f"movepp{i}"]     = tk.StringVar(value="0")
+                    sv[f"move{i}_maxpp"] = tk.StringVar(value="/0")
+                    if (isinstance(box_moves, list) and i < len(box_moves)
+                            and isinstance(box_moves[i], RubyObject)):
+                        mid = box_moves[i].attributes.get("@id", 0)
+                        pp  = box_moves[i].attributes.get("@pp", 0)
+                        bm  = MOVE_DATA.get(mid, {})
+                        sv[f"move{i}"].set(str(mid))
+                        sv[f"move{i}_name"].set(bm.get("name", "—") if mid else "—")
+                        sv[f"movepp{i}"].set(str(pp))
+                        sv[f"move{i}_maxpp"].set(f"/{bm.get('pp', 0)}" if mid else "/0")
+                    rf2 = ttk.Frame(mp)
+                    rf2.pack(fill="x", pady=1)
+                    ttk.Label(rf2, text=f"{i+1}:", width=2).pack(side="left")
+                    ttk.Label(rf2, textvariable=sv[f"move{i}_name"], width=14,
+                              relief="sunken", anchor="w").pack(side="left", padx=2)
+                    ttk.Button(rf2, text="Change", width=7,
+                               command=lambda vv=sv, ii=i: self._change_move(vv, ii)
+                               ).pack(side="left", padx=2)
+                    ttk.Label(rf2, text="PP:", width=3).pack(side="left")
+                    ttk.Entry(rf2, textvariable=sv[f"movepp{i}"], width=4).pack(side="left")
+                    ttk.Label(rf2, textvariable=sv[f"move{i}_maxpp"], width=4,
+                              anchor="w").pack(side="left")
 
                 slot_vars.append((si, sv))
 
@@ -1387,6 +1426,144 @@ class Editor(tk.Tk):
         _refresh_tree()
         _auto()
 
+    # ── move browser (change existing move) ──────────────────────────────────
+
+    def _update_move_vars(self, v: dict, move_idx: int, move_id: int):
+        m = MOVE_DATA.get(move_id, {})
+        v[f"move{move_idx}"].set(str(move_id))
+        v[f"move{move_idx}_name"].set(m.get("name", "—") if move_id else "—")
+        v[f"move{move_idx}_maxpp"].set(f"/{m.get('pp', 0)}" if move_id else "/0")
+        if move_id:
+            v[f"movepp{move_idx}"].set(str(m.get("pp", 0)))
+
+    def _change_move(self, v: dict, move_idx: int):
+        try:
+            sid = int(v["species_id"].get() or 0)
+        except (ValueError, KeyError):
+            sid = 0
+        self._open_move_browser(sid, lambda mid: self._update_move_vars(v, move_idx, mid))
+
+    def _open_move_browser(self, species_id: int, callback):
+        """Browse all moves with filters/sort. callback(move_id) on select."""
+        learnset_ids = {mid for _, mid in LEARNSET_DATA.get(species_id, [])}
+        all_types = ["All"] + sorted({m["type"] for m in MOVE_DATA.values() if m.get("type")})
+
+        win = tk.Toplevel(self)
+        win.title("Move Browser")
+        win.geometry("760x520")
+        win.resizable(True, True)
+        win.grab_set()
+
+        # ── Filter row ───────────────────────────────────────────────────────
+        frow = ttk.Frame(win, padding=(10, 8, 10, 4))
+        frow.pack(fill="x")
+        cat_var  = tk.StringVar(value="All")
+        type_var = tk.StringVar(value="All")
+        sort_var = tk.StringVar(value="Name")
+        ttk.Label(frow, text="Category:").pack(side="left")
+        ttk.Combobox(frow, textvariable=cat_var,
+                     values=["All", "Physical", "Special", "Status"],
+                     width=10, state="readonly").pack(side="left", padx=(2, 14))
+        ttk.Label(frow, text="Type:").pack(side="left")
+        ttk.Combobox(frow, textvariable=type_var, values=all_types,
+                     width=12, state="readonly").pack(side="left", padx=(2, 14))
+        ttk.Label(frow, text="Sort by:").pack(side="left")
+        ttk.Combobox(frow, textvariable=sort_var,
+                     values=["Name", "Power", "Accuracy", "PP"],
+                     width=10, state="readonly").pack(side="left", padx=2)
+
+        # ── Treeview ─────────────────────────────────────────────────────────
+        tv_frame = ttk.Frame(win, padding=(10, 0, 10, 4))
+        tv_frame.pack(fill="both", expand=True)
+        cols = ("name", "type", "cat", "pwr", "acc", "pp", "compat")
+        tree = ttk.Treeview(tv_frame, columns=cols, show="headings", height=16, selectmode="browse")
+        for col, w, anch, text in [
+            ("name",   145, "w",      "Name"),
+            ("type",    78, "center", "Type"),
+            ("cat",     72, "center", "Category"),
+            ("pwr",     48, "center", "Power"),
+            ("acc",     52, "center", "Accuracy"),
+            ("pp",      36, "center", "PP"),
+            ("compat",  92, "center", ""),
+        ]:
+            tree.heading(col, text=text)
+            tree.column(col, width=w, anchor=anch, stretch=False)
+        vsb = ttk.Scrollbar(tv_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=vsb.set)
+        tree.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="left", fill="y")
+        tree.tag_configure("incompatible", foreground="#cc0000")
+
+        # ── Description ──────────────────────────────────────────────────────
+        desc_frame = ttk.LabelFrame(win, text="Description", padding=(6, 2))
+        desc_frame.pack(fill="x", padx=10, pady=(0, 4))
+        desc_lbl = ttk.Label(desc_frame, text="", wraplength=740, justify="left")
+        desc_lbl.pack(fill="x")
+
+        # ── Buttons ──────────────────────────────────────────────────────────
+        btn_row = ttk.Frame(win, padding=(10, 0, 10, 8))
+        btn_row.pack(fill="x")
+        ttk.Button(btn_row, text="Select",  command=lambda: _confirm()).pack(side="right", padx=4)
+        ttk.Button(btn_row, text="Cancel",  command=win.destroy).pack(side="right")
+
+        # ── Helpers ──────────────────────────────────────────────────────────
+        def _refresh(*_):
+            cat  = cat_var.get()
+            typ  = type_var.get()
+            sort = sort_var.get()
+            entries = [
+                (mid, m) for mid, m in MOVE_DATA.items()
+                if (cat == "All" or m.get("category") == cat)
+                and (typ == "All" or m.get("type") == typ)
+            ]
+            key_fns = {
+                "Name":     lambda x: x[1].get("name", "").lower(),
+                "Power":    lambda x: -x[1].get("power", 0),
+                "Accuracy": lambda x: -x[1].get("accuracy", 0),
+                "PP":       lambda x: -x[1].get("pp", 0),
+            }
+            entries.sort(key=key_fns.get(sort, key_fns["Name"]))
+            tree.delete(*tree.get_children())
+            for mid, m in entries:
+                pwr = m.get("power", 0)
+                acc = m.get("accuracy", 0)
+                compat = mid in learnset_ids
+                tree.insert("", "end", iid=str(mid), values=(
+                    m.get("name", f"#{mid}"),
+                    m.get("type", ""),
+                    m.get("category", ""),
+                    pwr if pwr > 0 else "—",
+                    acc if acc > 0 else "—",
+                    m.get("pp", 0),
+                    "" if compat else "incompatible",
+                ), tags=(() if compat else ("incompatible",)))
+
+        def _on_select(event):
+            sel = tree.selection()
+            if not sel: return
+            try:
+                m = MOVE_DATA.get(int(sel[0]), {})
+                desc_lbl.config(text=m.get("description", ""))
+            except ValueError:
+                pass
+
+        def _confirm():
+            sel = tree.selection()
+            if not sel: return
+            try:
+                mid = int(sel[0])
+            except ValueError:
+                return
+            win.destroy()
+            callback(mid)
+
+        cat_var.trace_add("write", _refresh)
+        type_var.trace_add("write", _refresh)
+        sort_var.trace_add("write", _refresh)
+        tree.bind("<<TreeviewSelect>>", _on_select)
+        tree.bind("<Double-1>", lambda e: _confirm())
+        _refresh()
+
     def _add_to_party_slot(self, slot: int):
         if not self.trainer:
             messagebox.showerror("No save loaded", "Load a save file first."); return
@@ -1525,11 +1702,17 @@ class Editor(tk.Tk):
             moves = a.get("@moves", [])
             for i in range(4):
                 if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
-                    v[f"move{i}"].set(str(moves[i].attributes.get("@id", 0)))
-                    v[f"movepp{i}"].set(str(moves[i].attributes.get("@pp", 0)))
+                    mid = moves[i].attributes.get("@id", 0)
+                    pp  = moves[i].attributes.get("@pp", 0)
+                    m   = MOVE_DATA.get(mid, {})
+                    v[f"move{i}"].set(str(mid))
+                    v[f"move{i}_name"].set(m.get("name", "—") if mid else "—")
+                    v[f"movepp{i}"].set(str(pp))
+                    v[f"move{i}_maxpp"].set(f"/{m.get('pp', 0)}" if mid else "/0")
                 else:
-                    v[f"move{i}"].set("0"); v[f"movepp{i}"].set("0")
-            
+                    v[f"move{i}"].set("0"); v[f"move{i}_name"].set("—")
+                    v[f"movepp{i}"].set("0"); v[f"move{i}_maxpp"].set("/0")
+
             v["add_frame"].pack_forget()
             v["editor_frame"].pack(fill="both", expand=True)
             
@@ -1581,10 +1764,16 @@ class Editor(tk.Tk):
                 moves = a.get("@moves", [])
                 for i in range(4):
                     if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
-                        v[f"move{i}"].set(str(moves[i].attributes.get("@id", 0)))
-                        v[f"movepp{i}"].set(str(moves[i].attributes.get("@pp", 0)))
+                        mid = moves[i].attributes.get("@id", 0)
+                        pp  = moves[i].attributes.get("@pp", 0)
+                        m   = MOVE_DATA.get(mid, {})
+                        v[f"move{i}"].set(str(mid))
+                        v[f"move{i}_name"].set(m.get("name", "—") if mid else "—")
+                        v[f"movepp{i}"].set(str(pp))
+                        v[f"move{i}_maxpp"].set(f"/{m.get('pp', 0)}" if mid else "/0")
                     else:
-                        v[f"move{i}"].set("0"); v[f"movepp{i}"].set("0")
+                        v[f"move{i}"].set("0"); v[f"move{i}_name"].set("—")
+                        v[f"movepp{i}"].set("0"); v[f"move{i}_maxpp"].set("/0")
                 sp    = a.get("@species", slot+1)
                 nick  = ds(a.get("@name", b""))
                 label = (nick or f"Species#{sp}") + f" [#{sp}]"
@@ -1730,6 +1919,12 @@ class Editor(tk.Tk):
                     if isinstance(iv, list) and j < len(iv):
                         iv[j] = min(31, max(0, gi("iv_"+stat.lower())))
                 a["@iv"] = iv
+
+                moves = a.get("@moves", [])
+                for i in range(4):
+                    if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
+                        moves[i].attributes["@id"] = gi(f"move{i}")
+                        moves[i].attributes["@pp"] = gi(f"movepp{i}")
 
     # ── save ──────────────────────────────────────────────────────────────────
 
