@@ -444,10 +444,6 @@ class Editor(tk.Tk):
 
     def _build_pkmn_slot(self, parent, slot: int = 0):
         v = {}
-        v["add_frame"] = ttk.Frame(parent)
-        ttk.Button(v["add_frame"], text=" + Add New Pokémon ", 
-                   command=lambda: self._add_new_pkmn(slot_idx, box_idx)).pack(expand=True, pady=40 if box_idx is not None else 100)
-
         v["editor_frame"] = ttk.Frame(parent)
         e = v["editor_frame"]
 
@@ -1296,9 +1292,11 @@ class Editor(tk.Tk):
             except (ValueError, tk.TclError):
                 return
             tree.delete(*tree.get_children())
+            seen = set()
             for learn_lv, mid in learnset:
-                if learn_lv > lvl:
+                if learn_lv > lvl or mid in seen:
                     continue
+                seen.add(mid)
                 m = MOVE_DATA.get(mid, {})
                 pwr = m.get("power", 0)
                 acc = m.get("accuracy", 0)
@@ -1591,18 +1589,16 @@ class Editor(tk.Tk):
                 nick  = ds(a.get("@name", b""))
                 label = (nick or f"Species#{sp}") + f" [#{sp}]"
                 self.party_nb.tab(slot, text=f" {label[:16]} ")
-                v["add_frame"].pack_forget()
-                # Note: frames are already gridded in _build_pkmn_slot
+                v["editor_frame"].pack(fill="both", expand=True)
+                v["add_btn"].pack_forget()
             else:
                 v["_pkmn_obj"] = None
                 self.party_nb.tab(slot, text=f" Slot {slot+1} (empty)")
                 for key, val in v.items():
                     if isinstance(val, (tk.StringVar, tk.BooleanVar)):
                         val.set("")
-                v["add_btn"].grid(row=3, column=0, columnspan=3, pady=20)
-                continue
-
-            v["add_btn"].grid_remove()
+                v["editor_frame"].pack_forget()
+                v["add_btn"].pack(expand=True, pady=100)
 
     # ── apply UI → objects ────────────────────────────────────────────────────
 
