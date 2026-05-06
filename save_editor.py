@@ -1028,93 +1028,138 @@ class Editor(tk.Tk):
                            foreground="blue")
 
     def _open_item_picker(self, id_var: tk.StringVar, name_var):
-        """Popup to pick an item by category + search. Updates id_var (and optionally name_var)."""
         dlg = tk.Toplevel(self)
-        dlg.title("Pick Item")
-        dlg.geometry("480x500")
+        dlg.title("Item Browser")
+        dlg.geometry("920x600")
         dlg.resizable(True, True)
         dlg.grab_set()
+        dlg.columnconfigure(0, weight=1)
+        dlg.rowconfigure(1, weight=1)
 
-        # ── filter row ──
+        # ── filter row ──────────────────────────────────────────────────────
         top = ttk.Frame(dlg, padding=(8, 8, 8, 4))
-        top.pack(fill="x")
-        ttk.Label(top, text="Category:").pack(side="left")
+        top.grid(row=0, column=0, sticky="ew")
+        ttk.Label(top, text="Pocket:").pack(side="left")
         cat_var = tk.StringVar(value="All")
-        cat_cb  = ttk.Combobox(top, textvariable=cat_var, values=ITEM_CAT_LIST, width=16, state="readonly")
-        cat_cb.pack(side="left", padx=(4, 12))
-
+        ttk.Combobox(top, textvariable=cat_var, values=ITEM_CAT_LIST,
+                     width=14, state="readonly").pack(side="left", padx=(4, 12))
         ttk.Label(top, text="Search:").pack(side="left")
         search_var = tk.StringVar()
-        ttk.Entry(top, textvariable=search_var, width=18).pack(side="left", padx=4)
+        search_entry = ttk.Entry(top, textvariable=search_var, width=22)
+        search_entry.pack(side="left", padx=4)
+        count_lbl = ttk.Label(top, text="", foreground="gray")
+        count_lbl.pack(side="right", padx=8)
 
-        # ── listbox ──
-        lf = ttk.Frame(dlg, padding=(8, 0, 8, 4))
-        lf.pack(fill="both", expand=True)
-        lb  = tk.Listbox(lf, font=("Courier", 9), activestyle="dotbox", selectmode="single")
-        vsb = ttk.Scrollbar(lf, orient="vertical",   command=lb.yview)
-        hsb = ttk.Scrollbar(lf, orient="horizontal", command=lb.xview)
-        lb.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
-        lb.grid(row=0, column=0, sticky="nsew")
+        # ── treeview ────────────────────────────────────────────────────────
+        tf = ttk.Frame(dlg)
+        tf.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 4))
+        tf.columnconfigure(0, weight=1)
+        tf.rowconfigure(0, weight=1)
+
+        style = ttk.Style()
+        style.configure("ItemBrowser.Treeview", rowheight=32)
+
+        cols = ("desc", "pocket", "price")
+        tree = ttk.Treeview(tf, columns=cols, show="tree headings",
+                            selectmode="browse", style="ItemBrowser.Treeview")
+        vsb = ttk.Scrollbar(tf, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=vsb.set)
+        tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
-        hsb.grid(row=1, column=0, sticky="ew")
-        lf.rowconfigure(0, weight=1)
-        lf.columnconfigure(0, weight=1)
 
-        filtered: list[tuple[int,str]] = []   # (internet_id, name)
+        tree.column("#0",     width=185, minwidth=120, stretch=False, anchor="w")
+        tree.column("desc",   width=390, minwidth=120, stretch=True,  anchor="w")
+        tree.column("pocket", width=105, minwidth=80,  stretch=False, anchor="w")
+        tree.column("price",  width=72,  minwidth=50,  stretch=False, anchor="e")
 
-        def refresh(*_):
-            nonlocal filtered
+        # ── sort state ──────────────────────────────────────────────────────
+        sort_state  = {"col": "#0", "rev": False}
+        _images: dict = {}
+
+        COL_LABELS = {"#0": "Name", "desc": "Description", "pocket": "Pocket", "price": "Price"}
+
+        def _apply_headings():
+            for c, lbl in COL_LABELS.items():
+                ind = (" ▲" if not sort_state["rev"] else " ▼") if c == sort_state["col"] else ""
+                tree.heading(c, text=lbl + ind, command=lambda col=c: _sort(col))
+
+        def _sort(col):
+            if sort_state["col"] == col:
+                sort_state["rev"] = not sort_state["rev"]
+            else:
+                sort_state["col"] = col
+                sort_state["rev"] = False
+            _refresh()
+
+        def _refresh(*_):
             cat = cat_var.get()
             q   = search_var.get().strip().lower()
-            if cat == "All":
-                items = list(ITEM_NAMES.items())
-            else:
-                items = [(iid, n) for iid, n in ITEM_NAMES.items() if ITEM_CATS.get(iid) == cat]
-            if q:
-                items = [(iid, n) for iid, n in items if q in n.lower() or q in str(iid)]
-            items.sort(key=lambda x: x[1].lower())
-            filtered = items
-            lb.delete(0, tk.END)
-            for iid, n in items:
-                lb.insert(tk.END, f"  {iid:5d}  {n}")
+            items = [d for d in ITEM_DATA.values()
+                     if (cat == "All" or d.get("pocket") == cat)
+                     and (not q or q in d["name"].lower()
+                          or q in d.get("description", "").lower())]
 
-        cat_var.trace_add("write", refresh)
-        search_var.trace_add("write", refresh)
-        refresh()
+            col, rev = sort_state["col"], sort_state["rev"]
+            if col in ("#0", "desc"):
+                items.sort(key=lambda d: d["name"].lower(), reverse=rev)
+            elif col == "pocket":
+                items.sort(key=lambda d: (d.get("pocket", ""), d["name"].lower()), reverse=rev)
+            elif col == "price":
+                items.sort(key=lambda d: (d.get("price", 0), d["name"].lower()), reverse=rev)
 
-        # Pre-select current item if possible
+            tree.delete(*tree.get_children())
+            _images.clear()
+
+            for d in items:
+                iid  = d["id"]
+                icon = self._load_item_icon(iid, max_size=24)
+                _images[iid] = icon
+                desc = d.get("description", "")
+                if len(desc) > 70:
+                    desc = desc[:69] + "…"
+                price = d.get("price", 0)
+                tree.insert("", tk.END, iid=str(iid), text=" " + d["name"],
+                            image=icon or "",
+                            values=(desc, d.get("pocket", ""),
+                                    f"₽{price:,}" if price else "—"))
+
+            count_lbl.configure(text=f"{len(items)} items")
+            _apply_headings()
+
+        cat_var.trace_add("write", _refresh)
+        search_var.trace_add("write", _refresh)
+        _refresh()
+
+        # pre-select current item
         try:
-            cur = int(id_var.get())
-            for idx, (iid, _) in enumerate(filtered):
-                if iid == cur:
-                    lb.selection_set(idx)
-                    lb.see(idx)
-                    break
+            cur = str(int(id_var.get()))
+            if tree.exists(cur):
+                tree.selection_set(cur)
+                tree.see(cur)
         except (ValueError, TypeError):
             pass
 
-        # Focus search box
-        top.winfo_children()[-1].focus_set()
+        # ── buttons ─────────────────────────────────────────────────────────
+        bf = ttk.Frame(dlg, padding=(8, 0, 8, 8))
+        bf.grid(row=2, column=0, sticky="ew")
 
         def do_select(*_):
-            sel = lb.curselection()
+            sel = tree.selection()
             if not sel:
                 return
-            iid, n = filtered[sel[0]]
+            iid = int(sel[0])
             id_var.set(str(iid))
             if name_var is not None:
-                name_var.set(n)
+                name_var.set(ITEM_DATA.get(iid, {}).get("name", item_display_name(iid)))
             dlg.destroy()
 
-        lb.bind("<Double-Button-1>", do_select)
-        lb.bind("<Return>",          do_select)
-
-        # ── buttons ──
-        bf = ttk.Frame(dlg, padding=(8, 0, 8, 8))
-        bf.pack(fill="x")
+        tree.bind("<Double-Button-1>", do_select)
+        tree.bind("<Return>",          do_select)
+        dlg.bind("<Escape>",           lambda _: dlg.destroy())
         ttk.Button(bf, text="Select", width=10, command=do_select).pack(side="left", padx=4)
         ttk.Button(bf, text="Cancel", width=10, command=dlg.destroy).pack(side="left", padx=4)
-        ttk.Label(bf, text=f"{len(ITEM_NAMES)} items loaded", foreground="gray").pack(side="right", padx=8)
+
+        search_entry.focus_set()
 
     # ── PC Boxes tab ─────────────────────────────────────────────────────────
 
@@ -1279,123 +1324,158 @@ class Editor(tk.Tk):
     # ── pokemon picker / add ─────────────────────────────────────────────────
 
     def _open_pokemon_picker(self, callback):
-        """Popup to browse and pick a species. Calls callback(species_id) on confirm."""
         dlg = tk.Toplevel(self)
-        dlg.title("Pick Pokémon")
-        dlg.geometry("620x520")
+        dlg.title("Pokémon Browser")
+        dlg.geometry("920x600")
         dlg.resizable(True, True)
         dlg.grab_set()
+        dlg.columnconfigure(0, weight=1)
+        dlg.rowconfigure(1, weight=1)
 
-        # ── filter row ──
+        # ── filter row ──────────────────────────────────────────────────────
         top = ttk.Frame(dlg, padding=(8, 8, 8, 4))
-        top.pack(fill="x")
-
-        ttk.Label(top, text="Name:").pack(side="left")
+        top.grid(row=0, column=0, sticky="ew")
+        ttk.Label(top, text="Search:").pack(side="left")
         search_var = tk.StringVar()
-        search_entry = ttk.Entry(top, textvariable=search_var, width=14)
+        search_entry = ttk.Entry(top, textvariable=search_var, width=16)
         search_entry.pack(side="left", padx=(4, 12))
-
         ttk.Label(top, text="Type:").pack(side="left")
         type_var = tk.StringVar(value="All")
-        ttk.Combobox(top, textvariable=type_var,
-                     values=["All"] + POKEMON_TYPES, width=10, state="readonly").pack(side="left", padx=(4, 8))
-
+        ttk.Combobox(top, textvariable=type_var, values=["All"] + POKEMON_TYPES,
+                     width=10, state="readonly").pack(side="left", padx=(4, 8))
         ttk.Label(top, text="Stage:").pack(side="left")
         stage_var = tk.StringVar(value="All")
-        ttk.Combobox(top, textvariable=stage_var,
-                     values=PKMN_STAGE_LIST, width=6, state="readonly").pack(side="left", padx=(4, 8))
-
+        ttk.Combobox(top, textvariable=stage_var, values=PKMN_STAGE_LIST,
+                     width=6, state="readonly").pack(side="left", padx=(4, 8))
         ttk.Label(top, text="Rarity:").pack(side="left")
         rarity_var = tk.StringVar(value="All")
-        ttk.Combobox(top, textvariable=rarity_var,
-                     values=PKMN_RARITY_LIST, width=10, state="readonly").pack(side="left", padx=4)
+        ttk.Combobox(top, textvariable=rarity_var, values=PKMN_RARITY_LIST,
+                     width=10, state="readonly").pack(side="left", padx=(4, 8))
+        count_lbl = ttk.Label(top, text="", foreground="gray")
+        count_lbl.pack(side="right", padx=8)
 
-        # ── listbox ──
-        lf = ttk.Frame(dlg, padding=(8, 0, 8, 4))
-        lf.pack(fill="both", expand=True)
-        lb  = tk.Listbox(lf, font=("Courier", 9), activestyle="dotbox", selectmode="single")
-        vsb = ttk.Scrollbar(lf, orient="vertical",   command=lb.yview)
-        hsb = ttk.Scrollbar(lf, orient="horizontal", command=lb.xview)
-        lb.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
-        lb.grid(row=0, column=0, sticky="nsew")
+        # ── treeview ────────────────────────────────────────────────────────
+        tf = ttk.Frame(dlg)
+        tf.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 4))
+        tf.columnconfigure(0, weight=1)
+        tf.rowconfigure(0, weight=1)
+
+        style = ttk.Style()
+        style.configure("PkmnBrowser.Treeview", rowheight=32)
+
+        cols = ("sid", "types", "stage", "rarity", "bst")
+        tree = ttk.Treeview(tf, columns=cols, show="tree headings",
+                            selectmode="browse", style="PkmnBrowser.Treeview")
+        vsb = ttk.Scrollbar(tf, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=vsb.set)
+        tree.grid(row=0, column=0, sticky="nsew")
         vsb.grid(row=0, column=1, sticky="ns")
-        hsb.grid(row=1, column=0, sticky="ew")
-        lf.rowconfigure(0, weight=1)
-        lf.columnconfigure(0, weight=1)
 
-        filtered: list[tuple[int, str]] = []
+        tree.column("#0",     width=170, minwidth=100, stretch=True,  anchor="w")
+        tree.column("sid",    width=50,  minwidth=40,  stretch=False, anchor="e")
+        tree.column("types",  width=112, minwidth=80,  stretch=False, anchor="w")
+        tree.column("stage",  width=58,  minwidth=45,  stretch=False, anchor="center")
+        tree.column("rarity", width=82,  minwidth=65,  stretch=False, anchor="w")
+        tree.column("bst",    width=52,  minwidth=40,  stretch=False, anchor="e")
 
-        def refresh(*_):
-            nonlocal filtered
+        # ── sort state ──────────────────────────────────────────────────────
+        sort_state = {"col": "sid", "rev": False}
+        _sprites: dict = {}
+
+        COL_LABELS = {"#0": "Name", "sid": "#", "types": "Type(s)",
+                      "stage": "Stage", "rarity": "Rarity", "bst": "BST"}
+
+        def _apply_headings():
+            for c, lbl in COL_LABELS.items():
+                ind = (" ▲" if not sort_state["rev"] else " ▼") if c == sort_state["col"] else ""
+                tree.heading(c, text=lbl + ind, command=lambda col=c: _sort(col))
+
+        def _sort(col):
+            if sort_state["col"] == col:
+                sort_state["rev"] = not sort_state["rev"]
+            else:
+                sort_state["col"] = col
+                sort_state["rev"] = False
+            _refresh()
+
+        _STAGE_ORDER  = {"Baby": 0, "1": 1, "2": 2, "3": 3}
+        _RARITY_ORDER = {"Common": 0, "Legendary": 1, "Mythical": 2}
+
+        def _refresh(*_):
             q      = search_var.get().strip().lower()
             typ    = type_var.get()
             stage  = stage_var.get()
             rarity = rarity_var.get()
 
-            if PKMN_DATA:
-                items = list(PKMN_DATA.items())
-                if typ != "All":
-                    items = [(sid, d) for sid, d in items
-                             if d["type1"] == typ or d["type2"] == typ]
-                if stage != "All":
-                    items = [(sid, d) for sid, d in items if d["stage"] == stage]
-                if rarity != "All":
-                    items = [(sid, d) for sid, d in items if d["rarity"] == rarity]
-                if q:
-                    items = [(sid, d) for sid, d in items
-                             if q in d["name"].lower() or q in str(sid)]
-                items.sort(key=lambda x: x[0])
-                filtered = [(sid, d["name"]) for sid, d in items]
-                lb.delete(0, tk.END)
-                for sid, _ in filtered:
-                    d = PKMN_DATA[sid]
-                    t2   = f"/{d['type2']}" if d["type2"] else ""
-                    line = f"  #{sid:4d}  {d['name']:<14}  {d['type1'] + t2:<18}  Stage {d['stage']:<5}  {d['rarity']}"
-                    lb.insert(tk.END, line)
-            else:
-                filtered = []
-                lb.delete(0, tk.END)
-                lb.insert(tk.END, "  (pokemon_data.txt not found)")
-                lb.insert(tk.END, "  Run generate_pokemon_data.py first,")
-                lb.insert(tk.END, "  or enter a species ID below.")
+            items = [(sid, d) for sid, d in PKMN_DATA.items()
+                     if (not q or q in d["name"].lower() or q in str(sid))
+                     and (typ    == "All" or typ    in (d["type1"], d["type2"]))
+                     and (stage  == "All" or stage  == d["stage"])
+                     and (rarity == "All" or rarity == d["rarity"])]
 
-        search_var.trace_add("write", refresh)
-        type_var.trace_add("write",   refresh)
-        stage_var.trace_add("write",  refresh)
-        rarity_var.trace_add("write", refresh)
-        refresh()
-        search_entry.focus_set()
+            col, rev = sort_state["col"], sort_state["rev"]
+            if col == "#0":
+                items.sort(key=lambda x: x[1]["name"].lower(), reverse=rev)
+            elif col == "sid":
+                items.sort(key=lambda x: x[0], reverse=rev)
+            elif col == "types":
+                items.sort(key=lambda x: (x[1]["type1"], x[1].get("type2", "")), reverse=rev)
+            elif col == "stage":
+                items.sort(key=lambda x: (_STAGE_ORDER.get(x[1]["stage"], 9), x[0]), reverse=rev)
+            elif col == "rarity":
+                items.sort(key=lambda x: (_RARITY_ORDER.get(x[1]["rarity"], 9), x[0]), reverse=rev)
+            elif col == "bst":
+                items.sort(key=lambda x: sum(x[1][s] for s in ("hp","atk","def","spa","spd","spe")),
+                           reverse=rev)
 
-        # ── manual ID fallback + buttons ──
+            tree.delete(*tree.get_children())
+            _sprites.clear()
+
+            for sid, d in items:
+                sprite = self._load_pokemon_sprite(sid, 0, max_size=24)
+                _sprites[sid] = sprite
+                t2  = ("/" + d["type2"]) if d["type2"] else ""
+                bst = sum(d[s] for s in ("hp", "atk", "def", "spa", "spd", "spe"))
+                tree.insert("", tk.END, iid=str(sid), text=" " + d["name"],
+                            image=sprite or "",
+                            values=(sid, d["type1"] + t2, d["stage"], d["rarity"], bst))
+
+            count_lbl.configure(text=f"{len(items)} species")
+            _apply_headings()
+
+        for v in (search_var, type_var, stage_var, rarity_var):
+            v.trace_add("write", _refresh)
+        _refresh()
+
+        # ── buttons ─────────────────────────────────────────────────────────
         bf = ttk.Frame(dlg, padding=(8, 0, 8, 8))
-        bf.pack(fill="x")
+        bf.grid(row=2, column=0, sticky="ew")
 
         manual_var = tk.StringVar()
-        ttk.Label(bf, text="Species ID:").pack(side="left")
-        ttk.Entry(bf, textvariable=manual_var, width=7).pack(side="left", padx=(4, 8))
+        ttk.Label(bf, text="ID:").pack(side="left")
+        ttk.Entry(bf, textvariable=manual_var, width=6).pack(side="left", padx=(4, 12))
 
         def do_select(*_):
-            # Prefer listbox selection; fall back to manual ID field
-            sel = lb.curselection()
-            if sel and filtered:
-                sid, _ = filtered[sel[0]]
+            sel = tree.selection()
+            if sel:
+                sid = int(sel[0])
             else:
                 try:
                     sid = int(manual_var.get())
                 except ValueError:
-                    messagebox.showerror("Input error", "Select a Pokémon or enter a species ID.", parent=dlg)
+                    messagebox.showerror("Input error",
+                                         "Select a Pokémon or enter a species ID.", parent=dlg)
                     return
-            callback(sid)
             dlg.destroy()
+            callback(sid)
 
-        lb.bind("<Double-Button-1>", do_select)
-        lb.bind("<Return>",          do_select)
-
+        tree.bind("<Double-Button-1>", do_select)
+        tree.bind("<Return>",          do_select)
+        dlg.bind("<Escape>",           lambda _: dlg.destroy())
         ttk.Button(bf, text="Select", width=9, command=do_select).pack(side="left", padx=4)
-        ttk.Button(bf, text="Cancel", width=9, command=dlg.destroy).pack(side="left", padx=4)
-        count = len(PKMN_DATA)
-        ttk.Label(bf, text=f"{count} species loaded" if count else "No data file",
-                  foreground="gray").pack(side="right", padx=8)
+        ttk.Button(bf, text="Cancel", width=9, command=dlg.destroy).pack(side="left", padx=(0, 4))
+
+        search_entry.focus_set()
 
     def _find_template_pokemon(self):
         """Return any existing RubyObject Pokémon to use as a deep-copy template.
@@ -1968,19 +2048,28 @@ class Editor(tk.Tk):
         self._open_pokemon_picker(on_pick)
 
     def _delete_box_pokemon(self, bi: int, si: int, box: RubyObject):
-        pokemon_list = box.attributes.get("@pokemon", [])
-        if not (si < len(pokemon_list) and isinstance(pokemon_list[si], RubyObject)):
+        if "@pokemon" not in box.attributes:
+            return
+        pokemon_list = box.attributes["@pokemon"]
+        if si >= len(pokemon_list) or not isinstance(pokemon_list[si], RubyObject):
             return
         a    = pokemon_list[si].attributes
         nick = ds(a.get("@name", b"")) or f"Species#{a.get('@species', '?')}"
         if not messagebox.askyesno("Delete Pokémon",
-                f"Permanently delete {nick}?\nThis cannot be undone.", icon="warning"):
+                f"Permanently delete {nick}?\nThis cannot be undone.",
+                icon="warning", parent=self):
             return
         pokemon_list[si] = None
         self._populate_boxes()
-        self.boxes_nb.select(bi)
+        # bi is the box index in the save list; tab index may differ if some boxes
+        # were skipped (not RubyObject), so compute it explicitly.
+        boxes   = self.storage.attributes.get("@boxes", [])
+        tab_idx = sum(1 for j in range(bi) if j < len(boxes) and isinstance(boxes[j], RubyObject))
+        tabs    = self.boxes_nb.tabs()
+        if tab_idx < len(tabs):
+            self.boxes_nb.select(tab_idx)
         self.status.config(
-            text=f"Deleted {nick} from Box {bi+1} Slot {si}. Click Save to write.",
+            text=f"Deleted {nick} from Box {bi+1} Slot {si+1}. Click Save to write.",
             foreground="blue")
 
     def _move_box_pokemon(self, bi: int, si: int, box: RubyObject, pkmn: RubyObject):
