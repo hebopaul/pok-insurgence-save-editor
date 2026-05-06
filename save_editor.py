@@ -188,6 +188,62 @@ ITEM_NAMES, ITEM_CATS = _load_item_data()
 ITEM_CAT_LIST = ["All"] + sorted(set(ITEM_CATS.values()))
 PKMN_DATA = _load_pokemon_data()
 
+def _load_move_data():
+    path = resource_path("move_data.txt")
+    data = {}
+    if not os.path.exists(path):
+        return data
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) < 7:
+                continue
+            try:
+                mid = int(parts[0])
+                data[mid] = {
+                    "name":        parts[1],
+                    "type":        parts[2],
+                    "category":    parts[3],
+                    "pp":          int(parts[4]),
+                    "power":       int(parts[5]),
+                    "accuracy":    int(parts[6]),
+                    "description": parts[7] if len(parts) > 7 else "",
+                }
+            except (ValueError, IndexError):
+                pass
+    return data
+
+def _load_learnset_data():
+    path = resource_path("learnset_data.txt")
+    data = {}
+    if not os.path.exists(path):
+        return data
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("|", 1)
+            if len(parts) < 2:
+                continue
+            try:
+                sid = int(parts[0].strip())
+                move_str = parts[1].strip()
+                moves = []
+                for token in move_str.split():
+                    lv, mid = token.split(":")
+                    moves.append((int(lv), int(mid)))
+                data[sid] = moves
+            except (ValueError, IndexError):
+                pass
+    return data
+
+MOVE_DATA     = _load_move_data()
+LEARNSET_DATA = _load_learnset_data()
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def ds(s):
@@ -384,15 +440,9 @@ class Editor(tk.Tk):
         for slot in range(6):
             frame = ttk.Frame(self.party_nb, padding=8)
             self.party_nb.add(frame, text=f" Slot {slot+1} ")
-<<<<<<< Updated upstream
-            self.pkmn_vars.append(self._build_pkmn_slot(frame, is_party=True, slot_idx=slot))
-
-    def _build_pkmn_slot(self, parent, is_party=False, slot_idx=0, box_idx=None):
-=======
             self.pkmn_vars.append(self._build_pkmn_slot(frame, slot))
 
     def _build_pkmn_slot(self, parent, slot: int = 0):
->>>>>>> Stashed changes
         v = {}
         v["add_frame"] = ttk.Frame(parent)
         ttk.Button(v["add_frame"], text=" + Add New Pokémon ", 
@@ -906,63 +956,6 @@ class Editor(tk.Tk):
 
             self.box_vars.append((bi, box, slot_vars))
 
-<<<<<<< Updated upstream
-
-    def _add_new_pkmn(self, slot_idx, box_idx=None):
-        def on_select(species_id):
-            template = self._get_template_pkmn()
-            if not template:
-                messagebox.showerror("Error", "Could not find a Pokémon template in this save file.")
-                return
-            
-            # Deep clone template
-            from rubymarshal.writer import writes
-            from rubymarshal.reader import loads
-            new_pkmn = loads(writes(template, cls=Ruby18Writer))
-            
-            # Reset basics
-            p = POKEMON_DATA.get(species_id, {})
-            new_pkmn.attributes["@species"] = species_id
-            new_pkmn.attributes["@name"] = p.get("name", "Unknown").encode("utf-8")
-            new_pkmn.attributes["@exp"] = 0
-            new_pkmn.attributes["@hp"] = 10
-            new_pkmn.attributes["@totalhp"] = 10
-            new_pkmn.attributes["@item"] = 0
-            new_pkmn.attributes["@status"] = 0
-            new_pkmn.attributes["@statusCount"] = 0
-            new_pkmn.attributes["@moves"] = [] # Game will usually fix this on load
-            
-            if box_idx is not None:
-                boxes = self.storage.attributes.get("@boxes", [])
-                box = boxes[box_idx]
-                pokemon_list = box.attributes.get("@pokemon", [])
-                while len(pokemon_list) <= slot_idx: pokemon_list.append(None)
-                pokemon_list[slot_idx] = new_pkmn
-                self._populate_boxes()
-                self.boxes_nb.select(box_idx)
-            else:
-                party = self.trainer.attributes.get("@party", [])
-                while len(party) <= slot_idx: party.append(None)
-                party[slot_idx] = new_pkmn
-                self._fill_party()
-                self.party_nb.select(slot_idx)
-
-        self._open_pkmn_picker(on_select)
-
-    def _get_template_pkmn(self):
-        # Look in party
-        party = self.trainer.attributes.get("@party", [])
-        for p in party:
-            if isinstance(p, RubyObject): return p
-        # Look in boxes
-        boxes = self.storage.attributes.get("@boxes", [])
-        for b in boxes:
-            if not isinstance(b, RubyObject): continue
-            for p in b.attributes.get("@pokemon", []):
-                if isinstance(p, RubyObject): return p
-        return None
-
-=======
     # ── pokemon picker / add ─────────────────────────────────────────────────
 
     def _open_pokemon_picker(self, callback):
@@ -1098,11 +1091,12 @@ class Editor(tk.Tk):
                 if isinstance(p, RubyObject): return p
         return None
 
-    def _create_pokemon_obj(self, species_id: int) -> RubyObject:
+    def _create_pokemon_obj(self, species_id: int, level: int = None, moves: list = None) -> RubyObject:
         d      = PKMN_DATA.get(species_id, {})
         stage  = d.get("stage",  "1")
         rarity = d.get("rarity", "Common")
-        level  = _default_level(stage, rarity)
+        if level is None:
+            level = _default_level(stage, rarity)
 
         hp_b  = d.get("hp",  0)
         atk_b = d.get("atk", 0)
@@ -1188,45 +1182,253 @@ class Editor(tk.Tk):
         a["@mail"]         = None
         a["@hatchedMap"]   = 0
         a["@language"]     = 3
+
+        if moves:
+            move_objs = a.get("@moves", [])
+            while len(move_objs) < 4:
+                move_objs.append(RubyObject("PBMove", {"@id": 0, "@pp": 0, "@ppup": 0}))
+            for i in range(4):
+                if not isinstance(move_objs[i], RubyObject):
+                    continue
+                move_objs[i].attributes.pop("@totalpp", None)
+                if i < len(moves):
+                    mid, pp = moves[i]
+                    move_objs[i].attributes["@id"]   = mid
+                    move_objs[i].attributes["@pp"]   = pp
+                    move_objs[i].attributes["@ppup"] = 0
+                else:
+                    move_objs[i].attributes["@id"]   = 0
+                    move_objs[i].attributes["@pp"]   = 0
+                    move_objs[i].attributes["@ppup"] = 0
+            a["@moves"] = move_objs
+
         return pkmn
+
+    def _open_move_picker(self, species_id: int, callback):
+        """Move selection popup. callback(level, [(move_id, pp), ...])"""
+        d       = PKMN_DATA.get(species_id, {})
+        name    = d.get("name", f"#{species_id}")
+        growth  = d.get("growth", "medium-fast")
+        def_lv  = _default_level(d.get("stage", "1"), d.get("rarity", "Common"))
+        learnset = LEARNSET_DATA.get(species_id, [])
+
+        win = tk.Toplevel(self)
+        win.title(f"Choose Moves — {name}")
+        win.geometry("800x540")
+        win.resizable(False, False)
+        win.grab_set()
+
+        # ── Level row ────────────────────────────────────────────────────────
+        top = ttk.Frame(win, padding=(10, 8, 10, 4))
+        top.pack(fill="x")
+        ttk.Label(top, text=f"Moves for {name}   —   Level:").pack(side="left")
+        level_var = tk.IntVar(value=def_lv)
+        ttk.Spinbox(top, from_=1, to=100, textvariable=level_var, width=5).pack(side="left", padx=6)
+        ttk.Label(top, text="(double-click a move to add it)", foreground="gray").pack(side="left", padx=10)
+
+        # ── Main split ───────────────────────────────────────────────────────
+        mid_frame = ttk.Frame(win, padding=(10, 0, 10, 4))
+        mid_frame.pack(fill="both", expand=True)
+
+        # Left: available moves treeview
+        left = ttk.LabelFrame(mid_frame, text="Available Moves", padding=4)
+        left.pack(side="left", fill="both", expand=True, padx=(0, 8))
+
+        cols = ("lv", "name", "type", "cat", "pwr", "acc", "pp")
+        tree = ttk.Treeview(left, columns=cols, show="headings", height=13, selectmode="browse")
+        for col, w, anchor, text in [
+            ("lv",    36, "center", "Lv"),
+            ("name", 130, "w",      "Name"),
+            ("type",  68, "center", "Type"),
+            ("cat",   65, "center", "Cat"),
+            ("pwr",   40, "center", "Pwr"),
+            ("acc",   40, "center", "Acc"),
+            ("pp",    34, "center", "PP"),
+        ]:
+            tree.heading(col, text=text)
+            tree.column(col, width=w, anchor=anchor, stretch=False)
+        vsb = ttk.Scrollbar(left, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=vsb.set)
+        tree.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="left", fill="y")
+
+        # Right: selected slots + You Decide
+        right = ttk.LabelFrame(mid_frame, text="Selected  (click to remove)", padding=6)
+        right.pack(side="left", fill="y")
+
+        selected: list[tuple[int, int]] = []  # (move_id, pp)
+        slot_vars = [tk.StringVar(value=f"  {i+1}.  —") for i in range(4)]
+        slot_btns = []
+        for i in range(4):
+            b = ttk.Button(right, textvariable=slot_vars[i], width=21,
+                           command=lambda idx=i: _remove(idx))
+            b.pack(pady=3, padx=2, fill="x")
+            slot_btns.append(b)
+
+        ttk.Separator(right, orient="horizontal").pack(fill="x", pady=8)
+        ttk.Button(right, text="You Decide", command=lambda: _auto()).pack(fill="x", padx=2)
+
+        # ── Description ──────────────────────────────────────────────────────
+        desc_frame = ttk.LabelFrame(win, text="Description", padding=(6, 2))
+        desc_frame.pack(fill="x", padx=10, pady=(0, 4))
+        desc_lbl = ttk.Label(desc_frame, text="", wraplength=760, justify="left")
+        desc_lbl.pack(fill="x")
+
+        # ── Confirm / Cancel ─────────────────────────────────────────────────
+        btn_row = ttk.Frame(win, padding=(10, 0, 10, 8))
+        btn_row.pack(fill="x")
+        ttk.Button(btn_row, text="Confirm", command=lambda: _confirm()).pack(side="right", padx=4)
+        ttk.Button(btn_row, text="Cancel",  command=win.destroy).pack(side="right")
+
+        # ── Logic helpers ─────────────────────────────────────────────────────
+        def _refresh_slots():
+            for i in range(4):
+                if i < len(selected):
+                    mid, _ = selected[i]
+                    mname = MOVE_DATA.get(mid, {}).get("name", f"#{mid}")
+                    slot_vars[i].set(f"  {i+1}.  {mname}")
+                else:
+                    slot_vars[i].set(f"  {i+1}.  —")
+
+        def _refresh_tree(*_):
+            try:
+                lvl = max(1, min(100, int(level_var.get())))
+            except (ValueError, tk.TclError):
+                return
+            tree.delete(*tree.get_children())
+            for learn_lv, mid in learnset:
+                if learn_lv > lvl:
+                    continue
+                m = MOVE_DATA.get(mid, {})
+                pwr = m.get("power", 0)
+                acc = m.get("accuracy", 0)
+                tree.insert("", "end", iid=str(mid), values=(
+                    learn_lv,
+                    m.get("name", f"#{mid}"),
+                    m.get("type", ""),
+                    m.get("category", ""),
+                    pwr if pwr > 0 else "—",
+                    acc if acc > 0 else "—",
+                    m.get("pp", 0),
+                ))
+
+        def _add(move_id: int):
+            if len(selected) >= 4:
+                return
+            if any(m[0] == move_id for m in selected):
+                return
+            pp = MOVE_DATA.get(move_id, {}).get("pp", 0)
+            selected.append((move_id, pp))
+            _refresh_slots()
+
+        def _remove(idx: int):
+            if idx < len(selected):
+                selected.pop(idx)
+                _refresh_slots()
+
+        def _auto():
+            try:
+                lvl = max(1, min(100, int(level_var.get())))
+            except (ValueError, tk.TclError):
+                lvl = def_lv
+            available = [(lv, mid) for lv, mid in learnset if lv <= lvl]
+            damaging = sorted(
+                [(MOVE_DATA.get(m, {}).get("power", 0) * (MOVE_DATA.get(m, {}).get("accuracy", 0) or 100) / 100, lv, m)
+                 for lv, m in available if MOVE_DATA.get(m, {}).get("power", 0) > 0],
+                reverse=True,
+            )
+            status = sorted(
+                [(lv, m) for lv, m in available if MOVE_DATA.get(m, {}).get("power", 0) == 0],
+                reverse=True,
+            )
+            result = [m for _, _lv, m in damaging[:3]]
+            if status:
+                result.append(status[0][1])
+            # Fill remaining slots if we got fewer than 4
+            for _, _lv, m in damaging[3:]:
+                if len(result) >= 4: break
+                if m not in result: result.append(m)
+            for _lv, m in status[1:]:
+                if len(result) >= 4: break
+                if m not in result: result.append(m)
+            selected.clear()
+            for mid in result[:4]:
+                pp = MOVE_DATA.get(mid, {}).get("pp", 0)
+                selected.append((mid, pp))
+            _refresh_slots()
+
+        def _on_select(event):
+            sel = tree.selection()
+            if not sel: return
+            try:
+                m = MOVE_DATA.get(int(sel[0]), {})
+                desc_lbl.config(text=m.get("description", ""))
+            except ValueError:
+                pass
+
+        def _on_double(event):
+            sel = tree.selection()
+            if not sel: return
+            try:
+                _add(int(sel[0]))
+            except ValueError:
+                pass
+
+        def _confirm():
+            try:
+                lvl = max(1, min(100, int(level_var.get())))
+            except (ValueError, tk.TclError):
+                lvl = def_lv
+            win.destroy()
+            callback(lvl, list(selected))
+
+        level_var.trace_add("write", _refresh_tree)
+        tree.bind("<<TreeviewSelect>>", _on_select)
+        tree.bind("<Double-1>", _on_double)
+
+        _refresh_tree()
+        _auto()
 
     def _add_to_party_slot(self, slot: int):
         if not self.trainer:
             messagebox.showerror("No save loaded", "Load a save file first."); return
         def on_pick(sid):
-            party = self.trainer.attributes.setdefault("@party", [])
-            while len(party) <= slot:
-                party.append(None)
-            party[slot] = self._create_pokemon_obj(sid)
-            self._fill_party()
-            name = PKMN_DATA.get(sid, {}).get("name", f"#{sid}")
-            self.status.config(
-                text=f"Added {name} to party slot {slot+1}. Click Save to write.",
-                foreground="blue")
+            def on_moves(level, moves):
+                party = self.trainer.attributes.setdefault("@party", [])
+                while len(party) <= slot:
+                    party.append(None)
+                party[slot] = self._create_pokemon_obj(sid, level=level, moves=moves)
+                self._fill_party()
+                name = PKMN_DATA.get(sid, {}).get("name", f"#{sid}")
+                self.status.config(
+                    text=f"Added {name} to party slot {slot+1}. Click Save to write.",
+                    foreground="blue")
+            self._open_move_picker(sid, on_moves)
         self._open_pokemon_picker(on_pick)
 
     def _add_to_box_slot(self, box_idx: int, slot_idx: int, box: RubyObject):
         if not self.trainer:
             messagebox.showerror("No save loaded", "Load a save file first."); return
         def on_pick(sid):
-            pokemon_list = box.attributes.get("@pokemon", [])
-            while len(pokemon_list) <= slot_idx:
-                pokemon_list.append(None)
-            pokemon_list[slot_idx] = self._create_pokemon_obj(sid)
-            box.attributes["@pokemon"] = pokemon_list
-            # Point the PC to this box so it opens here directly, avoiding
-            # pbSwitchBoxToRight which can crash on nil slots in previously-empty boxes.
-            if isinstance(self.storage, RubyObject):
-                self.storage.attributes["@currentBox"] = box_idx
-            self._populate_boxes()
-            self.boxes_nb.select(box_idx)
-            name = PKMN_DATA.get(sid, {}).get("name", f"#{sid}")
-            self.status.config(
-                text=f"Added {name} to box {box_idx+1}. PC will open at this box. Click Save to write.",
-                foreground="blue")
+            def on_moves(level, moves):
+                pokemon_list = box.attributes.get("@pokemon", [])
+                while len(pokemon_list) <= slot_idx:
+                    pokemon_list.append(None)
+                pokemon_list[slot_idx] = self._create_pokemon_obj(sid, level=level, moves=moves)
+                box.attributes["@pokemon"] = pokemon_list
+                # Point the PC to this box so it opens here directly, avoiding
+                # pbSwitchBoxToRight which can crash on nil slots in previously-empty boxes.
+                if isinstance(self.storage, RubyObject):
+                    self.storage.attributes["@currentBox"] = box_idx
+                self._populate_boxes()
+                self.boxes_nb.select(box_idx)
+                name = PKMN_DATA.get(sid, {}).get("name", f"#{sid}")
+                self.status.config(
+                    text=f"Added {name} to box {box_idx+1}. PC will open at this box. Click Save to write.",
+                    foreground="blue")
+            self._open_move_picker(sid, on_moves)
         self._open_pokemon_picker(on_pick)
 
->>>>>>> Stashed changes
     # ── load ─────────────────────────────────────────────────────────────────
 
     def _ask_load(self):
@@ -1397,15 +1599,10 @@ class Editor(tk.Tk):
                 for key, val in v.items():
                     if isinstance(val, (tk.StringVar, tk.BooleanVar)):
                         val.set("")
-<<<<<<< Updated upstream
-                for f in v["_frames"]: f.grid_forget()
-                v["add_frame"].pack(expand=True, fill="both")
-=======
                 v["add_btn"].grid(row=3, column=0, columnspan=3, pady=20)
                 continue
 
             v["add_btn"].grid_remove()
->>>>>>> Stashed changes
 
     # ── apply UI → objects ────────────────────────────────────────────────────
 
