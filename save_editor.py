@@ -1,4 +1,3 @@
-from pokemon_data import POKEMON_DATA
 #!/usr/bin/env python3
 """
 Pokemon Insurgence Save Editor
@@ -68,10 +67,19 @@ STATS   = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]
 NATURES = ["Hardy","Lonely","Brave","Adamant","Naughty","Bold","Docile","Relaxed",
            "Impish","Lax","Timid","Hasty","Serious","Jolly","Naive","Modest","Mild",
            "Quiet","Bashful","Rash","Calm","Gentle","Sassy","Careful","Quirky"]
+EV_PRESETS = {
+    "Fresh / zero EVs": [0, 0, 0, 0, 0, 0],
+    "Balanced": [85, 85, 85, 85, 85, 85],
+    "Physical attacker": [4, 252, 0, 0, 0, 252],
+    "Special attacker": [4, 0, 0, 252, 0, 252],
+    "Bulky physical": [252, 252, 4, 0, 0, 0],
+    "Bulky special": [252, 0, 0, 252, 4, 0],
+    "Custom": [0, 0, 0, 0, 0, 0],
+}
 
 POKEMON_TYPES = [
     "Normal","Fire","Water","Electric","Grass","Ice","Fighting","Poison",
-    "Ground","Flying","Psychic","Bug","Rock","Ghost","Dragon","Dark","Steel","Fairy",
+    "Ground","Flying","Psychic","Bug","Rock","Ghost","Dragon","Dark","Steel","Shadow","Bird","Crystal","Fairy",
 ]
 PKMN_STAGE_LIST  = ["All", "Baby", "1", "2", "3"]
 PKMN_RARITY_LIST = ["All", "Common", "Legendary", "Mythical"]
@@ -99,6 +107,19 @@ def _default_level(stage: str, rarity: str) -> int:
     if rarity in ("Legendary", "Mythical"):
         return 50
     return {"Baby": 5, "1": 15, "2": 35, "3": 50}.get(stage, 15)
+
+def _sanitize_evs(evs) -> list:
+    result = []
+    for i in range(6):
+        try:
+            val = int(evs[i])
+        except (TypeError, ValueError, IndexError):
+            val = 0
+        result.append(min(252, max(0, val)))
+    while sum(result) > 510:
+        idx = max(range(6), key=lambda j: result[j])
+        result[idx] -= 1
+    return result
 
 def _load_pokemon_data():
     path = resource_path("pokemon_data.txt")
@@ -130,6 +151,24 @@ def _load_pokemon_data():
                     "spd": int(parts[10]),
                     "spe": int(parts[11]),
                     "growth": parts[12] if len(parts) > 12 else "medium-fast",
+                    "kind": parts[13] if len(parts) > 13 else "",
+                    "entry": parts[14] if len(parts) > 14 else "",
+                    "color": parts[15] if len(parts) > 15 else "",
+                    "habitat": parts[16] if len(parts) > 16 else "",
+                    "gender_rate": parts[17] if len(parts) > 17 else "",
+                    "base_happiness": int(parts[18]) if len(parts) > 18 and parts[18].isdigit() else 70,
+                    "steps_to_hatch": int(parts[19]) if len(parts) > 19 and parts[19].isdigit() else 0,
+                    "height": int(parts[20]) if len(parts) > 20 and parts[20].isdigit() else 0,
+                    "weight": int(parts[21]) if len(parts) > 21 and parts[21].isdigit() else 0,
+                    "base_exp": int(parts[22]) if len(parts) > 22 and parts[22].isdigit() else 0,
+                    "ev_yield": [
+                        int(parts[i]) if len(parts) > i and parts[i].isdigit() else 0
+                        for i in range(23, 29)
+                    ],
+                    "abilities": [p for p in (parts[29] if len(parts) > 29 else "", parts[30] if len(parts) > 30 else "") if p],
+                    "hidden_ability": parts[31] if len(parts) > 31 else "",
+                    "egg_groups": [p for p in (parts[32] if len(parts) > 32 else "", parts[33] if len(parts) > 33 else "") if p],
+                    "catch_rate": int(parts[34]) if len(parts) > 34 and parts[34].isdigit() else 0,
                 }
             except (ValueError, IndexError):
                 pass
@@ -187,6 +226,10 @@ def _load_item_data():
 ITEM_NAMES, ITEM_CATS = _load_item_data()
 ITEM_CAT_LIST = ["All"] + sorted(set(ITEM_CATS.values()))
 PKMN_DATA = _load_pokemon_data()
+POKEMON_DATA = {
+    sid: {"name": d["name"], "t1": d["type1"], "t2": d["type2"], "stage": d["stage"], "rarity": d["rarity"]}
+    for sid, d in PKMN_DATA.items()
+}
 
 def _load_move_data():
     path = resource_path("move_data.txt")
@@ -340,6 +383,7 @@ class Editor(tk.Tk):
         self.bag_rows   = []
         self.box_vars   = []
         self._scroll_canvases: set = set()
+        self._pokemon_sprite_cache = {}
 
         self._build_ui()
         self.bind_all("<MouseWheel>", self._on_mousewheel)
@@ -356,6 +400,93 @@ class Editor(tk.Tk):
 
     def _make_scrollable(self, canvas: tk.Canvas):
         self._scroll_canvases.add(canvas)
+
+    def _pokemon_types_text(self, data: dict) -> str:
+        type1 = data.get("type1", "")
+        type2 = data.get("type2", "")
+        return type1 + (f" / {type2}" if type2 else "")
+
+    def _pokemon_measure_text(self, data: dict) -> str:
+        height = data.get("height", 0)
+        weight = data.get("weight", 0)
+        h_text = f"{height / 10:.1f} m" if height else "-"
+        w_text = f"{weight / 10:.1f} kg" if weight else "-"
+        return f"{h_text}, {w_text}"
+
+    def _pokemon_abilities_text(self, data: dict) -> str:
+        abilities = list(data.get("abilities", []))
+        hidden = data.get("hidden_ability", "")
+        if hidden:
+            abilities.append(f"Hidden: {hidden}")
+        return ", ".join(abilities) if abilities else "-"
+
+    def _pokemon_sprite_paths(self, species_id: int, form: int = 0) -> list:
+        names = []
+        if form:
+            names.extend([f"{species_id:03d}_{form}.png", f"{species_id:03d}-{form}.png", f"{species_id:03d}{form}.png"])
+        names.append(f"{species_id:03d}.png")
+        dirs = [
+            resource_path(os.path.join("game_resources", "Graphics", "Battlers")),
+            os.path.join(r"G:\Games\Insurgence\Pokemon Insurgence 1.2.7 Core", "Graphics", "Battlers"),
+        ]
+        return [os.path.join(base, name) for base in dirs for name in names]
+
+    def _load_pokemon_sprite(self, species_id: int, form: int = 0, max_size: int = 96):
+        for path in self._pokemon_sprite_paths(species_id, form):
+            if not os.path.exists(path):
+                continue
+            key = (path, max_size)
+            if key in self._pokemon_sprite_cache:
+                return self._pokemon_sprite_cache[key]
+            try:
+                img = tk.PhotoImage(file=path)
+                scale = max(1, math.ceil(max(img.width(), img.height()) / max_size))
+                if scale > 1:
+                    img = img.subsample(scale, scale)
+                self._pokemon_sprite_cache[key] = img
+                return img
+            except Exception:
+                continue
+        return None
+
+    def _set_pokemon_dex_vars(self, v: dict, species_id: int, form: int = 0):
+        data = PKMN_DATA.get(species_id, {})
+        name = data.get("name", f"Species#{species_id}" if species_id else "-")
+        v["dex_name"].set(f"#{species_id} {name}" if species_id else "-")
+        v["dex_types"].set(self._pokemon_types_text(data) if data else "-")
+        v["dex_kind"].set((data.get("kind", "") + " Pokemon").strip() if data.get("kind") else "-")
+        v["dex_size"].set(self._pokemon_measure_text(data) if data else "-")
+        v["dex_color_habitat"].set(" / ".join(p for p in (data.get("color", ""), data.get("habitat", "")) if p) or "-")
+        v["dex_abilities"].set(self._pokemon_abilities_text(data) if data else "-")
+        v["dex_entry"].set(data.get("entry", "") or "-")
+        img = self._load_pokemon_sprite(species_id, form)
+        label = v.get("dex_sprite")
+        if label:
+            label.configure(image=img if img else "", text="" if img else "(no sprite)")
+            label.image = img
+
+    def _make_pokemon_dex_panel(self, parent, species_id: int, form: int = 0, compact: bool = False):
+        data = PKMN_DATA.get(species_id, {})
+        frame = ttk.LabelFrame(parent, text="Pokedex", padding=4)
+        sprite = ttk.Label(frame, anchor="center", width=12)
+        sprite.grid(row=0, column=0, rowspan=5, sticky="n", padx=(0, 6))
+        img = self._load_pokemon_sprite(species_id, form, max_size=72 if compact else 96)
+        sprite.configure(image=img if img else "", text="" if img else "(no sprite)")
+        sprite.image = img
+        name = data.get("name", f"Species#{species_id}")
+        lines = [
+            f"#{species_id} {name}",
+            self._pokemon_types_text(data),
+            (data.get("kind", "") + " Pokemon").strip(),
+            self._pokemon_measure_text(data),
+            self._pokemon_abilities_text(data),
+        ]
+        for row, text in enumerate(lines):
+            ttk.Label(frame, text=text or "-", anchor="w", width=28 if compact else 34).grid(row=row, column=1, sticky="w")
+        ttk.Label(frame, text=data.get("entry", "") or "-", wraplength=240 if compact else 320, justify="left").grid(
+            row=5, column=0, columnspan=2, sticky="w", pady=(4, 0)
+        )
+        return frame
 
     # ── UI construction ──────────────────────────────────────────────────────
 
@@ -491,7 +622,27 @@ class Editor(tk.Tk):
         ttk.Button(bf, text="Zero EVs",   width=12, command=lambda vv=v: self._zero_evs(vv)).pack(pady=2)
         ttk.Button(bf, text="Restore PP", width=12, command=lambda vv=v: self._restore_pp(vv)).pack(pady=2)
 
-        ivf = ttk.LabelFrame(e, text="IVs  (0–31)", padding=6)
+        df = ttk.LabelFrame(e, text="Pokedex", padding=6)
+        df.grid(row=0, column=3, rowspan=3, sticky="nsew", padx=4, pady=4)
+        v["dex_sprite"] = ttk.Label(df, width=14, anchor="center")
+        v["dex_sprite"].grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 4))
+        for row, (key, lbl) in enumerate([
+            ("dex_name", "Species"),
+            ("dex_types", "Type"),
+            ("dex_kind", "Kind"),
+            ("dex_size", "Size"),
+            ("dex_color_habitat", "Color/Habitat"),
+            ("dex_abilities", "Abilities"),
+        ], start=1):
+            v[key] = tk.StringVar(value="-")
+            ttk.Label(df, text=lbl + ":", width=12, anchor="e").grid(row=row, column=0, sticky="e", pady=1)
+            ttk.Label(df, textvariable=v[key], width=28, anchor="w", wraplength=220).grid(row=row, column=1, sticky="w", pady=1)
+        v["dex_entry"] = tk.StringVar(value="-")
+        ttk.Label(df, textvariable=v["dex_entry"], wraplength=300, justify="left").grid(
+            row=7, column=0, columnspan=2, sticky="ew", pady=(6, 0)
+        )
+
+        ivf = ttk.LabelFrame(e, text="IVs  (0-31)", padding=6)
         ivf.grid(row=1, column=0, sticky="ew", padx=4, pady=4)
         for i, stat in enumerate(STATS):
             v["iv_"+stat.lower()] = tk.StringVar()
@@ -525,6 +676,7 @@ class Editor(tk.Tk):
 
         e.columnconfigure(0, weight=1)
         e.columnconfigure(1, weight=1)
+        e.columnconfigure(3, weight=1)
         v["_pkmn_obj"] = None
 
         add_btn = ttk.Button(parent, text="+ Add Pokémon to this slot",
@@ -546,17 +698,17 @@ class Editor(tk.Tk):
         for stat in STATS: v["ev_"+stat.lower()].set("0")
 
     def _restore_pp(self, v):
-        pkmn = v.get("_pkmn_obj")
-        if isinstance(pkmn, RubyObject):
-            self._restore_pp_from_obj(v, pkmn)
+        self._restore_pp_from_obj(v, None)
 
     def _restore_pp_from_obj(self, v, pkmn):
-        moves = pkmn.attributes.get("@moves", [])
         for i in range(4):
-            if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
-                totalpp = moves[i].attributes.get("@totalpp", 0)
-                if totalpp:
-                    v[f"movepp{i}"].set(str(totalpp))
+            try:
+                mid = int(v[f"move{i}"].get() or 0)
+            except (ValueError, KeyError):
+                mid = 0
+            max_pp = MOVE_DATA.get(mid, {}).get("pp", 0)
+            if max_pp:
+                v[f"movepp{i}"].set(str(max_pp))
 
 
     def _open_pkmn_picker(self, callback):
@@ -951,10 +1103,28 @@ class Editor(tk.Tk):
                         value=str(iv[j] if isinstance(iv, list) and j < len(iv) else 0))
                     ttk.Label(ip, text=stat, width=4).grid(row=1, column=j)
                     ttk.Entry(ip, textvariable=sv["iv_"+stat.lower()], width=3).grid(row=2, column=j)
+                ev = a.get("@ev", [])
+                ttk.Label(ip, text="EVs:", font=("", 8, "bold")).grid(row=3, column=0, columnspan=6, pady=(4, 0))
+                for j, stat in enumerate(STATS):
+                    sv["ev_"+stat.lower()] = tk.StringVar(
+                        value=str(ev[j] if isinstance(ev, list) and j < len(ev) else 0))
+                    ttk.Label(ip, text=stat, width=4).grid(row=4, column=j)
+                    ttk.Entry(ip, textvariable=sv["ev_"+stat.lower()], width=3).grid(row=5, column=j)
 
                 sv["_pkmn_obj"] = pkmn
                 ttk.Button(bp, text="Max IVs", width=8, command=lambda vv=sv: self._max_ivs(vv)).pack(pady=2)
+                ttk.Button(bp, text="Zero EVs", width=8, command=lambda vv=sv: self._zero_evs(vv)).pack(pady=2)
                 ttk.Button(bp, text="Heal",    width=8, command=lambda vv=sv: self._heal_slot(vv)).pack(pady=2)
+                ttk.Separator(bp, orient="horizontal").pack(fill="x", pady=4)
+                ttk.Button(bp, text="Move",    width=8,
+                           command=lambda b=bi, s=si, bx=box, pk=pkmn: self._move_box_pokemon(b, s, bx, pk)
+                           ).pack(pady=2)
+                ttk.Button(bp, text="Delete",  width=8,
+                           command=lambda b=bi, s=si, bx=box: self._delete_box_pokemon(b, s, bx)
+                           ).pack(pady=2)
+
+                dp = self._make_pokemon_dex_panel(sf, sp if isinstance(sp, int) else 0, a.get("@form", 0), compact=True)
+                dp.pack(side="left", padx=4, fill="y")
 
                 # Moves panel
                 mp = ttk.LabelFrame(sf, text="Moves", padding=4)
@@ -1126,7 +1296,7 @@ class Editor(tk.Tk):
                 if isinstance(p, RubyObject): return p
         return None
 
-    def _create_pokemon_obj(self, species_id: int, level: int = None, moves: list = None) -> RubyObject:
+    def _create_pokemon_obj(self, species_id: int, level: int = None, moves: list = None, evs: list = None) -> RubyObject:
         d      = PKMN_DATA.get(species_id, {})
         stage  = d.get("stage",  "1")
         rarity = d.get("rarity", "Common")
@@ -1146,9 +1316,10 @@ class Editor(tk.Tk):
         iv_spa = min(31, spa_b // 4)
         iv_spd = min(31, spd_b // 4)
         iv_spe = min(31, spe_b // 4)
+        ev_hp, ev_atk, ev_def, ev_spa, ev_spd, ev_spe = _sanitize_evs(evs or [0, 0, 0, 0, 0, 0])
 
-        total_hp = (2 * hp_b + iv_hp)  * level // 100 + level + 10
-        def calc(b, iv): return (2 * b + iv) * level // 100 + 5
+        total_hp = (2 * hp_b + iv_hp + ev_hp // 4)  * level // 100 + level + 10
+        def calc(b, iv, ev): return (2 * b + iv + ev // 4) * level // 100 + 5
 
         name_str = d.get("name", f"#{species_id}")
         growth   = d.get("growth", "medium-fast")
@@ -1188,11 +1359,11 @@ class Editor(tk.Tk):
         a["@personalID"]   = pid
         a["@hp"]           = total_hp
         a["@totalhp"]      = total_hp
-        a["@attack"]       = calc(atk_b, iv_atk)
-        a["@defense"]      = calc(def_b, iv_def)
-        a["@spatk"]        = calc(spa_b, iv_spa)
-        a["@spdef"]        = calc(spd_b, iv_spd)
-        a["@speed"]        = calc(spe_b, iv_spe)
+        a["@attack"]       = calc(atk_b, iv_atk, ev_atk)
+        a["@defense"]      = calc(def_b, iv_def, ev_def)
+        a["@spatk"]        = calc(spa_b, iv_spa, ev_spa)
+        a["@spdef"]        = calc(spd_b, iv_spd, ev_spd)
+        a["@speed"]        = calc(spe_b, iv_spe, ev_spe)
         a["@exp"]          = exp
         a["@item"]         = 0
         a["@happiness"]    = 70
@@ -1205,7 +1376,7 @@ class Editor(tk.Tk):
         a["@obtainText"]   = None
         a["@timeReceived"] = int(time.time())
         a["@iv"]           = [iv_hp, iv_atk, iv_def, iv_spa, iv_spd, iv_spe]
-        a["@ev"]           = [0, 0, 0, 0, 0, 0]
+        a["@ev"]           = [ev_hp, ev_atk, ev_def, ev_spa, ev_spd, ev_spe]
         a["@form"]         = 0
         a["@abilityflag"]  = 0
         a["@trainerID"]    = combined_id
@@ -1428,6 +1599,104 @@ class Editor(tk.Tk):
 
     # ── move browser (change existing move) ──────────────────────────────────
 
+    def _open_ev_picker(self, species_id: int, callback):
+        """EV selection popup. callback([hp, atk, def, spa, spd, spe]) on confirm."""
+        d = PKMN_DATA.get(species_id, {})
+        name = d.get("name", f"#{species_id}")
+
+        win = tk.Toplevel(self)
+        win.title(f"Choose EVs - {name}")
+        win.geometry("520x320")
+        win.resizable(False, False)
+        win.grab_set()
+
+        ttk.Label(win, text=f"EV spread for {name}", font=("", 10, "bold"),
+                  padding=(10, 10, 10, 4)).pack(anchor="w")
+
+        body = ttk.Frame(win, padding=(10, 0, 10, 8))
+        body.pack(fill="both", expand=True)
+
+        left = ttk.LabelFrame(body, text="Preset", padding=6)
+        left.pack(side="left", fill="y", padx=(0, 8))
+
+        preset_var = tk.StringVar(value="Fresh / zero EVs")
+        for preset in EV_PRESETS:
+            ttk.Radiobutton(left, text=preset, value=preset, variable=preset_var).pack(anchor="w", pady=2)
+
+        right = ttk.LabelFrame(body, text="Values", padding=8)
+        right.pack(side="left", fill="both", expand=True)
+
+        ev_vars = []
+        for i, stat in enumerate(STATS):
+            ttk.Label(right, text=stat, width=5).grid(row=0, column=i, padx=2)
+            var = tk.StringVar(value="0")
+            ttk.Entry(right, textvariable=var, width=5).grid(row=1, column=i, padx=2, pady=2)
+            ev_vars.append(var)
+
+        total_var = tk.StringVar(value="Total: 0 / 510")
+        total_lbl = ttk.Label(right, textvariable=total_var)
+        total_lbl.grid(row=2, column=0, columnspan=6, sticky="w", pady=(8, 0))
+        syncing_preset = {"active": False}
+
+        ttk.Label(right, text="Each stat is clamped to 0-252. Total must be 510 or less.",
+                  foreground="gray", wraplength=290).grid(row=3, column=0, columnspan=6, sticky="w", pady=(8, 0))
+
+        btn_row = ttk.Frame(win, padding=(10, 0, 10, 10))
+        btn_row.pack(fill="x")
+        ttk.Button(btn_row, text="Confirm", command=lambda: _confirm()).pack(side="right", padx=4)
+        ttk.Button(btn_row, text="Cancel", command=win.destroy).pack(side="right")
+
+        def _raw_values():
+            values = []
+            for var in ev_vars:
+                try:
+                    values.append(int(var.get() or 0))
+                except ValueError:
+                    values.append(0)
+            return values
+
+        def _refresh_total(*_):
+            values = _raw_values()
+            total = sum(values)
+            ok = total <= 510 and all(0 <= v <= 252 for v in values)
+            total_var.set(f"Total: {total} / 510")
+            total_lbl.configure(foreground=("black" if ok else "red"))
+
+        def _apply_preset(*_):
+            preset = preset_var.get()
+            if preset == "Custom":
+                return
+            syncing_preset["active"] = True
+            for var, val in zip(ev_vars, EV_PRESETS[preset]):
+                var.set(str(val))
+            syncing_preset["active"] = False
+            _refresh_total()
+
+        def _mark_custom(*_):
+            if syncing_preset["active"]:
+                _refresh_total()
+                return
+            preset = preset_var.get()
+            if preset != "Custom" and _raw_values() != EV_PRESETS.get(preset, []):
+                preset_var.set("Custom")
+            _refresh_total()
+
+        def _confirm():
+            values = _raw_values()
+            if any(v < 0 or v > 252 for v in values) or sum(values) > 510:
+                messagebox.showerror(
+                    "Invalid EV spread",
+                    "EVs must be 0-252 per stat and 510 total or less.",
+                    parent=win)
+                return
+            win.destroy()
+            callback(_sanitize_evs(values))
+
+        preset_var.trace_add("write", _apply_preset)
+        for var in ev_vars:
+            var.trace_add("write", _mark_custom)
+        _apply_preset()
+
     def _update_move_vars(self, v: dict, move_idx: int, move_id: int):
         m = MOVE_DATA.get(move_id, {})
         v[f"move{move_idx}"].set(str(move_id))
@@ -1569,38 +1838,184 @@ class Editor(tk.Tk):
             messagebox.showerror("No save loaded", "Load a save file first."); return
         def on_pick(sid):
             def on_moves(level, moves):
-                party = self.trainer.attributes.setdefault("@party", [])
-                while len(party) <= slot:
-                    party.append(None)
-                party[slot] = self._create_pokemon_obj(sid, level=level, moves=moves)
-                self._fill_party()
-                name = PKMN_DATA.get(sid, {}).get("name", f"#{sid}")
-                self.status.config(
-                    text=f"Added {name} to party slot {slot+1}. Click Save to write.",
-                    foreground="blue")
+                def on_evs(evs):
+                    party = self.trainer.attributes.setdefault("@party", [])
+                    while len(party) <= slot:
+                        party.append(None)
+                    party[slot] = self._create_pokemon_obj(sid, level=level, moves=moves, evs=evs)
+                    self._fill_party()
+                    name = PKMN_DATA.get(sid, {}).get("name", f"#{sid}")
+                    self.status.config(
+                        text=f"Added {name} to party slot {slot+1}. Click Save to write.",
+                        foreground="blue")
+                self._open_ev_picker(sid, on_evs)
             self._open_move_picker(sid, on_moves)
         self._open_pokemon_picker(on_pick)
+
+    def _delete_box_pokemon(self, bi: int, si: int, box: RubyObject):
+        pokemon_list = box.attributes.get("@pokemon", [])
+        if not (si < len(pokemon_list) and isinstance(pokemon_list[si], RubyObject)):
+            return
+        a    = pokemon_list[si].attributes
+        nick = ds(a.get("@name", b"")) or f"Species#{a.get('@species', '?')}"
+        if not messagebox.askyesno("Delete Pokémon",
+                f"Permanently delete {nick}?\nThis cannot be undone.", icon="warning"):
+            return
+        pokemon_list[si] = None
+        self._populate_boxes()
+        self.boxes_nb.select(bi)
+        self.status.config(
+            text=f"Deleted {nick} from Box {bi+1} Slot {si}. Click Save to write.",
+            foreground="blue")
+
+    def _move_box_pokemon(self, bi: int, si: int, box: RubyObject, pkmn: RubyObject):
+        a    = pkmn.attributes
+        nick = ds(a.get("@name", b"")) or f"Species#{a.get('@species', '?')}"
+
+        if not isinstance(self.storage, RubyObject): return
+        boxes  = self.storage.attributes.get("@boxes", [])
+        party  = self.trainer.attributes.get("@party", [])
+
+        dlg = tk.Toplevel(self)
+        dlg.title(f"Move {nick}")
+        dlg.geometry("420x300")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        ttk.Label(dlg, text=f"Move  {nick}", font=("", 10, "bold"),
+                  padding=(0, 6, 0, 4)).pack()
+
+        # ── Send to Party ────────────────────────────────────────────────────
+        pf = ttk.LabelFrame(dlg, text="Send to Party Slot", padding=8)
+        pf.pack(fill="x", padx=10, pady=(4, 6))
+
+        def _party_label(ps):
+            if ps < len(party) and isinstance(party[ps], RubyObject):
+                pa  = party[ps].attributes
+                pnm = ds(pa.get("@name", b"")) or f"Species#{pa.get('@species','?')}"
+                return f"Slot {ps+1}: {pnm}"
+            return f"Slot {ps+1}: (empty)"
+
+        party_labels = [_party_label(ps) for ps in range(6)]
+        party_var = tk.StringVar(value=party_labels[0])
+        ttk.Combobox(pf, textvariable=party_var, values=party_labels,
+                     width=26, state="readonly").pack(side="left", padx=(0, 8))
+        ttk.Button(pf, text="Send", command=lambda: _to_party()).pack(side="left")
+
+        # ── Send to Box ──────────────────────────────────────────────────────
+        bf2 = ttk.LabelFrame(dlg, text="Send to Box", padding=8)
+        bf2.pack(fill="x", padx=10, pady=(0, 6))
+
+        box_labels = []
+        for b2i, b2 in enumerate(boxes):
+            bname = ds(b2.attributes.get("@name", f"Box {b2i+1}")) if isinstance(b2, RubyObject) else f"Box {b2i+1}"
+            box_labels.append(bname)
+
+        dest_box_var  = tk.StringVar(value=box_labels[bi] if box_labels else "")
+        dest_slot_var = tk.StringVar()
+
+        ttk.Label(bf2, text="Box:").pack(side="left")
+        ttk.Combobox(bf2, textvariable=dest_box_var, values=box_labels,
+                     width=12, state="readonly").pack(side="left", padx=(2, 10))
+        ttk.Label(bf2, text="Slot:").pack(side="left")
+        slot_cb = ttk.Combobox(bf2, textvariable=dest_slot_var, width=22, state="readonly")
+        slot_cb.pack(side="left", padx=(2, 8))
+        ttk.Button(bf2, text="Send", command=lambda: _to_box()).pack(side="left")
+
+        def _refresh_slots(*_):
+            dest_bi = box_labels.index(dest_box_var.get()) if dest_box_var.get() in box_labels else 0
+            b2      = boxes[dest_bi] if dest_bi < len(boxes) else None
+            blist   = b2.attributes.get("@pokemon", []) if isinstance(b2, RubyObject) else []
+            n_slots = max(len(blist), 30)
+            names   = []
+            for s2i in range(n_slots):
+                if s2i < len(blist) and isinstance(blist[s2i], RubyObject):
+                    pa2  = blist[s2i].attributes
+                    snm  = ds(pa2.get("@name", b"")) or f"Species#{pa2.get('@species','?')}"
+                    names.append(f"Slot {s2i}: {snm}")
+                else:
+                    names.append(f"Slot {s2i}: (empty)")
+            slot_cb["values"] = names
+            dest_slot_var.set(names[0] if names else "")
+
+        dest_box_var.trace_add("write", _refresh_slots)
+        _refresh_slots()
+
+        ttk.Button(dlg, text="Cancel", command=dlg.destroy).pack(pady=(2, 8))
+
+        # ── Actions ──────────────────────────────────────────────────────────
+        def _to_party():
+            ps       = party_labels.index(party_var.get())
+            src_list = box.attributes.get("@pokemon", [])
+            occupied = ps < len(party) and isinstance(party[ps], RubyObject)
+            if occupied:
+                pa   = party[ps].attributes
+                pnm  = ds(pa.get("@name", b"")) or f"Species#{pa.get('@species','?')}"
+                if not messagebox.askyesno("Swap Pokémon",
+                        f"Party Slot {ps+1} has {pnm}.\n"
+                        f"Send {pnm} to Box {bi+1} Slot {si} and move {nick} to party?",
+                        parent=dlg):
+                    return
+                src_list[si] = party[ps]
+            else:
+                while len(party) <= ps: party.append(None)
+                src_list[si] = None
+            party[ps] = pkmn
+            dlg.destroy()
+            self._fill_party()
+            self._populate_boxes()
+            self.boxes_nb.select(bi)
+            self.status.config(
+                text=f"Moved {nick} to Party Slot {ps+1}. Click Save to write.",
+                foreground="blue")
+
+        def _to_box():
+            dest_bi  = box_labels.index(dest_box_var.get()) if dest_box_var.get() in box_labels else 0
+            dest_si  = list(slot_cb["values"]).index(dest_slot_var.get())
+            if dest_bi == bi and dest_si == si:
+                messagebox.showinfo("Same slot", "Select a different destination.", parent=dlg)
+                return
+            src_list  = box.attributes.get("@pokemon", [])
+            dest_b    = boxes[dest_bi]
+            dest_list = dest_b.attributes.get("@pokemon", []) if isinstance(dest_b, RubyObject) else []
+            while len(dest_list) <= dest_si: dest_list.append(None)
+            if isinstance(dest_list[dest_si], RubyObject):
+                dest_list[dest_si], src_list[si] = pkmn, dest_list[dest_si]
+            else:
+                dest_list[dest_si] = pkmn
+                src_list[si] = None
+            if isinstance(dest_b, RubyObject):
+                dest_b.attributes["@pokemon"] = dest_list
+            self.storage.attributes["@currentBox"] = dest_bi
+            dlg.destroy()
+            self._populate_boxes()
+            self.boxes_nb.select(dest_bi)
+            self.status.config(
+                text=f"Moved {nick} to Box {dest_bi+1} Slot {dest_si}. Click Save to write.",
+                foreground="blue")
 
     def _add_to_box_slot(self, box_idx: int, slot_idx: int, box: RubyObject):
         if not self.trainer:
             messagebox.showerror("No save loaded", "Load a save file first."); return
         def on_pick(sid):
             def on_moves(level, moves):
-                pokemon_list = box.attributes.get("@pokemon", [])
-                while len(pokemon_list) <= slot_idx:
-                    pokemon_list.append(None)
-                pokemon_list[slot_idx] = self._create_pokemon_obj(sid, level=level, moves=moves)
-                box.attributes["@pokemon"] = pokemon_list
-                # Point the PC to this box so it opens here directly, avoiding
-                # pbSwitchBoxToRight which can crash on nil slots in previously-empty boxes.
-                if isinstance(self.storage, RubyObject):
-                    self.storage.attributes["@currentBox"] = box_idx
-                self._populate_boxes()
-                self.boxes_nb.select(box_idx)
-                name = PKMN_DATA.get(sid, {}).get("name", f"#{sid}")
-                self.status.config(
-                    text=f"Added {name} to box {box_idx+1}. PC will open at this box. Click Save to write.",
-                    foreground="blue")
+                def on_evs(evs):
+                    pokemon_list = box.attributes.get("@pokemon", [])
+                    while len(pokemon_list) <= slot_idx:
+                        pokemon_list.append(None)
+                    pokemon_list[slot_idx] = self._create_pokemon_obj(sid, level=level, moves=moves, evs=evs)
+                    box.attributes["@pokemon"] = pokemon_list
+                    # Point the PC to this box so it opens here directly, avoiding
+                    # pbSwitchBoxToRight which can crash on nil slots in previously-empty boxes.
+                    if isinstance(self.storage, RubyObject):
+                        self.storage.attributes["@currentBox"] = box_idx
+                    self._populate_boxes()
+                    self.boxes_nb.select(box_idx)
+                    name = PKMN_DATA.get(sid, {}).get("name", f"#{sid}")
+                    self.status.config(
+                        text=f"Added {name} to box {box_idx+1}. PC will open at this box. Click Save to write.",
+                        foreground="blue")
+                self._open_ev_picker(sid, on_evs)
             self._open_move_picker(sid, on_moves)
         self._open_pokemon_picker(on_pick)
 
@@ -1775,6 +2190,8 @@ class Editor(tk.Tk):
                         v[f"move{i}"].set("0"); v[f"move{i}_name"].set("—")
                         v[f"movepp{i}"].set("0"); v[f"move{i}_maxpp"].set("/0")
                 sp    = a.get("@species", slot+1)
+                form  = a.get("@form", 0)
+                self._set_pokemon_dex_vars(v, sp, form if isinstance(form, int) else 0)
                 nick  = ds(a.get("@name", b""))
                 label = (nick or f"Species#{sp}") + f" [#{sp}]"
                 self.party_nb.tab(slot, text=f" {label[:16]} ")
@@ -1786,6 +2203,9 @@ class Editor(tk.Tk):
                 for key, val in v.items():
                     if isinstance(val, (tk.StringVar, tk.BooleanVar)):
                         val.set("")
+                if v.get("dex_sprite"):
+                    v["dex_sprite"].configure(image="", text="")
+                    v["dex_sprite"].image = None
                 v["editor_frame"].pack_forget()
                 v["add_btn"].pack(expand=True, pady=100)
 
@@ -1828,7 +2248,7 @@ class Editor(tk.Tk):
                 if isinstance(iv, list) and j < len(iv): iv[j] = min(31,  max(0, gi(f"iv_{key}")))
                 if isinstance(ev, list) and j < len(ev): ev[j] = min(252, max(0, gi(f"ev_{key}")))
             a["@form"] = max(0, min(gi("form"), 99))
-            a["@iv"] = iv; a["@ev"] = ev
+            a["@iv"] = iv; a["@ev"] = _sanitize_evs(ev)
 
             old_pid = a.get("@personalID", 0) or 0
             old_nat = NATURES[old_pid % 25] if old_pid else ""
@@ -1915,10 +2335,14 @@ class Editor(tk.Tk):
                 if "@abilityflag" in a: a["@abilityflag"] = ab
 
                 iv = a.get("@iv", [0]*6)
+                ev = a.get("@ev", [0]*6)
                 for j, stat in enumerate(STATS):
                     if isinstance(iv, list) and j < len(iv):
                         iv[j] = min(31, max(0, gi("iv_"+stat.lower())))
+                    if isinstance(ev, list) and j < len(ev):
+                        ev[j] = min(252, max(0, gi("ev_"+stat.lower())))
                 a["@iv"] = iv
+                a["@ev"] = _sanitize_evs(ev)
 
                 moves = a.get("@moves", [])
                 for i in range(4):
