@@ -905,7 +905,6 @@ class Editor(tk.Tk):
         self.bag_inner = ttk.Frame(canvas)
         win = canvas.create_window((0, 0), window=self.bag_inner, anchor="nw")
         self.bag_inner.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.bind("<Configure>", lambda e: canvas.itemconfig(win, width=e.width))
         self._make_scrollable(canvas)
         self.bag_canvas = canvas
 
@@ -925,10 +924,10 @@ class Editor(tk.Tk):
             pname = POCKET_NAMES[pi] if pi < len(POCKET_NAMES) else f"Pocket {pi}"
             if not isinstance(pocket, list) or not pocket:
                 continue
-            header = ttk.Frame(self.bag_inner, padding=(4, 8, 4, 2))
+            header = ttk.Frame(self.bag_inner, padding=(4, 5, 4, 1))
             header.grid(row=grid_row, column=0, columnspan=5, sticky="ew")
             ttk.Label(header, text=pname, font=("", 10, "bold")).pack(side="left")
-            ttk.Label(header, text=f"{len(pocket)} item slots", foreground="gray").pack(side="left", padx=8)
+            ttk.Label(header, text=f"{len(pocket)} item slots", foreground="gray").pack(side="left", padx=6)
             grid_row += 1
 
             for ei, entry in enumerate(pocket):
@@ -946,7 +945,7 @@ class Editor(tk.Tk):
                 name_var = tk.StringVar(value=item_display_name(internet_id))
 
                 icon_label = ttk.Label(self.bag_inner, width=3, anchor="center")
-                icon_label.grid(row=grid_row, column=0, padx=(6, 1), pady=2)
+                icon_label.grid(row=grid_row, column=0, padx=(4, 1), pady=0)
 
                 def _set_icon(label, item_id):
                     icon = self._load_item_icon(item_id, max_size=28)
@@ -971,15 +970,15 @@ class Editor(tk.Tk):
                     self.bag_inner,
                     lambda iv=id_var: self._show_item_info(int(iv.get() or 0))
                 )
-                info_btn.grid(row=grid_row, column=1, padx=(0, 2), pady=1)
+                info_btn.grid(row=grid_row, column=1, padx=(0, 2), pady=0)
 
-                ttk.Label(self.bag_inner, textvariable=name_var, width=30, anchor="w").grid(
-                    row=grid_row, column=2, padx=(0, 4), pady=2, sticky="w")
-                ttk.Entry(self.bag_inner, textvariable=qty_var, width=7).grid(
-                    row=grid_row, column=3, padx=4, pady=2)
+                ttk.Label(self.bag_inner, textvariable=name_var, anchor="w").grid(
+                    row=grid_row, column=2, padx=(0, 2), pady=0, sticky="w")
+                ttk.Entry(self.bag_inner, textvariable=qty_var, width=6).grid(
+                    row=grid_row, column=3, padx=2, pady=0)
                 ttk.Button(self.bag_inner, text="Change", width=7,
                            command=lambda iv=id_var, nv=name_var: self._open_item_picker(iv, nv)).grid(
-                    row=grid_row, column=4, padx=4, pady=2)
+                    row=grid_row, column=4, padx=(2, 4), pady=0)
 
                 self.bag_rows.append((pi, ei, id_var, qty_var))
                 grid_row += 1
@@ -987,22 +986,23 @@ class Editor(tk.Tk):
         # Add-item section
         ttk.Separator(self.bag_inner, orient="horizontal").grid(
             row=grid_row, column=0, columnspan=5, sticky="ew", pady=4); grid_row += 1
-        ttk.Label(self.bag_inner, text="Add item:", font=("", 9, "bold")).grid(
-            row=grid_row, column=0, sticky="w", padx=4); grid_row += 1
 
-        self._add_item_id = tk.StringVar()
-        self._add_qty     = tk.StringVar(value="99")
-        for col, lbl in enumerate(["Item", "Qty"]):
-            ttk.Label(self.bag_inner, text=lbl, width=10).grid(row=grid_row, column=col, padx=4)
-        grid_row += 1
+        add_frame = ttk.Frame(self.bag_inner)
+        add_frame.grid(row=grid_row, column=0, columnspan=5, sticky="w", padx=4, pady=(0, 4))
+
+        self._add_item_id   = tk.StringVar()
+        self._add_qty       = tk.StringVar(value="99")
         self._add_item_name = tk.StringVar(value="Choose an item...")
-        ttk.Label(self.bag_inner, textvariable=self._add_item_name, width=34, anchor="w", relief="sunken").grid(
-            row=grid_row, column=0, padx=4, pady=2, sticky="w")
-        ttk.Entry(self.bag_inner, textvariable=self._add_qty, width=10).grid(row=grid_row, column=1, padx=4, pady=2)
-        ttk.Button(self.bag_inner, text="Add", command=self._add_bag_item).grid(row=grid_row, column=2, padx=4)
-        ttk.Button(self.bag_inner, text="Browse...",
+
+        ttk.Label(add_frame, text="Add item:", font=("", 9, "bold")).grid(
+            row=0, column=0, columnspan=4, sticky="w", pady=(0, 2))
+        ttk.Label(add_frame, textvariable=self._add_item_name, width=24, anchor="w", relief="sunken").grid(
+            row=1, column=0, padx=(0, 4))
+        ttk.Entry(add_frame, textvariable=self._add_qty, width=6).grid(row=1, column=1, padx=(0, 4))
+        ttk.Button(add_frame, text="Browse...",
                    command=lambda: self._open_item_picker(self._add_item_id, self._add_item_name)).grid(
-            row=grid_row, column=3, padx=4)
+            row=1, column=2, padx=(0, 4))
+        ttk.Button(add_frame, text="Add", command=self._add_bag_item).grid(row=1, column=3)
 
     def _add_bag_item(self):
         try:
