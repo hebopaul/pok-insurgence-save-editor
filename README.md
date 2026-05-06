@@ -1,6 +1,6 @@
 # Pokémon Insurgence Save Editor
 
-A desktop GUI for editing `Game.rxdata` save files from [Pokémon Insurgence](https://pokemon-insurgence.com/).
+A desktop GUI for editing `Game.rxdata` save files from [Pokémon Insurgence](https://pokemon-insurgence.com/), made with the help of coding AI agents.
 
 ---
 
