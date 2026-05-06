@@ -175,55 +175,75 @@ def _load_pokemon_data():
     return data
 
 # Pocket 0 = unused, 1 = Items, 2 = Medicine, 3 = Balls, 4 = TMs, 5 = Berries,
-# 6 = Mail, 7 = Battle Items, 8 = Key Items
+# 6 = Mail, 7 = Clothes/Mail depending on save data, 8 = Key Items
 POCKET_NAMES = ["Pocket 0","Items","Medicine","Poke Balls","TMs & HMs",
-                "Berries","Mail","Battle Items","Key Items","Pocket 9"]
+                "Berries","Mail","Clothes","Key Items","Pocket 9"]
 
 # ── item data ─────────────────────────────────────────────────────────────────
 
-def _item_category(iid: int, name: str) -> str:
-    n = name
-    nl = name.lower()
-    if n.startswith(("TM", "HM", "RB:", "AB:")):
-        return "TMs & HMs"
-    if nl.endswith("berry"):
-        return "Berries"
-    if nl.endswith("ball"):
-        return "Poke Balls"
-    if nl.endswith("mail"):
-        return "Mail"
-    if nl.endswith("ite") and iid > 1200:
-        return "Mega Stones"
-    if 435 <= iid <= 527:
-        return "Medicine"
-    if 931 <= iid <= 999:
-        return "Battle Items"
-    if iid >= 1001:
-        return "Key Items"
-    if iid <= 433:
-        return "Hold Items"
-    return "Items"
-
 def _load_item_data():
-    item_file = resource_path("item_ids.txt")
+    item_file = resource_path("item_data.txt")
+    if not os.path.exists(item_file):
+        item_file = resource_path("item_ids.txt")
+    data:  dict[int, dict] = {}
     names: dict[int, str] = {}
     cats:  dict[int, str] = {}
     if not os.path.exists(item_file):
-        return names, cats
+        return data, names, cats
     with open(item_file, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if not line or line.startswith("#"):
                 continue
-            m = re.match(r'^(?:\d+\.\s+)?(\d+)\s*\|\s*(.+)$', line)
-            if m:
-                iid  = int(m.group(1))
-                name = m.group(2).strip()
+            parts = [p.strip() for p in line.split("|")]
+            try:
+                iid = int(parts[0])
+            except (ValueError, IndexError):
+                continue
+            if len(parts) >= 12:
+                name = parts[2]
+                data[iid] = {
+                    "id": iid,
+                    "source_id": int(parts[1]) if parts[1].isdigit() else (iid - 1) // 2,
+                    "name": name,
+                    "pocket": parts[3],
+                    "price": int(parts[4]) if parts[4].isdigit() else 0,
+                    "description": parts[5],
+                    "field_use": parts[6],
+                    "battle_use": parts[7],
+                    "item_type": parts[8],
+                    "move_id": int(parts[9]) if parts[9].isdigit() else 0,
+                    "machine_type": int(parts[10]) if parts[10].isdigit() else 100,
+                    "machine_category": int(parts[11]) if parts[11].isdigit() else 101,
+                }
                 names[iid] = name
-                cats[iid]  = _item_category(iid, name)
-    return names, cats
+                cats[iid] = parts[3]
+            elif len(parts) >= 11:
+                name = parts[1]
+                data[iid] = {
+                    "id": iid,
+                    "source_id": (iid - 1) // 2,
+                    "name": name,
+                    "pocket": parts[2],
+                    "price": int(parts[3]) if parts[3].isdigit() else 0,
+                    "description": parts[4],
+                    "field_use": parts[5],
+                    "battle_use": parts[6],
+                    "item_type": parts[7],
+                    "move_id": int(parts[8]) if parts[8].isdigit() else 0,
+                    "machine_type": int(parts[9]) if parts[9].isdigit() else 100,
+                    "machine_category": int(parts[10]) if parts[10].isdigit() else 101,
+                }
+                names[iid] = name
+                cats[iid] = parts[2]
+            elif len(parts) >= 2:
+                name = parts[1]
+                data[iid] = {"id": iid, "name": name, "pocket": "Items", "description": ""}
+                names[iid] = name
+                cats[iid] = "Items"
+    return data, names, cats
 
-ITEM_NAMES, ITEM_CATS = _load_item_data()
+ITEM_DATA, ITEM_NAMES, ITEM_CATS = _load_item_data()
 ITEM_CAT_LIST = ["All"] + sorted(set(ITEM_CATS.values()))
 PKMN_DATA = _load_pokemon_data()
 POKEMON_DATA = {
@@ -321,14 +341,12 @@ def item_display_name(internet_id: int) -> str:
 
 _CAT_TO_POCKET = {
     "Items":        1,
-    "Hold Items":   1,
-    "Mega Stones":  1,
     "Medicine":     2,
     "Poke Balls":   3,
     "TMs & HMs":    4,
     "Berries":      5,
     "Mail":         6,
-    "Battle Items": 7,
+    "Clothes":      7,
     "Key Items":    8,
 }
 
@@ -384,6 +402,7 @@ class Editor(tk.Tk):
         self.box_vars   = []
         self._scroll_canvases: set = set()
         self._pokemon_sprite_cache = {}
+        self._item_icon_cache = {}
 
         self._build_ui()
         self.bind_all("<MouseWheel>", self._on_mousewheel)
@@ -487,6 +506,86 @@ class Editor(tk.Tk):
             row=5, column=0, columnspan=2, sticky="w", pady=(4, 0)
         )
         return frame
+
+    def _item_icon_paths(self, item_id: int) -> list:
+        source_id = ITEM_DATA.get(item_id, {}).get("source_id", (item_id - 1) // 2 if item_id else 0)
+        names = [f"item{source_id:03d}.png", f"item{source_id:04d}.png", "item000.png"]
+        dirs = [
+            resource_path(os.path.join("game_resources", "Graphics", "Icons")),
+            os.path.join(r"G:\Games\Insurgence\Pokemon Insurgence 1.2.7 Core", "Graphics", "Icons"),
+        ]
+        return [os.path.join(base, name) for base in dirs for name in names]
+
+    def _load_item_icon(self, item_id: int, max_size: int = 32):
+        for path in self._item_icon_paths(item_id):
+            if not os.path.exists(path):
+                continue
+            key = (path, max_size)
+            if key in self._item_icon_cache:
+                return self._item_icon_cache[key]
+            try:
+                img = tk.PhotoImage(file=path)
+                scale = max(1, math.ceil(max(img.width(), img.height()) / max_size))
+                if scale > 1:
+                    img = img.subsample(scale, scale)
+                self._item_icon_cache[key] = img
+                return img
+            except Exception:
+                continue
+        return None
+
+    def _show_item_info(self, item_id: int):
+        data = ITEM_DATA.get(item_id, {"name": item_display_name(item_id), "description": ""})
+        win = tk.Toplevel(self)
+        win.title(data.get("name", f"Item #{item_id}"))
+        win.geometry("460x330")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+
+        top = ttk.Frame(win, padding=12)
+        top.pack(fill="x")
+        icon = self._load_item_icon(item_id, max_size=48)
+        icon_label = ttk.Label(top, image=icon if icon else "", text="" if icon else "(no icon)", width=8, anchor="center")
+        icon_label.image = icon
+        icon_label.pack(side="left", padx=(0, 12))
+
+        title = ttk.Frame(top)
+        title.pack(side="left", fill="x", expand=True)
+        ttk.Label(title, text=data.get("name", f"Item #{item_id}"), font=("", 12, "bold")).pack(anchor="w")
+        ttk.Label(title, text=data.get("pocket", ""), foreground="gray").pack(anchor="w")
+
+        body = ttk.Frame(win, padding=(12, 0, 12, 8))
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text=data.get("description", "") or "No description available.", wraplength=420, justify="left").pack(
+            anchor="w", fill="x", pady=(0, 10)
+        )
+
+        details = [
+            ("Price", f"${data.get('price', 0)}" if data.get("price", 0) else "-"),
+            ("Field use", data.get("field_use", "-")),
+            ("Battle use", data.get("battle_use", "-")),
+            ("Type", data.get("item_type", "-")),
+        ]
+        move_id = data.get("move_id", 0)
+        if move_id:
+            move_name = MOVE_DATA.get(move_id, {}).get("name", f"Move #{move_id}")
+            details.append(("Teaches", f"{move_name} (#{move_id})"))
+        grid = ttk.Frame(body)
+        grid.pack(anchor="w", fill="x")
+        for row, (label, value) in enumerate(details):
+            ttk.Label(grid, text=label + ":", width=12, anchor="e").grid(row=row, column=0, sticky="e", pady=2, padx=(0, 6))
+            ttk.Label(grid, text=str(value), anchor="w", wraplength=300).grid(row=row, column=1, sticky="w", pady=2)
+
+        ttk.Button(win, text="Close", command=win.destroy).pack(pady=(0, 10))
+
+    def _make_info_button(self, parent, command):
+        canvas = tk.Canvas(parent, width=22, height=22, highlightthickness=0, bd=0)
+        canvas.create_oval(2, 2, 20, 20, outline="#8aa9c8", fill="#f7fbff")
+        canvas.create_text(11, 11, text="i", fill="#1266d6", font=("", 9, "bold"))
+        canvas.bind("<Button-1>", lambda _e: command())
+        canvas.bind("<Enter>", lambda _e: canvas.configure(cursor="hand2"))
+        return canvas
 
     # ── UI construction ──────────────────────────────────────────────────────
 
@@ -793,7 +892,7 @@ class Editor(tk.Tk):
         f.columnconfigure(0, weight=1)
         f.rowconfigure(1, weight=1)
 
-        hint = "Item IDs match the standard internet/wiki values.  Use Change to pick by category & name."
+        hint = "Items are grouped by bag pocket. Use Change to swap an item, or i for source details."
         ttk.Label(f, text=hint, foreground="gray", padding=(4, 4)).grid(
             row=0, column=0, columnspan=2, sticky="w")
 
@@ -821,18 +920,17 @@ class Editor(tk.Tk):
         pockets = self.bag.attributes.get("@pockets", [])
         pocket_list = pockets if isinstance(pockets, list) else list(pockets.values())
 
-        # Header row
-        for col, (txt, w) in enumerate([("Pocket",14),("Item ID",9),("Name",28),("Qty",7)]):
-            ttk.Label(self.bag_inner, text=txt, font=("", 9, "bold"), width=w, anchor="w").grid(
-                row=0, column=col, padx=4, pady=2)
-        ttk.Separator(self.bag_inner, orient="horizontal").grid(
-            row=1, column=0, columnspan=5, sticky="ew", pady=2)
-
-        grid_row = 2
+        grid_row = 0
         for pi, pocket in enumerate(pocket_list):
             pname = POCKET_NAMES[pi] if pi < len(POCKET_NAMES) else f"Pocket {pi}"
             if not isinstance(pocket, list) or not pocket:
                 continue
+            header = ttk.Frame(self.bag_inner, padding=(4, 8, 4, 2))
+            header.grid(row=grid_row, column=0, columnspan=5, sticky="ew")
+            ttk.Label(header, text=pname, font=("", 10, "bold")).pack(side="left")
+            ttk.Label(header, text=f"{len(pocket)} item slots", foreground="gray").pack(side="left", padx=8)
+            grid_row += 1
+
             for ei, entry in enumerate(pocket):
                 if isinstance(entry, list) and len(entry) >= 2:
                     iid, qty = entry[0], entry[1]
@@ -847,27 +945,41 @@ class Editor(tk.Tk):
                 qty_var  = tk.StringVar(value=str(qty))
                 name_var = tk.StringVar(value=item_display_name(internet_id))
 
-                # Keep name label in sync when user edits the ID field directly
+                icon_label = ttk.Label(self.bag_inner, width=3, anchor="center")
+                icon_label.grid(row=grid_row, column=0, padx=(6, 1), pady=2)
+
+                def _set_icon(label, item_id):
+                    icon = self._load_item_icon(item_id, max_size=28)
+                    label.configure(image=icon if icon else "", text="" if icon else "-")
+                    label.image = icon
+
+                _set_icon(icon_label, internet_id)
+
+                # Keep row display in sync when Change updates the hidden ID.
                 def _make_trace(iv, nv):
                     def _cb(*_):
                         try:
-                            nv.set(item_display_name(int(iv.get())))
+                            new_id = int(iv.get())
+                            nv.set(item_display_name(new_id))
+                            _set_icon(icon_label, new_id)
                         except ValueError:
                             pass
                     return _cb
                 id_var.trace_add("write", _make_trace(id_var, name_var))
 
-                ttk.Label(self.bag_inner, text=pname, width=14, anchor="w").grid(
-                    row=grid_row, column=0, padx=4, pady=1)
-                ttk.Entry(self.bag_inner, textvariable=id_var,  width=9).grid(
-                    row=grid_row, column=1, padx=4, pady=1)
-                ttk.Label(self.bag_inner, textvariable=name_var, width=28, anchor="w").grid(
-                    row=grid_row, column=2, padx=4, pady=1)
+                info_btn = self._make_info_button(
+                    self.bag_inner,
+                    lambda iv=id_var: self._show_item_info(int(iv.get() or 0))
+                )
+                info_btn.grid(row=grid_row, column=1, padx=(0, 2), pady=1)
+
+                ttk.Label(self.bag_inner, textvariable=name_var, width=30, anchor="w").grid(
+                    row=grid_row, column=2, padx=(0, 4), pady=2, sticky="w")
                 ttk.Entry(self.bag_inner, textvariable=qty_var, width=7).grid(
-                    row=grid_row, column=3, padx=4, pady=1)
+                    row=grid_row, column=3, padx=4, pady=2)
                 ttk.Button(self.bag_inner, text="Change", width=7,
                            command=lambda iv=id_var, nv=name_var: self._open_item_picker(iv, nv)).grid(
-                    row=grid_row, column=4, padx=4, pady=1)
+                    row=grid_row, column=4, padx=4, pady=2)
 
                 self.bag_rows.append((pi, ei, id_var, qty_var))
                 grid_row += 1
@@ -880,14 +992,16 @@ class Editor(tk.Tk):
 
         self._add_item_id = tk.StringVar()
         self._add_qty     = tk.StringVar(value="99")
-        for col, lbl in enumerate(["Item ID", "Qty"]):
+        for col, lbl in enumerate(["Item", "Qty"]):
             ttk.Label(self.bag_inner, text=lbl, width=10).grid(row=grid_row, column=col, padx=4)
         grid_row += 1
-        ttk.Entry(self.bag_inner, textvariable=self._add_item_id, width=10).grid(row=grid_row, column=0, padx=4, pady=2)
-        ttk.Entry(self.bag_inner, textvariable=self._add_qty,     width=10).grid(row=grid_row, column=1, padx=4, pady=2)
-        ttk.Button(self.bag_inner, text="Add",      command=self._add_bag_item).grid(row=grid_row, column=2, padx=4)
+        self._add_item_name = tk.StringVar(value="Choose an item...")
+        ttk.Label(self.bag_inner, textvariable=self._add_item_name, width=34, anchor="w", relief="sunken").grid(
+            row=grid_row, column=0, padx=4, pady=2, sticky="w")
+        ttk.Entry(self.bag_inner, textvariable=self._add_qty, width=10).grid(row=grid_row, column=1, padx=4, pady=2)
+        ttk.Button(self.bag_inner, text="Add", command=self._add_bag_item).grid(row=grid_row, column=2, padx=4)
         ttk.Button(self.bag_inner, text="Browse...",
-                   command=lambda: self._open_item_picker(self._add_item_id, None)).grid(
+                   command=lambda: self._open_item_picker(self._add_item_id, self._add_item_name)).grid(
             row=grid_row, column=3, padx=4)
 
     def _add_bag_item(self):
@@ -896,7 +1010,7 @@ class Editor(tk.Tk):
             iid         = (internet_id - 1) // 2
             qty         = int(self._add_qty.get())
         except ValueError:
-            messagebox.showerror("Input error", "Item ID and Qty must be integers."); return
+            messagebox.showerror("Input error", "Choose an item and enter an integer quantity."); return
         pockets = self.bag.attributes.get("@pockets", [])
         pocket_list = pockets if isinstance(pockets, list) else list(pockets.values())
         pi = pocket_for_item(internet_id)
@@ -909,7 +1023,8 @@ class Editor(tk.Tk):
         self.bag_canvas.update_idletasks()
         self.bag_canvas.yview_moveto(1.0)
         name = item_display_name(internet_id)
-        self.status.config(text=f"Added: {name}  (ID {internet_id}) ×{qty} → pocket {pi}  — click Save to write.",
+        pocket_name = POCKET_NAMES[pi] if pi < len(POCKET_NAMES) else "bag"
+        self.status.config(text=f"Added: {name} x{qty} to {pocket_name} - click Save to write.",
                            foreground="blue")
 
     def _open_item_picker(self, id_var: tk.StringVar, name_var):
