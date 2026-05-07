@@ -443,6 +443,10 @@ class Editor(tk.Tk):
         self.bag_idx      = None
         self.storage      = None
         self.storage_idx  = None
+        self.game_system  = None
+        self.game_player  = None
+        self.global_meta  = None
+        self.play_time_frames = None
         self.save_path    = get_latest_save_file() or os.path.join(DEFAULT_SAVE_DIR, "Game.rxdata")
         self.trainer_id   = 0
         self.secret_id    = 0
@@ -450,6 +454,26 @@ class Editor(tk.Tk):
         self.var_money  = tk.StringVar()
         self.var_bp     = tk.StringVar()
         self.var_sid    = tk.StringVar(value="—")
+        self.var_trainer_name = tk.StringVar(value="-")
+        self.var_trainer_public_id = tk.StringVar(value="-")
+        self.var_trainer_full_id = tk.StringVar(value="-")
+        self.var_trainer_type = tk.StringVar(value="-")
+        self.var_trainer_language = tk.StringVar(value="-")
+        self.var_pokedex_seen = tk.StringVar(value="-")
+        self.var_pokedex_owned = tk.StringVar(value="-")
+        self.var_shadow_caught = tk.StringVar(value="-")
+        self.var_badge_count = tk.StringVar(value="-")
+        self.var_party_count = tk.StringVar(value="-")
+        self.var_pc_count = tk.StringVar(value="-")
+        self.var_bag_item_count = tk.StringVar(value="-")
+        self.var_save_count = tk.StringVar(value="-")
+        self.var_play_time = tk.StringVar(value="-")
+        self.var_step_count = tk.StringVar(value="-")
+        self.var_visited_maps = tk.StringVar(value="-")
+        self.var_coins = tk.StringVar(value="-")
+        self.var_current_box = tk.StringVar(value="-")
+        self.var_player_location = tk.StringVar(value="-")
+        self.var_registered_items = tk.StringVar(value="-")
         self.badge_vars = [tk.BooleanVar() for _ in range(8)]
         self.pkmn_vars  = []
         self.bag_rows   = []
@@ -959,32 +983,76 @@ class Editor(tk.Tk):
 
     def _build_trainer_tab(self):
         f = self.tab_trainer
+        for col in range(3):
+            f.columnconfigure(col, weight=1)
+
+        editor = ttk.LabelFrame(f, text="Trainer", padding=8)
+        editor.grid(row=0, column=0, sticky="nsew", padx=4, pady=4)
+        identity = ttk.LabelFrame(f, text="Identity", padding=8)
+        identity.grid(row=0, column=1, sticky="nsew", padx=4, pady=4)
+        progress = ttk.LabelFrame(f, text="Progress", padding=8)
+        progress.grid(row=0, column=2, sticky="nsew", padx=4, pady=4)
+        world = ttk.LabelFrame(f, text="Save / World", padding=8)
+        world.grid(row=1, column=0, columnspan=3, sticky="ew", padx=4, pady=4)
+
+        def value_row(parent, label, var, r, editable=False):
+            ttk.Label(parent, text=label + ":", width=17, anchor="e").grid(row=r, column=0, sticky="e", pady=3, padx=4)
+            if editable:
+                ttk.Entry(parent, textvariable=var, width=18).grid(row=r, column=1, sticky="w", pady=3, padx=4)
+            else:
+                ttk.Label(parent, textvariable=var, width=22, anchor="w").grid(row=r, column=1, sticky="w", pady=3, padx=4)
+
         row = 0
-
-        ttk.Label(f, text="Trainer", font=("", 12, "bold")).grid(
-            row=row, column=0, columnspan=3, pady=(0, 8)); row += 1
-
-        def lbl_entry(label, var, r):
-            ttk.Label(f, text=label, width=22, anchor="e").grid(row=r, column=0, sticky="e", pady=3, padx=4)
-            ttk.Entry(f, textvariable=var, width=18).grid(row=r, column=1, sticky="w", pady=3, padx=4)
-
-        lbl_entry("Money  (max 999999) :", self.var_money, row); row += 1
-        lbl_entry("Battle Points :",       self.var_bp,    row); row += 1
-
-        ttk.Label(f, text="Secret ID :", width=22, anchor="e").grid(row=row, column=0, sticky="e", pady=3, padx=4)
-        ttk.Label(f, textvariable=self.var_sid, foreground="gray").grid(row=row, column=1, sticky="w", pady=3, padx=4)
-        row += 1
-
-        ttk.Label(f, text="Badges :", width=22, anchor="e").grid(row=row, column=0, sticky="e", pady=3, padx=4)
-        bf = ttk.Frame(f)
+        value_row(editor, "Money (max 999999)", self.var_money, row, editable=True); row += 1
+        value_row(editor, "Battle Points", self.var_bp, row, editable=True); row += 1
+        ttk.Label(editor, text="Badges:", width=17, anchor="e").grid(row=row, column=0, sticky="e", pady=3, padx=4)
+        bf = ttk.Frame(editor)
         bf.grid(row=row, column=1, sticky="w")
         for i, v in enumerate(self.badge_vars):
-            ttk.Checkbutton(bf, variable=v, text=f"#{i+1}").grid(row=0, column=i, padx=2)
-        ttk.Button(f, text="All Badges", command=self._all_badges).grid(row=row, column=2, padx=8)
+            ttk.Checkbutton(bf, variable=v, text=f"#{i+1}").grid(row=i // 4, column=i % 4, padx=2, sticky="w")
         row += 1
+        btns = ttk.Frame(editor)
+        btns.grid(row=row, column=1, sticky="w", pady=(8, 0))
+        ttk.Button(btns, text="All Badges", command=self._all_badges).pack(side="left", padx=(0, 6))
+        ttk.Button(btns, text="Heal All Party", command=self._heal_all_party).pack(side="left")
 
-        ttk.Button(f, text="Heal All Party", command=self._heal_all_party).grid(
-            row=row, column=1, sticky="w", pady=12)
+        for r, (label, var) in enumerate([
+            ("Name", self.var_trainer_name),
+            ("Trainer ID", self.var_trainer_public_id),
+            ("Secret ID", self.var_sid),
+            ("Full ID", self.var_trainer_full_id),
+            ("Trainer Type", self.var_trainer_type),
+            ("Language", self.var_trainer_language),
+        ]):
+            value_row(identity, label, var, r)
+
+        for r, (label, var) in enumerate([
+            ("Badges", self.var_badge_count),
+            ("Party", self.var_party_count),
+            ("PC Pokemon", self.var_pc_count),
+            ("Pokedex Seen", self.var_pokedex_seen),
+            ("Pokedex Owned", self.var_pokedex_owned),
+            ("Shadow Caught", self.var_shadow_caught),
+            ("Bag Entries", self.var_bag_item_count),
+        ]):
+            value_row(progress, label, var, r)
+
+        for c in range(4):
+            world.columnconfigure(c, weight=1)
+        for i, (label, var) in enumerate([
+            ("Save Count", self.var_save_count),
+            ("Play Time", self.var_play_time),
+            ("Steps", self.var_step_count),
+            ("Visited Maps", self.var_visited_maps),
+            ("Coins", self.var_coins),
+            ("Current PC Box", self.var_current_box),
+            ("Player Location", self.var_player_location),
+            ("Registered Items", self.var_registered_items),
+        ]):
+            col = 0 if i < 4 else 2
+            r = i if i < 4 else i - 4
+            ttk.Label(world, text=label + ":", width=17, anchor="e").grid(row=r, column=col, sticky="e", pady=3, padx=4)
+            ttk.Label(world, textvariable=var, width=26, anchor="w").grid(row=r, column=col + 1, sticky="w", pady=3, padx=4)
 
     def _all_badges(self):
         for bv in self.badge_vars:
@@ -998,6 +1066,64 @@ class Editor(tk.Tk):
                 v["status"].set("0")
                 self._restore_pp_from_obj(v, party[slot])
         self.status.config(text="All party healed.", foreground="blue")
+
+    def _count_truthy(self, values) -> int:
+        return sum(1 for value in values if value is True) if isinstance(values, list) else 0
+
+    def _format_count(self, count: int, total: int = 0) -> str:
+        return f"{count:,} / {total:,}" if total else f"{count:,}"
+
+    def _format_play_time(self, frames) -> str:
+        if not isinstance(frames, int) or frames < 0:
+            return "-"
+        seconds = frames // 60
+        hours, rem = divmod(seconds, 3600)
+        minutes, seconds = divmod(rem, 60)
+        return f"{hours:,}:{minutes:02d}:{seconds:02d}"
+
+    def _party_count(self) -> int:
+        if not self.trainer:
+            return 0
+        party = self.trainer.attributes.get("@party", [])
+        return sum(1 for pkmn in party if isinstance(pkmn, RubyObject)) if isinstance(party, list) else 0
+
+    def _pc_pokemon_count(self) -> int:
+        if not isinstance(self.storage, RubyObject):
+            return 0
+        boxes = self.storage.attributes.get("@boxes", [])
+        if not isinstance(boxes, list):
+            return 0
+        count = 0
+        for box in boxes:
+            if not isinstance(box, RubyObject):
+                continue
+            pokemon = box.attributes.get("@pokemon", [])
+            if isinstance(pokemon, list):
+                count += sum(1 for pkmn in pokemon if isinstance(pkmn, RubyObject))
+        return count
+
+    def _bag_entry_count(self) -> int:
+        if not isinstance(self.bag, RubyObject):
+            return 0
+        pockets = self.bag.attributes.get("@pockets", [])
+        if not isinstance(pockets, list):
+            return 0
+        count = 0
+        for pocket in pockets:
+            if isinstance(pocket, list):
+                count += len(pocket)
+        return count
+
+    def _registered_items_text(self) -> str:
+        if not isinstance(self.bag, RubyObject):
+            return "-"
+        ids = []
+        for key in ("@registeredItem", "@registeredItem2", "@registeredItem3", "@registeredItem4", "@registeredItem5"):
+            item_id = self.bag.attributes.get(key, 0)
+            if isinstance(item_id, int) and item_id:
+                encoded_id = item_id * 2 + 1
+                ids.append(item_display_name(encoded_id))
+        return ", ".join(ids) if ids else "-"
 
     # ── Party tab ────────────────────────────────────────────────────────────
 
@@ -2666,13 +2792,17 @@ class Editor(tk.Tk):
         if not positions:
             messagebox.showerror("Error", "No Marshal streams found."); return
 
-        trainer = bag = storage = None
+        trainer = bag = storage = game_system = game_player = global_meta = None
         bag_idx = storage_idx = None
+        play_time_frames = None
         for idx, start in enumerate(positions):
             end = positions[idx+1] if idx+1 < len(positions) else len(raw)
             try:
                 obj = loads(raw[start:end])
             except Exception:
+                continue
+            if isinstance(obj, int) and play_time_frames is None:
+                play_time_frames = obj
                 continue
             if not isinstance(obj, RubyObject): continue
             cn = obj.ruby_class_name
@@ -2682,6 +2812,12 @@ class Editor(tk.Tk):
                 bag = obj; bag_idx = idx
             elif cn == "PokemonStorage":
                 storage = obj; storage_idx = idx
+            elif cn == "Game_System":
+                game_system = obj
+            elif cn == "Game_Player":
+                game_player = obj
+            elif cn == "PokemonGlobalMetadata":
+                global_meta = obj
 
         if trainer is None:
             messagebox.showerror("Error", "PokeBattle_Trainer not found."); return
@@ -2691,6 +2827,10 @@ class Editor(tk.Tk):
         self.trainer     = trainer
         self.bag         = bag;     self.bag_idx     = bag_idx
         self.storage     = storage; self.storage_idx = storage_idx
+        self.game_system = game_system
+        self.game_player = game_player
+        self.global_meta = global_meta
+        self.play_time_frames = play_time_frames
         self.save_path   = path
 
         ta = trainer.attributes
@@ -2711,10 +2851,48 @@ class Editor(tk.Tk):
         ta = self.trainer.attributes
         self.var_money.set(str(ta.get("@money", 0)))
         self.var_bp.set(str(ta.get("@battle_points", 0)))
-        self.var_sid.set(str(self.secret_id))
+        full_id = ta.get("@id", 0) or 0
+        public_id = full_id & 0xFFFF
+        secret_id = full_id >> 16
+        seen = self._count_truthy(ta.get("@seen", []))
+        owned = self._count_truthy(ta.get("@owned", []))
+        shadow = self._count_truthy(ta.get("@shadowcaught", []))
+        total_species = max(0, len(PKMN_DATA))
         badges = ta.get("@badges", [])
+
+        self.var_trainer_name.set(ds(ta.get("@name", b"")) or "-")
+        self.var_trainer_public_id.set(str(public_id))
+        self.var_trainer_full_id.set(str(full_id))
+        self.var_trainer_type.set(str(ta.get("@trainertype", "-")))
+        self.var_trainer_language.set(str(ta.get("@language", "-")))
+        self.var_sid.set(str(self.secret_id))
         for i, bv in enumerate(self.badge_vars):
             bv.set(badges[i] if isinstance(badges, list) and i < len(badges) else False)
+        self.var_badge_count.set(self._format_count(self._count_truthy(badges), len(badges) if isinstance(badges, list) else 0))
+        self.var_party_count.set(self._format_count(self._party_count(), 6))
+        self.var_pc_count.set(self._format_count(self._pc_pokemon_count()))
+        self.var_pokedex_seen.set(self._format_count(seen, total_species))
+        self.var_pokedex_owned.set(self._format_count(owned, total_species))
+        self.var_shadow_caught.set(self._format_count(shadow, total_species))
+        self.var_bag_item_count.set(self._format_count(self._bag_entry_count()))
+
+        gs = self.game_system.attributes if isinstance(self.game_system, RubyObject) else {}
+        gm = self.global_meta.attributes if isinstance(self.global_meta, RubyObject) else {}
+        gp = self.game_player.attributes if isinstance(self.game_player, RubyObject) else {}
+        self.var_save_count.set(str(gs.get("@save_count", "-")))
+        self.var_play_time.set(self._format_play_time(self.play_time_frames))
+        self.var_step_count.set(self._format_count(gm.get("@stepcount", 0)) if isinstance(gm.get("@stepcount", 0), int) else "-")
+        visited = self._count_truthy(gm.get("@visitedMaps", []))
+        total_maps = len(gm.get("@visitedMaps", [])) - 1 if isinstance(gm.get("@visitedMaps", []), list) else 0
+        self.var_visited_maps.set(self._format_count(visited, total_maps))
+        self.var_coins.set(self._format_count(gm.get("@coins", 0)) if isinstance(gm.get("@coins", 0), int) else "-")
+        current_box = self.storage.attributes.get("@currentBox", None) if isinstance(self.storage, RubyObject) else None
+        self.var_current_box.set(f"Box {current_box + 1}" if isinstance(current_box, int) else "-")
+        if gp:
+            self.var_player_location.set(f"Map {gp.get('@oldMap', '?')}  X {gp.get('@x', '?')}  Y {gp.get('@y', '?')}")
+        else:
+            self.var_player_location.set("-")
+        self.var_registered_items.set(self._registered_items_text())
 
 
     def _fill_pkmn_slot(self, v, pkmn, label_prefix="", tab_parent=None, tab_idx=None, title_frame=None):
