@@ -174,6 +174,28 @@ def _load_pokemon_data():
                 pass
     return data
 
+def _load_form_data():
+    path = resource_path("form_data.txt")
+    data = {}
+    if not os.path.exists(path):
+        return data
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) < 4:
+                continue
+            try:
+                sid = int(parts[0])
+                form_id = int(parts[2])
+            except ValueError:
+                continue
+            form_name = parts[3] or f"Form {form_id}"
+            data.setdefault(sid, {})[form_id] = form_name
+    return {sid: sorted(forms.items()) for sid, forms in data.items()}
+
 # Pocket 0 = unused, 1 = Items, 2 = Medicine, 3 = Balls, 4 = TMs, 5 = Berries,
 # 6 = Mail, 7 = Clothes/Mail depending on save data, 8 = Key Items
 POCKET_NAMES = ["Pocket 0","Items","Medicine","Poke Balls","TMs & HMs",
@@ -272,6 +294,7 @@ ITEM_DATA, ITEM_NAMES, ITEM_CATS = _load_item_data()
 ABILITY_DATA, ABILITY_BY_NAME = _load_ability_data()
 ITEM_CAT_LIST = ["All"] + sorted(set(ITEM_CATS.values()))
 PKMN_DATA = _load_pokemon_data()
+FORM_DATA = _load_form_data()
 POKEMON_DATA = {
     sid: {"name": d["name"], "t1": d["type1"], "t2": d["type2"], "stage": d["stage"], "rarity": d["rarity"]}
     for sid, d in PKMN_DATA.items()
@@ -435,11 +458,11 @@ class Editor(tk.Tk):
         self._pokemon_sprite_cache = {}
         self._item_icon_cache = {}
         self._info_buttons = []
-        self._theme = "light"
+        self._theme = "dark"
         self._palette = {}
 
         self._build_ui()
-        self._apply_theme("light")
+        self._apply_theme("dark")
         self.bind_all("<MouseWheel>", self._on_mousewheel)
         if os.path.exists(self.save_path):
             self._do_load(self.save_path)
@@ -511,7 +534,48 @@ class Editor(tk.Tk):
         self.style.map("Treeview", background=[("selected", p["select"])], foreground=[("selected", p["select_text"])])
         self.style.configure("Treeview.Heading", background=p["panel"], foreground=p["text"])
         self.style.configure("TEntry", fieldbackground=p["field"], foreground=p["text"])
-        self.style.configure("TCombobox", fieldbackground=p["field"], foreground=p["text"], background=p["field"])
+        self.style.configure(
+            "TCombobox",
+            fieldbackground=p["field"],
+            foreground=p["text"],
+            background=p["button"],
+            arrowcolor=p["text"],
+            bordercolor=p["border"],
+            lightcolor=p["border"],
+            darkcolor=p["border"],
+            insertcolor=p["text"],
+            selectbackground=p["select"],
+            selectforeground=p["select_text"],
+        )
+        self.style.map(
+            "TCombobox",
+            fieldbackground=[
+                ("readonly", p["field"]),
+                ("disabled", p["panel"]),
+                ("!disabled", p["field"]),
+            ],
+            foreground=[
+                ("readonly", p["text"]),
+                ("disabled", p["muted"]),
+                ("!disabled", p["text"]),
+            ],
+            background=[
+                ("active", p["button_active"]),
+                ("readonly", p["button"]),
+                ("disabled", p["panel"]),
+            ],
+            arrowcolor=[
+                ("disabled", p["muted"]),
+                ("active", p["text"]),
+                ("readonly", p["text"]),
+            ],
+            selectbackground=[("readonly", p["field"]), ("!disabled", p["select"])],
+            selectforeground=[("readonly", p["text"]), ("!disabled", p["select_text"])],
+        )
+        self.option_add("*TCombobox*Listbox.background", p["field"])
+        self.option_add("*TCombobox*Listbox.foreground", p["text"])
+        self.option_add("*TCombobox*Listbox.selectBackground", p["select"])
+        self.option_add("*TCombobox*Listbox.selectForeground", p["select_text"])
 
         for canvas in list(self._scroll_canvases):
             try:
@@ -592,6 +656,54 @@ class Editor(tk.Tk):
         if hidden:
             abilities.append(f"Hidden: {hidden}")
         return ", ".join(abilities) if abilities else "-"
+
+    def _parse_form_id(self, value, default: int = 0) -> int:
+        if isinstance(value, int):
+            return value
+        text = str(value or "").strip()
+        if " - " in text:
+            text = text.split(" - ", 1)[0].strip()
+        try:
+            return int(text)
+        except ValueError:
+            return default
+
+    def _form_label(self, species_id: int, form_id: int) -> str:
+        name = None
+        for fid, form_name in FORM_DATA.get(species_id, []):
+            if fid == form_id:
+                name = form_name
+                break
+        if not name:
+            name = "Default" if form_id == 0 else f"Form {form_id}"
+        return f"{form_id} - {name}"
+
+    def _form_choices(self, species_id: int, current_form: int = 0) -> list:
+        forms = dict(FORM_DATA.get(species_id, []))
+        forms.setdefault(0, "Default")
+        forms.setdefault(current_form, "Default" if current_form == 0 else f"Form {current_form}")
+        return [f"{fid} - {name}" for fid, name in sorted(forms.items())]
+
+    def _set_form_value(self, v: dict, species_id: int, form_id: int):
+        form_id = max(0, min(self._parse_form_id(form_id), 99))
+        choices = self._form_choices(species_id, form_id)
+        combo = v.get("form_combo")
+        if combo is not None:
+            combo.configure(values=choices)
+        v["form"].set(self._form_label(species_id, form_id))
+
+    def _refresh_form_options(self, v: dict):
+        try:
+            species_id = int(v.get("species_id").get() or 0)
+        except (AttributeError, ValueError):
+            species_id = 0
+        current_form = self._parse_form_id(v.get("form").get() if v.get("form") else 0)
+        self._set_form_value(v, species_id, current_form)
+        if v.get("dex_sprite"):
+            self._set_pokemon_dex_vars(v, species_id, current_form)
+
+    def _selected_form_id(self, v: dict) -> int:
+        return max(0, min(self._parse_form_id(v.get("form").get() if v.get("form") else 0), 99))
 
     def _pokemon_sprite_paths(self, species_id: int, form: int = 0) -> list:
         names = []
@@ -909,7 +1021,15 @@ class Editor(tk.Tk):
         ]):
             v[key] = tk.StringVar()
             ttk.Label(lf, text=lbl+":", width=14, anchor="e").grid(row=i, column=0, sticky="e", pady=2)
-            ttk.Entry(lf, textvariable=v[key], width=10).grid(row=i, column=1, sticky="w", pady=2, padx=3)
+            if key == "form":
+                v["form_combo"] = ttk.Combobox(
+                    lf, textvariable=v[key], values=["0 - Default"], width=18, state="readonly"
+                )
+                v["form_combo"].grid(row=i, column=1, sticky="w", pady=2, padx=3)
+                v["form_combo"].bind("<<ComboboxSelected>>", lambda _event, vv=v: self._refresh_form_options(vv))
+            else:
+                ttk.Entry(lf, textvariable=v[key], width=10).grid(row=i, column=1, sticky="w", pady=2, padx=3)
+        v["species_id"].trace_add("write", lambda *_args, vv=v: self._refresh_form_options(vv))
 
         rf = ttk.LabelFrame(e, text="Extra", padding=6)
         rf.grid(row=0, column=1, sticky="nsew", padx=4, pady=4)
@@ -1453,7 +1573,15 @@ class Editor(tk.Tk):
                 ]):
                     sv[key] = tk.StringVar(value=val)
                     ttk.Label(lp, text=lbl+":", width=12, anchor="e").grid(row=i, column=0, sticky="e", pady=1)
-                    ttk.Entry(lp, textvariable=sv[key], width=8).grid(row=i, column=1, sticky="w", pady=1, padx=2)
+                    if key == "form":
+                        sv["form_combo"] = ttk.Combobox(
+                            lp, textvariable=sv[key], values=["0 - Default"], width=18, state="readonly"
+                        )
+                        sv["form_combo"].grid(row=i, column=1, sticky="w", pady=1, padx=2)
+                    else:
+                        ttk.Entry(lp, textvariable=sv[key], width=8).grid(row=i, column=1, sticky="w", pady=1, padx=2)
+                self._set_form_value(sv, sp if isinstance(sp, int) else 0, a.get("@form", 0))
+                sv["species_id"].trace_add("write", lambda *_args, vv=sv: self._refresh_form_options(vv))
 
                 for i, (key, lbl, val) in enumerate([
                     ("item","Item ID",str(a.get("@item",0))),
@@ -2509,13 +2637,14 @@ class Editor(tk.Tk):
             pid = a.get("@personalID", 0) or 0
             v["_pkmn_obj"] = pkmn
             for key, attr in [
-                ("species_id","@species"),("form","@form"),("hp","@hp"),
+                ("species_id","@species"),("hp","@hp"),
                 ("totalhp","@totalhp"),("attack","@attack"),("defense","@defense"),
                 ("spatk","@spatk"),("spdef","@spdef"),("speed","@speed"),
                 ("exp","@exp"),("item","@item"),("happiness","@happiness"),
                 ("status","@status"),("ball","@ballused"),("obtain_lv","@obtainLevel"),
             ]:
                 v[key].set(str(a.get(attr, 0)))
+            self._set_form_value(v, a.get("@species", 0), a.get("@form", 0))
             v["nickname"].set(ds(a.get("@name", b"")))
             v["nature_idx"].set(NATURES[pid % 25])
             v["shiny"].set(is_shiny(pid, self.trainer_id, self.secret_id))
@@ -2578,6 +2707,7 @@ class Editor(tk.Tk):
                     ("status","@status"),("ball","@ballused"),("obtain_lv","@obtainLevel"),
                 ]:
                     v[key].set(str(a.get(attr, 0)))
+                self._set_form_value(v, a.get("@species", 0), a.get("@form", 0))
                 v["nickname"].set(ds(a.get("@name", b"")))
                 v["nature_idx"].set(NATURES[pid % 25])
                 v["shiny"].set(is_shiny(pid, self.trainer_id, self.secret_id))
@@ -2660,7 +2790,7 @@ class Editor(tk.Tk):
                 key = stat.lower()
                 if isinstance(iv, list) and j < len(iv): iv[j] = min(31,  max(0, gi(f"iv_{key}")))
                 if isinstance(ev, list) and j < len(ev): ev[j] = min(252, max(0, gi(f"ev_{key}")))
-            a["@form"] = max(0, min(gi("form"), 99))
+            a["@form"] = self._selected_form_id(v)
             a["@iv"] = iv; a["@ev"] = _sanitize_evs(ev)
 
             old_pid = a.get("@personalID", 0) or 0
@@ -2727,7 +2857,7 @@ class Editor(tk.Tk):
                     a[attr] = gi(key)
 
                 nick = sv["nickname"].get()
-                a["@form"] = max(0, min(gi("form"), 99))
+                a["@form"] = self._selected_form_id(sv)
                 if nick and nick != ds(a.get("@name", b"")):
                     a["@name"] = nick.encode("utf-8")
 
