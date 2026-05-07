@@ -1,65 +1,51 @@
-# Pokémon Insurgence Save Editor
+# Pokemon Insurgence Save Editor
 
-A desktop GUI for editing `Game.rxdata` save files from [Pokémon Insurgence](https://pokemon-insurgence.com/), made with the help of coding AI agents.
-
----
+A small Windows desktop GUI for editing `Game.rxdata` save files from [Pokemon Insurgence](https://pokemon-insurgence.com/).
 
 ## Download
 
-Grab the latest `.exe` from the [Releases](https://github.com/hebopaul/pok-insurgence-save-editor/releases) page — no installation required.
-
----
+Grab the latest `.exe` from the [Releases](https://github.com/hebopaul/pok-insurgence-save-editor/releases) page. No installation is required.
 
 ## Features
 
-- **Trainer** — edit money, Battle Points, and badges
-- **Party** — edit all six party slots:
-  - Species, nickname, level, stats, experience
-  - IVs and EVs with one-click Max / Zero buttons
-  - Nature (dropdown), ability slot, shiny toggle
-  - Moves and PP with one-click Restore
-  - Held item and status — Heal button for instant full restore
-- **Bag** — view all pockets with real item names, edit quantities, add new items via a searchable picker (filter by category and name)
-- **PC Boxes** — edit every boxed Pokémon with the same controls as party slots
-- Auto-backup on every save (`Game.rxdata.bak`)
-
----
+- Edit trainer money, Battle Points, and badges.
+- Edit all six party slots, including species, nickname, level, experience, stats, IVs, EVs, nature, ability slot, shiny flag, held item, status, moves, and PP.
+- Add Pokemon to empty party or PC slots with Pokemon, move, and EV pickers.
+- Browse PC boxes, edit boxed Pokemon, move Pokemon between boxes and party slots, or delete boxed Pokemon.
+- Manage the bag by pocket, with searchable item selection, quantities, item icons, and item details.
+- View Pokemon sprite/type/ability details and move descriptions while editing.
+- Heal Pokemon, restore PP, max IVs, zero EVs, and set all badges with one-click actions.
+- Create a `.bak` backup before every save.
 
 ## Usage
 
-Double-click `Pokemon Insurgence Save Editor.exe` to launch.
+Double-click `Pokemon Insurgence Save Editor.exe` to launch it.
 
-The editor auto-loads `Game.rxdata` from the default Insurgence save location on startup. You can also click **Load Save** to open any `.rxdata` file manually.
+On startup, the editor loads the newest `.rxdata` save from:
 
-When you're done editing, click **Save (auto-backup)** — your original file is backed up as `Game.rxdata.bak` before any changes are written.
+```text
+%USERPROFILE%\Saved Games\Pokemon Insurgence
+```
 
----
+Use **Load Save** to open another `.rxdata` file. Use **Save (auto-backup)** to write changes back to the selected file.
 
-## Item IDs
+## Running from Source
 
-Item IDs in the Bag tab use the standard values found on community wikis and cheat-engine tables (the raw stored value, `id * 2 + 1`). The bundled `item_ids.txt` maps all 806 item IDs to their names.
-
----
-
-## Notes
-
-- Save files are Ruby Marshal 4.8 streams — no encryption, no checksum.
-- Changing a Pokémon's nature or shiny status recalculates its PID. This also affects gender in some species.
-- Level and stat fields are written directly; the game recalculates derived values on next load.
-
----
-
-## Running from source
-
-Requires Python 3.8+ and [rubymarshal](https://pypi.org/project/rubymarshal/):
+Requires Python 3.8+ and `rubymarshal`:
 
 ```bash
 pip install rubymarshal
 python save_editor.py
 ```
 
----
+The source checkout includes the generated data files needed by the editor. The bundled release executable also includes extracted game sprites and item icons; those assets are not required for save editing, but may be absent when running directly from source.
+
+## Notes
+
+- Save files are Ruby Marshal streams.
+- Nature and shiny edits recalculate PID values, which can also affect gender.
+- Level and stat fields are written directly; the game may recalculate some derived values after loading.
 
 ## Disclaimer
 
-This tool is fan-made and unaffiliated with the Pokémon Insurgence development team. Use at your own risk and keep backups.
+This is a fan-made tool and is not affiliated with the Pokemon Insurgence development team. Keep backups before editing saves.
