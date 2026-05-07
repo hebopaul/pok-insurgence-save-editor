@@ -243,7 +243,33 @@ def _load_item_data():
                 cats[iid] = "Items"
     return data, names, cats
 
+def _load_ability_data():
+    path = resource_path("ability_data.txt")
+    by_id = {}
+    by_name = {}
+    if not os.path.exists(path):
+        return by_id, by_name
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) < 2:
+                continue
+            try:
+                aid = int(parts[0])
+            except ValueError:
+                continue
+            name = parts[1]
+            desc = parts[2] if len(parts) > 2 else ""
+            entry = {"id": aid, "name": name, "description": desc}
+            by_id[aid] = entry
+            by_name[name.lower()] = entry
+    return by_id, by_name
+
 ITEM_DATA, ITEM_NAMES, ITEM_CATS = _load_item_data()
+ABILITY_DATA, ABILITY_BY_NAME = _load_ability_data()
 ITEM_CAT_LIST = ["All"] + sorted(set(ITEM_CATS.values()))
 PKMN_DATA = _load_pokemon_data()
 POKEMON_DATA = {
@@ -373,14 +399,19 @@ class Editor(tk.Tk):
             except Exception:
                 pass
 
+        self._app_icon = resource_path("icon.ico")
+
         # Icon
         try:
-            self.iconbitmap(resource_path("icon.ico"))
+            self.iconbitmap(self._app_icon)
         except Exception:
             pass
 
-        # Native Windows theme — much cleaner than the default
-        ttk.Style().theme_use("vista")
+        self.style = ttk.Style()
+        try:
+            self.style.theme_use("vista")
+        except tk.TclError:
+            pass
 
         self.raw          = None
         self.positions    = []
@@ -403,11 +434,129 @@ class Editor(tk.Tk):
         self._scroll_canvases: set = set()
         self._pokemon_sprite_cache = {}
         self._item_icon_cache = {}
+        self._info_buttons = []
+        self._theme = "light"
+        self._palette = {}
 
         self._build_ui()
+        self._apply_theme("light")
         self.bind_all("<MouseWheel>", self._on_mousewheel)
         if os.path.exists(self.save_path):
             self._do_load(self.save_path)
+
+    def _palette_for(self, mode: str) -> dict:
+        if mode == "dark":
+            return {
+                "bg": "#0f172a",
+                "panel": "#172033",
+                "field": "#101827",
+                "text": "#e5edf8",
+                "muted": "#9fb0c7",
+                "accent": "#60a5fa",
+                "accent2": "#1d4ed8",
+                "button": "#1e3a5f",
+                "button_active": "#2563a6",
+                "border": "#355172",
+                "select": "#1d4ed8",
+                "select_text": "#ffffff",
+                "error": "#f87171",
+                "ok": "#93c5fd",
+                "info_fill": "#172c47",
+                "info_outline": "#5b7fa8",
+                "info_text": "#93c5fd",
+            }
+        return {
+            "bg": "#f0f0f0",
+            "panel": "#f7f7f7",
+            "field": "#ffffff",
+            "text": "#111827",
+            "muted": "#666666",
+            "accent": "#1266d6",
+            "accent2": "#0f5bbd",
+            "button": "#f3f4f6",
+            "button_active": "#e5e7eb",
+            "border": "#8aa9c8",
+            "select": "#2b77d1",
+            "select_text": "#ffffff",
+            "error": "#cc0000",
+            "ok": "blue",
+            "info_fill": "#f7fbff",
+            "info_outline": "#8aa9c8",
+            "info_text": "#1266d6",
+        }
+
+    def _apply_theme(self, mode: str):
+        self._theme = mode
+        p = self._palette_for(mode)
+        self._palette = p
+        try:
+            self.style.theme_use("clam" if mode == "dark" else "vista")
+        except tk.TclError:
+            pass
+        self.configure(bg=p["bg"])
+
+        self.style.configure(".", background=p["bg"], foreground=p["text"])
+        self.style.configure("TFrame", background=p["bg"])
+        self.style.configure("TLabelframe", background=p["bg"], foreground=p["text"])
+        self.style.configure("TLabelframe.Label", background=p["bg"], foreground=p["text"])
+        self.style.configure("TLabel", background=p["bg"], foreground=p["text"])
+        self.style.configure("TButton", background=p["button"], foreground=p["text"])
+        self.style.map("TButton", background=[("active", p["button_active"])], foreground=[("active", p["text"])])
+        self.style.configure("TCheckbutton", background=p["bg"], foreground=p["text"])
+        self.style.configure("TRadiobutton", background=p["bg"], foreground=p["text"])
+        self.style.configure("TNotebook", background=p["bg"])
+        self.style.configure("TNotebook.Tab", background=p["panel"], foreground=p["text"])
+        self.style.map("TNotebook.Tab", background=[("selected", p["field"])], foreground=[("selected", p["text"])])
+        self.style.configure("Treeview", background=p["field"], fieldbackground=p["field"], foreground=p["text"])
+        self.style.map("Treeview", background=[("selected", p["select"])], foreground=[("selected", p["select_text"])])
+        self.style.configure("Treeview.Heading", background=p["panel"], foreground=p["text"])
+        self.style.configure("TEntry", fieldbackground=p["field"], foreground=p["text"])
+        self.style.configure("TCombobox", fieldbackground=p["field"], foreground=p["text"], background=p["field"])
+
+        for canvas in list(self._scroll_canvases):
+            try:
+                canvas.configure(bg=p["bg"])
+            except tk.TclError:
+                pass
+        for canvas in self._info_buttons:
+            self._draw_info_button(canvas)
+        if hasattr(self, "status"):
+            self.status.configure(foreground=p["muted"])
+
+    def _set_theme(self, mode: str):
+        self._apply_theme(mode)
+
+    def _center_popup(self, win):
+        win.update_idletasks()
+        w = win.winfo_width()
+        h = win.winfo_height()
+        if w <= 1:
+            w = win.winfo_reqwidth()
+        if h <= 1:
+            h = win.winfo_reqheight()
+        self.update_idletasks()
+        x = self.winfo_rootx() + max(0, (self.winfo_width() - w) // 2)
+        y = self.winfo_rooty() + max(0, (self.winfo_height() - h) // 2)
+        win.geometry(f"{w}x{h}+{x}+{y}")
+
+    def _make_popup(self, title: str, geometry=None, resizable=(False, False), modal: bool = True):
+        win = tk.Toplevel(self)
+        win.title(title)
+        if self._palette:
+            win.configure(bg=self._palette["bg"])
+        try:
+            win.iconbitmap(self._app_icon)
+        except Exception:
+            pass
+        win.transient(self)
+        if geometry:
+            win.geometry(geometry)
+        if resizable is not None:
+            win.resizable(*resizable)
+        self._center_popup(win)
+        if modal:
+            win.grab_set()
+        return win
 
     def _on_mousewheel(self, e):
         w = self.winfo_containing(e.x_root, e.y_root)
@@ -419,6 +568,11 @@ class Editor(tk.Tk):
 
     def _make_scrollable(self, canvas: tk.Canvas):
         self._scroll_canvases.add(canvas)
+        if self._palette:
+            try:
+                canvas.configure(bg=self._palette["bg"])
+            except tk.TclError:
+                pass
 
     def _pokemon_types_text(self, data: dict) -> str:
         type1 = data.get("type1", "")
@@ -484,7 +638,8 @@ class Editor(tk.Tk):
             label.configure(image=img if img else "", text="" if img else "(no sprite)")
             label.image = img
 
-    def _make_pokemon_dex_panel(self, parent, species_id: int, form: int = 0, compact: bool = False):
+    def _make_pokemon_dex_panel(self, parent, species_id: int, form: int = 0, compact: bool = False,
+                                ability_slot_var=None, pkmn=None):
         data = PKMN_DATA.get(species_id, {})
         frame = ttk.LabelFrame(parent, text="Pokedex", padding=4)
         sprite = ttk.Label(frame, anchor="center", width=12)
@@ -498,10 +653,17 @@ class Editor(tk.Tk):
             self._pokemon_types_text(data),
             (data.get("kind", "") + " Pokemon").strip(),
             self._pokemon_measure_text(data),
-            self._pokemon_abilities_text(data),
         ]
         for row, text in enumerate(lines):
             ttk.Label(frame, text=text or "-", anchor="w", width=28 if compact else 34).grid(row=row, column=1, sticky="w")
+        ability_row = len(lines)
+        ttk.Label(frame, text=self._pokemon_abilities_text(data), anchor="w", width=28 if compact else 34,
+                  wraplength=220 if compact else 280).grid(row=ability_row, column=1, sticky="w")
+        info_btn = self._make_info_button(
+            frame,
+            lambda sid=species_id, av=ability_slot_var, pk=pkmn: self._show_ability_info_for(sid, av, pk)
+        )
+        info_btn.grid(row=ability_row, column=2, sticky="w", padx=(4, 0))
         ttk.Label(frame, text=data.get("entry", "") or "-", wraplength=240 if compact else 320, justify="left").grid(
             row=5, column=0, columnspan=2, sticky="w", pady=(4, 0)
         )
@@ -536,12 +698,7 @@ class Editor(tk.Tk):
 
     def _show_item_info(self, item_id: int):
         data = ITEM_DATA.get(item_id, {"name": item_display_name(item_id), "description": ""})
-        win = tk.Toplevel(self)
-        win.title(data.get("name", f"Item #{item_id}"))
-        win.geometry("460x330")
-        win.resizable(False, False)
-        win.transient(self)
-        win.grab_set()
+        win = self._make_popup(data.get("name", f"Item #{item_id}"), "460x330")
 
         top = ttk.Frame(win, padding=12)
         top.pack(fill="x")
@@ -579,10 +736,73 @@ class Editor(tk.Tk):
 
         ttk.Button(win, text="Close", command=win.destroy).pack(pady=(0, 10))
 
+    def _show_ability_info(self, v):
+        pkmn = v.get("_pkmn_obj")
+        if not isinstance(pkmn, RubyObject):
+            messagebox.showinfo("Abilities", "No Pokemon is loaded in this slot.", parent=self)
+            return
+
+        attrs = pkmn.attributes
+        species_id = attrs.get("@species", 0)
+        self._show_ability_info_for(species_id, v.get("ability_slot"), pkmn)
+
+    def _show_ability_info_for(self, species_id: int, ability_slot_var=None, pkmn=None):
+        species = PKMN_DATA.get(species_id, {})
+        normal_abilities = list(species.get("abilities", []))
+        hidden_ability = species.get("hidden_ability", "")
+
+        if not normal_abilities and not hidden_ability:
+            messagebox.showinfo("Abilities", "No ability data is available for this Pokemon.", parent=self)
+            return
+
+        try:
+            slot = int(ability_slot_var.get() or 0) if ability_slot_var is not None else 0
+        except (ValueError, tk.TclError):
+            attrs = pkmn.attributes if isinstance(pkmn, RubyObject) else {}
+            pid = attrs.get("@personalID", 0) or 0
+            slot = pid & 1
+
+        current = normal_abilities[slot] if 0 <= slot < len(normal_abilities) else (normal_abilities[0] if normal_abilities else "")
+        name = species.get("name", f"Species #{species_id}")
+
+        win = self._make_popup(f"{name} Abilities", "500x340")
+
+        outer = ttk.Frame(win, padding=12)
+        outer.pack(fill="both", expand=True)
+        ttk.Label(outer, text=f"{name} Abilities", font=("", 12, "bold")).pack(anchor="w")
+        if current:
+            ttk.Label(outer, text=f"Current: {current}", foreground="gray").pack(anchor="w", pady=(2, 10))
+        else:
+            ttk.Label(outer, text="Current ability could not be resolved.", foreground="gray").pack(anchor="w", pady=(2, 10))
+
+        rows = []
+        for idx, ability in enumerate(normal_abilities):
+            rows.append((f"Slot {idx}", ability, ability == current))
+        if hidden_ability:
+            rows.append(("Hidden", hidden_ability, False))
+
+        for row, (label, ability, is_current) in enumerate(rows):
+            card = ttk.Frame(outer)
+            card.pack(fill="x", pady=(0, 10))
+            heading = ability + ("  (current)" if is_current else "")
+            ttk.Label(card, text=label + ":", width=9, anchor="e").grid(row=0, column=0, sticky="ne", padx=(0, 8))
+            ttk.Label(card, text=heading, font=("", 10, "bold")).grid(row=0, column=1, sticky="w")
+            desc = ABILITY_BY_NAME.get(ability.lower(), {}).get("description", "") or "No description available."
+            ttk.Label(card, text=desc, wraplength=360, justify="left").grid(row=1, column=1, sticky="w")
+
+        ttk.Button(win, text="Close", command=win.destroy).pack(pady=(0, 10))
+
+    def _draw_info_button(self, canvas):
+        p = self._palette or self._palette_for(self._theme)
+        canvas.configure(bg=p["bg"], highlightthickness=0, bd=0)
+        canvas.delete("all")
+        canvas.create_oval(2, 2, 20, 20, outline=p["info_outline"], fill=p["info_fill"])
+        canvas.create_text(11, 11, text="i", fill=p["info_text"], font=("", 9, "bold"))
+
     def _make_info_button(self, parent, command):
         canvas = tk.Canvas(parent, width=22, height=22, highlightthickness=0, bd=0)
-        canvas.create_oval(2, 2, 20, 20, outline="#8aa9c8", fill="#f7fbff")
-        canvas.create_text(11, 11, text="i", fill="#1266d6", font=("", 9, "bold"))
+        self._draw_info_button(canvas)
+        self._info_buttons.append(canvas)
         canvas.bind("<Button-1>", lambda _e: command())
         canvas.bind("<Enter>", lambda _e: canvas.configure(cursor="hand2"))
         return canvas
@@ -596,6 +816,8 @@ class Editor(tk.Tk):
         ttk.Button(top, text="Save (auto-backup)", command=self._do_save).pack(side="left", padx=4)
         self.status = ttk.Label(top, text="No file loaded", foreground="gray")
         self.status.pack(side="left", padx=10)
+        ttk.Button(top, text="Dark", width=7, command=lambda: self._set_theme("dark")).pack(side="right", padx=4)
+        ttk.Button(top, text="Light", width=7, command=lambda: self._set_theme("light")).pack(side="right", padx=4)
 
         ttk.Separator(self, orient="horizontal").pack(fill="x")
 
@@ -736,6 +958,9 @@ class Editor(tk.Tk):
             v[key] = tk.StringVar(value="-")
             ttk.Label(df, text=lbl + ":", width=12, anchor="e").grid(row=row, column=0, sticky="e", pady=1)
             ttk.Label(df, textvariable=v[key], width=28, anchor="w", wraplength=220).grid(row=row, column=1, sticky="w", pady=1)
+            if key == "dex_abilities":
+                v["ability_info_btn"] = self._make_info_button(df, lambda vv=v: self._show_ability_info(vv))
+                v["ability_info_btn"].grid(row=row, column=2, sticky="w", padx=(4, 0), pady=1)
         v["dex_entry"] = tk.StringVar(value="-")
         ttk.Label(df, textvariable=v["dex_entry"], wraplength=300, justify="left").grid(
             row=7, column=0, columnspan=2, sticky="ew", pady=(6, 0)
@@ -811,10 +1036,9 @@ class Editor(tk.Tk):
 
 
     def _open_pkmn_picker(self, callback):
-        win = tk.Toplevel(self)
+        win = self._make_popup("Select Pokemon", "700x600")
         win.title("Select Pokémon")
-        win.geometry("700x600")
-        win.transient(self); win.grab_set()
+        self._center_popup(win)
 
         top = ttk.Frame(win, padding=10); top.pack(fill="x")
         ttk.Label(top, text="Search:").pack(side="left")
@@ -1028,11 +1252,7 @@ class Editor(tk.Tk):
                            foreground="blue")
 
     def _open_item_picker(self, id_var: tk.StringVar, name_var):
-        dlg = tk.Toplevel(self)
-        dlg.title("Item Browser")
-        dlg.geometry("920x600")
-        dlg.resizable(True, True)
-        dlg.grab_set()
+        dlg = self._make_popup("Item Browser", "920x600", resizable=(True, True))
         dlg.columnconfigure(0, weight=1)
         dlg.rowconfigure(1, weight=1)
 
@@ -1283,7 +1503,14 @@ class Editor(tk.Tk):
                            command=lambda b=bi, s=si, bx=box: self._delete_box_pokemon(b, s, bx)
                            ).pack(pady=2)
 
-                dp = self._make_pokemon_dex_panel(sf, sp if isinstance(sp, int) else 0, a.get("@form", 0), compact=True)
+                dp = self._make_pokemon_dex_panel(
+                    sf,
+                    sp if isinstance(sp, int) else 0,
+                    a.get("@form", 0),
+                    compact=True,
+                    ability_slot_var=sv["ability_slot"],
+                    pkmn=pkmn,
+                )
                 dp.pack(side="left", padx=4, fill="y")
 
                 # Moves panel
@@ -1324,11 +1551,9 @@ class Editor(tk.Tk):
     # ── pokemon picker / add ─────────────────────────────────────────────────
 
     def _open_pokemon_picker(self, callback):
-        dlg = tk.Toplevel(self)
+        dlg = self._make_popup("Pokemon Browser", "920x600", resizable=(True, True))
         dlg.title("Pokémon Browser")
-        dlg.geometry("920x600")
-        dlg.resizable(True, True)
-        dlg.grab_set()
+        self._center_popup(dlg)
         dlg.columnconfigure(0, weight=1)
         dlg.rowconfigure(1, weight=1)
 
@@ -1613,11 +1838,7 @@ class Editor(tk.Tk):
         def_lv  = _default_level(d.get("stage", "1"), d.get("rarity", "Common"))
         learnset = LEARNSET_DATA.get(species_id, [])
 
-        win = tk.Toplevel(self)
-        win.title(f"Choose Moves — {name}")
-        win.geometry("800x540")
-        win.resizable(False, False)
-        win.grab_set()
+        win = self._make_popup(f"Choose Moves - {name}", "800x540")
 
         # ── Level row ────────────────────────────────────────────────────────
         top = ttk.Frame(win, padding=(10, 8, 10, 4))
@@ -1799,11 +2020,7 @@ class Editor(tk.Tk):
         d = PKMN_DATA.get(species_id, {})
         name = d.get("name", f"#{species_id}")
 
-        win = tk.Toplevel(self)
-        win.title(f"Choose EVs - {name}")
-        win.geometry("520x320")
-        win.resizable(False, False)
-        win.grab_set()
+        win = self._make_popup(f"Choose EVs - {name}", "520x320")
 
         ttk.Label(win, text=f"EV spread for {name}", font=("", 10, "bold"),
                   padding=(10, 10, 10, 4)).pack(anchor="w")
@@ -1855,7 +2072,7 @@ class Editor(tk.Tk):
             total = sum(values)
             ok = total <= 510 and all(0 <= v <= 252 for v in values)
             total_var.set(f"Total: {total} / 510")
-            total_lbl.configure(foreground=("black" if ok else "red"))
+            total_lbl.configure(foreground=(self._palette.get("text", "black") if ok else self._palette.get("error", "red")))
 
         def _apply_preset(*_):
             preset = preset_var.get()
@@ -1912,11 +2129,7 @@ class Editor(tk.Tk):
         learnset_ids = {mid for _, mid in LEARNSET_DATA.get(species_id, [])}
         all_types = ["All"] + sorted({m["type"] for m in MOVE_DATA.values() if m.get("type")})
 
-        win = tk.Toplevel(self)
-        win.title("Move Browser")
-        win.geometry("760x520")
-        win.resizable(True, True)
-        win.grab_set()
+        win = self._make_popup("Move Browser", "760x520", resizable=(True, True))
 
         # ── Filter row ───────────────────────────────────────────────────────
         frow = ttk.Frame(win, padding=(10, 8, 10, 4))
@@ -2080,11 +2293,7 @@ class Editor(tk.Tk):
         boxes  = self.storage.attributes.get("@boxes", [])
         party  = self.trainer.attributes.get("@party", [])
 
-        dlg = tk.Toplevel(self)
-        dlg.title(f"Move {nick}")
-        dlg.geometry("420x300")
-        dlg.resizable(False, False)
-        dlg.grab_set()
+        dlg = self._make_popup(f"Move {nick}", "420x300")
 
         ttk.Label(dlg, text=f"Move  {nick}", font=("", 10, "bold"),
                   padding=(0, 6, 0, 4)).pack()
