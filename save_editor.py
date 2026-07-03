@@ -493,6 +493,13 @@ class Editor(tk.Tk):
         if os.path.exists(self.save_path):
             self._do_load(self.save_path)
 
+    def _clear_pokemon_editor_vars(self, v):
+        for val in v.values():
+            if isinstance(val, tk.BooleanVar):
+                val.set(False)
+            elif isinstance(val, tk.StringVar):
+                val.set("")
+
     def _palette_for(self, mode: str) -> dict:
         if mode == "dark":
             return {
@@ -2946,9 +2953,7 @@ class Editor(tk.Tk):
                 title_frame.config(text=f"{label_prefix}: {label}")
         else:
             v["_pkmn_obj"] = None
-            for key, val in v.items():
-                if isinstance(val, (tk.StringVar, tk.BooleanVar)):
-                    val.set("")
+            self._clear_pokemon_editor_vars(v)
             v["editor_frame"].pack_forget()
             v["add_frame"].pack(expand=True, fill="both")
             if tab_parent and tab_idx is not None:
@@ -3007,9 +3012,7 @@ class Editor(tk.Tk):
             else:
                 v["_pkmn_obj"] = None
                 self.party_nb.tab(slot, text=f" Slot {slot+1} (empty)")
-                for key, val in v.items():
-                    if isinstance(val, (tk.StringVar, tk.BooleanVar)):
-                        val.set("")
+                self._clear_pokemon_editor_vars(v)
                 if v.get("dex_sprite"):
                     v["dex_sprite"].configure(image="", text="")
                     v["dex_sprite"].image = None
