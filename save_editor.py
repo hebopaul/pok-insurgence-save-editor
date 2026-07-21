@@ -67,6 +67,7 @@ STATS   = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]
 NATURES = ["Hardy","Lonely","Brave","Adamant","Naughty","Bold","Docile","Relaxed",
            "Impish","Lax","Timid","Hasty","Serious","Jolly","Naive","Modest","Mild",
            "Quiet","Bashful","Rash","Calm","Gentle","Sassy","Careful","Quirky"]
+GENDERS = ["Male", "Female", "Genderless"]
 EV_PRESETS = {
     "Fresh / zero EVs": [0, 0, 0, 0, 0, 0],
     "Balanced": [85, 85, 85, 85, 85, 85],
@@ -165,6 +166,7 @@ def _load_pokemon_data():
                         int(parts[i]) if len(parts) > i and parts[i].isdigit() else 0
                         for i in range(23, 29)
                     ],
+                    "ability_slots": [parts[29] if len(parts) > 29 else "", parts[30] if len(parts) > 30 else ""],
                     "abilities": [p for p in (parts[29] if len(parts) > 29 else "", parts[30] if len(parts) > 30 else "") if p],
                     "hidden_ability": parts[31] if len(parts) > 31 else "",
                     "egg_groups": [p for p in (parts[32] if len(parts) > 32 else "", parts[33] if len(parts) > 33 else "") if p],
@@ -385,6 +387,114 @@ def is_shiny(pid, trainer_id, secret_id):
     if not isinstance(pid, int): return False
     return (trainer_id ^ secret_id ^ (pid >> 16) ^ (pid & 0xFFFF)) < 8
 
+def pokemon_nature(attributes: dict) -> int:
+    """Return the nature the game will use, including its explicit override."""
+    override = attributes.get("@natureflag")
+    if isinstance(override, int) and not isinstance(override, bool) and 0 <= override < len(NATURES):
+        return override
+    pid = attributes.get("@personalID", 0)
+    return (pid if isinstance(pid, int) else 0) % len(NATURES)
+
+def pokemon_is_shiny(attributes: dict, trainer_id: int = 0, secret_id: int = 0) -> bool:
+    """Return the shiny state the game will use, including its explicit override."""
+    override = attributes.get("@shinyflag")
+    if isinstance(override, bool):
+        return override
+    pid = attributes.get("@personalID", 0)
+    original_trainer_id = attributes.get("@trainerID")
+    if isinstance(original_trainer_id, int):
+        trainer_id = original_trainer_id & 0xFFFF
+        secret_id = (original_trainer_id >> 16) & 0xFFFF
+    return is_shiny(pid, trainer_id, secret_id)
+
+def ability_choices_for_species(species_id: int) -> list:
+    """Return unique (slot, display name) choices supported by a species."""
+    data = PKMN_DATA.get(species_id, {})
+    normal_slots = list(data.get("ability_slots", []))
+    if not normal_slots:
+        normal_slots = list(data.get("abilities", []))
+    normal_slots = (normal_slots + ["", ""])[:2]
+    candidates = [(0, normal_slots[0]), (1, normal_slots[1]), (2, data.get("hidden_ability", ""))]
+
+    choices = []
+    seen_names = set()
+    for slot, name in candidates:
+        name = str(name or "").strip()
+        key = name.casefold()
+        if not name or key in seen_names:
+            continue
+        seen_names.add(key)
+        label = f"{name} (Hidden)" if slot == 2 else name
+        choices.append((slot, label))
+    return choices or [(0, "Ability slot 0")]
+
+def ability_slot_from_value(species_id: int, value, default: int = 0) -> int:
+    text = str(value or "").strip()
+    for slot, label in ability_choices_for_species(species_id):
+        if text == label:
+            return slot
+    try:
+        return min(2, max(0, int(text.split(" - ", 1)[0])))
+    except ValueError:
+        return default
+
+def gender_choices_for_species(species_id: int) -> list:
+    rate = PKMN_DATA.get(species_id, {}).get("gender_rate", "")
+    if rate == "Genderless":
+        return ["Genderless"]
+    if rate == "Always female":
+        return ["Female"]
+    if rate == "Always male":
+        return ["Male"]
+    return ["Male", "Female"]
+
+def pokemon_gender(attributes: dict) -> str:
+    """Return the gender the game will display for a saved Pokemon."""
+    override = attributes.get("@genderflag")
+    if isinstance(override, int) and not isinstance(override, bool) and override in (0, 1):
+        return GENDERS[override]
+
+    species_id = attributes.get("@species", 0)
+    rate = PKMN_DATA.get(species_id, {}).get("gender_rate", "")
+    if rate == "Genderless":
+        return "Genderless"
+    if rate == "Always female":
+        return "Female"
+    if rate == "Always male":
+        return "Male"
+
+    thresholds = {
+        "Female 12.5%": 30,
+        "Female 25%": 63,
+        "Female 50%": 126,
+        "Female 75%": 190,
+    }
+    pid = attributes.get("@personalID", 0)
+    low_byte = (pid if isinstance(pid, int) else 0) & 0xFF
+    return "Female" if low_byte <= thresholds.get(rate, 126) else "Male"
+
+def apply_pokemon_identity(attributes: dict, nature_index: int, shiny: bool,
+                           ability_slot: int, gender: str):
+    """Apply PID-related choices using Insurgence's native override fields.
+
+    Keeping the PID intact is important: nature, gender, shininess, ability, and
+    several cosmetic forms can all derive from it.  Insurgence supplies explicit
+    flags for the editable properties, so changing one must not disturb the rest.
+    """
+    if not 0 <= nature_index < len(NATURES):
+        raise ValueError("Invalid Pokemon nature.")
+    ability_slot = min(2, max(0, int(ability_slot)))
+    species_id = attributes.get("@species", 0)
+    choices = gender_choices_for_species(species_id)
+    if gender not in choices:
+        species_name = PKMN_DATA.get(species_id, {}).get("name", f"Species #{species_id}")
+        raise ValueError(f"{species_name} cannot be set to {gender.lower()}.")
+
+    attributes["@natureflag"] = nature_index
+    attributes["@shinyflag"] = bool(shiny)
+    attributes["@abilityflag"] = ability_slot
+    attributes["@genderflag"] = GENDERS.index(gender) if len(choices) > 1 else None
+
 def item_display_name(internet_id: int) -> str:
     return ITEM_NAMES.get(internet_id, f"Unknown (#{internet_id})")
 
@@ -494,7 +604,10 @@ class Editor(tk.Tk):
             self._do_load(self.save_path)
 
     def _clear_pokemon_editor_vars(self, v):
-        for val in v.values():
+        # Clearing species_id triggers the form/gender/ability refresh traces,
+        # which may update cached entries in this dictionary.  Iterate over a
+        # snapshot so those callbacks cannot resize the active iterator.
+        for val in list(v.values()):
             if isinstance(val, tk.BooleanVar):
                 val.set(False)
             elif isinstance(val, tk.StringVar):
@@ -684,9 +797,15 @@ class Editor(tk.Tk):
         return f"{h_text}, {w_text}"
 
     def _pokemon_abilities_text(self, data: dict) -> str:
-        abilities = list(data.get("abilities", []))
+        abilities = []
+        seen = set()
+        for ability in data.get("abilities", []):
+            key = ability.casefold()
+            if key not in seen:
+                abilities.append(ability)
+                seen.add(key)
         hidden = data.get("hidden_ability", "")
-        if hidden:
+        if hidden and hidden.casefold() not in seen:
             abilities.append(f"Hidden: {hidden}")
         return ", ".join(abilities) if abilities else "-"
 
@@ -732,8 +851,58 @@ class Editor(tk.Tk):
             species_id = 0
         current_form = self._parse_form_id(v.get("form").get() if v.get("form") else 0)
         self._set_form_value(v, species_id, current_form)
+        self._set_gender_value(v)
+        self._set_ability_value(v)
         if v.get("dex_sprite"):
             self._set_pokemon_dex_vars(v, species_id, current_form)
+
+    def _set_gender_value(self, v: dict, attributes: dict = None):
+        gender_var = v.get("gender")
+        if gender_var is None:
+            return
+        try:
+            species_id = int(v.get("species_id").get() or 0)
+        except (AttributeError, ValueError):
+            species_id = 0
+        choices = gender_choices_for_species(species_id)
+        combo = v.get("gender_combo")
+        if combo is not None:
+            combo.configure(values=choices)
+        value = pokemon_gender(attributes) if attributes is not None else gender_var.get()
+        gender_var.set(value if value in choices else choices[0])
+
+    def _set_ability_value(self, v: dict, slot: int = None):
+        ability_var = v.get("ability_slot")
+        if ability_var is None:
+            return
+        try:
+            species_id = int(v.get("species_id").get() or 0)
+        except (AttributeError, ValueError):
+            species_id = 0
+        choices = ability_choices_for_species(species_id)
+        if slot is None:
+            slot = ability_slot_from_value(species_id, ability_var.get())
+
+        labels_by_slot = {choice_slot: label for choice_slot, label in choices}
+        selected_label = labels_by_slot.get(slot)
+        if selected_label is None:
+            selected_label = choices[0][1]
+        v["_ability_choices"] = {label: choice_slot for choice_slot, label in choices}
+        combo = v.get("ability_combo")
+        if combo is not None:
+            combo.configure(values=[label for _slot, label in choices])
+        ability_var.set(selected_label)
+
+    def _selected_ability_slot(self, v: dict) -> int:
+        value = v.get("ability_slot").get() if v.get("ability_slot") else ""
+        mapped = v.get("_ability_choices", {}).get(value)
+        if mapped is not None:
+            return mapped
+        try:
+            species_id = int(v.get("species_id").get() or 0)
+        except (AttributeError, ValueError):
+            species_id = 0
+        return ability_slot_from_value(species_id, value)
 
     def _selected_form_id(self, v: dict) -> int:
         return max(0, min(self._parse_form_id(v.get("form").get() if v.get("form") else 0), 99))
@@ -893,21 +1062,25 @@ class Editor(tk.Tk):
 
     def _show_ability_info_for(self, species_id: int, ability_slot_var=None, pkmn=None):
         species = PKMN_DATA.get(species_id, {})
-        normal_abilities = list(species.get("abilities", []))
-        hidden_ability = species.get("hidden_ability", "")
+        choices = ability_choices_for_species(species_id)
 
-        if not normal_abilities and not hidden_ability:
+        if not species.get("abilities") and not species.get("hidden_ability"):
             messagebox.showinfo("Abilities", "No ability data is available for this Pokemon.", parent=self)
             return
 
-        try:
-            slot = int(ability_slot_var.get() or 0) if ability_slot_var is not None else 0
-        except (ValueError, tk.TclError):
+        if ability_slot_var is not None:
+            try:
+                slot = ability_slot_from_value(species_id, ability_slot_var.get())
+            except tk.TclError:
+                slot = 0
+        else:
             attrs = pkmn.attributes if isinstance(pkmn, RubyObject) else {}
             pid = attrs.get("@personalID", 0) or 0
-            slot = pid & 1
+            ability_flag = attrs.get("@abilityflag")
+            slot = ability_flag if isinstance(ability_flag, int) else pid & 1
 
-        current = normal_abilities[slot] if 0 <= slot < len(normal_abilities) else (normal_abilities[0] if normal_abilities else "")
+        labels_by_slot = {choice_slot: label for choice_slot, label in choices}
+        current = labels_by_slot.get(slot, choices[0][1])
         name = species.get("name", f"Species #{species_id}")
 
         win = self._make_popup(f"{name} Abilities", "500x340")
@@ -921,10 +1094,10 @@ class Editor(tk.Tk):
             ttk.Label(outer, text="Current ability could not be resolved.", foreground="gray").pack(anchor="w", pady=(2, 10))
 
         rows = []
-        for idx, ability in enumerate(normal_abilities):
-            rows.append((f"Slot {idx}", ability, ability == current))
-        if hidden_ability:
-            rows.append(("Hidden", hidden_ability, False))
+        for choice_slot, label in choices:
+            ability = label.removesuffix(" (Hidden)")
+            slot_label = "Hidden" if choice_slot == 2 else "Normal"
+            rows.append((slot_label, ability, choice_slot == slot))
 
         for row, (label, ability, is_current) in enumerate(rows):
             card = ttk.Frame(outer)
@@ -1184,10 +1357,19 @@ class Editor(tk.Tk):
         ttk.Combobox(rf, textvariable=v["nature_idx"], values=NATURES, width=10, state="readonly").grid(
             row=r, column=1, sticky="w", padx=3, pady=2); r += 1
 
-        v["ability_slot"] = tk.StringVar(value="0")
-        ttk.Label(rf, text="Ability Slot:", width=14, anchor="e").grid(row=r, column=0, sticky="e", pady=2)
-        ttk.Combobox(rf, textvariable=v["ability_slot"], values=["0","1"], width=10, state="readonly").grid(
-            row=r, column=1, sticky="w", padx=3, pady=2); r += 1
+        v["gender"] = tk.StringVar()
+        ttk.Label(rf, text="Gender:", width=14, anchor="e").grid(row=r, column=0, sticky="e", pady=2)
+        v["gender_combo"] = ttk.Combobox(
+            rf, textvariable=v["gender"], values=GENDERS, width=10, state="readonly"
+        )
+        v["gender_combo"].grid(row=r, column=1, sticky="w", padx=3, pady=2); r += 1
+
+        v["ability_slot"] = tk.StringVar()
+        ttk.Label(rf, text="Ability:", width=14, anchor="e").grid(row=r, column=0, sticky="e", pady=2)
+        v["ability_combo"] = ttk.Combobox(
+            rf, textvariable=v["ability_slot"], values=[], width=20, state="readonly"
+        )
+        v["ability_combo"].grid(row=r, column=1, sticky="w", padx=3, pady=2); r += 1
 
         v["shiny"] = tk.BooleanVar()
         ttk.Label(rf, text="Shiny:", width=14, anchor="e").grid(row=r, column=0, sticky="e", pady=2)
@@ -1821,15 +2003,27 @@ class Editor(tk.Tk):
                 ttk.Label(rp, text=lbl + ":", width=10, anchor="e").grid(row=i, column=0, sticky="e", pady=1)
                 ttk.Entry(rp, textvariable=sv[key], width=8).grid(row=i, column=1, sticky="w", pady=1, padx=2)
 
-            sv["nature_idx"] = tk.StringVar(value=NATURES[pid % 25])
-            sv["shiny"] = tk.BooleanVar(value=is_shiny(pid, self.trainer_id, self.secret_id))
-            sv["ability_slot"] = tk.StringVar(value=str(pid & 1))
+            sv["nature_idx"] = tk.StringVar(value=NATURES[pokemon_nature(a)])
+            sv["gender"] = tk.StringVar(value=pokemon_gender(a))
+            sv["shiny"] = tk.BooleanVar(value=pokemon_is_shiny(a, self.trainer_id, self.secret_id))
+            ability_flag = a.get("@abilityflag")
+            selected_ability_slot = ability_flag if isinstance(ability_flag, int) else pid & 1
+            sv["ability_slot"] = tk.StringVar()
             ttk.Label(np, text="Nature:", anchor="e", width=10).grid(row=0, column=0, sticky="e")
             ttk.Combobox(np, textvariable=sv["nature_idx"], values=NATURES, width=9, state="readonly").grid(row=0, column=1, padx=2)
-            ttk.Label(np, text="Shiny:", anchor="e", width=10).grid(row=1, column=0, sticky="e")
-            ttk.Checkbutton(np, variable=sv["shiny"]).grid(row=1, column=1, sticky="w", padx=2)
-            ttk.Label(np, text="Ability:", anchor="e", width=10).grid(row=2, column=0, sticky="e")
-            ttk.Combobox(np, textvariable=sv["ability_slot"], values=["0", "1"], width=4, state="readonly").grid(row=2, column=1, padx=2)
+            ttk.Label(np, text="Gender:", anchor="e", width=10).grid(row=1, column=0, sticky="e")
+            sv["gender_combo"] = ttk.Combobox(
+                np, textvariable=sv["gender"], values=gender_choices_for_species(sp), width=9, state="readonly"
+            )
+            sv["gender_combo"].grid(row=1, column=1, padx=2)
+            ttk.Label(np, text="Shiny:", anchor="e", width=10).grid(row=2, column=0, sticky="e")
+            ttk.Checkbutton(np, variable=sv["shiny"]).grid(row=2, column=1, sticky="w", padx=2)
+            ttk.Label(np, text="Ability:", anchor="e", width=10).grid(row=3, column=0, sticky="e")
+            sv["ability_combo"] = ttk.Combobox(
+                np, textvariable=sv["ability_slot"], values=[], width=18, state="readonly"
+            )
+            sv["ability_combo"].grid(row=3, column=1, padx=2)
+            self._set_ability_value(sv, selected_ability_slot)
 
             iv = a.get("@iv", [])
             ev = a.get("@ev", [])
@@ -2153,6 +2347,9 @@ class Editor(tk.Tk):
         a["@ev"]           = [ev_hp, ev_atk, ev_def, ev_spa, ev_spd, ev_spe]
         a["@form"]         = 0
         a["@abilityflag"]  = 0
+        a["@natureflag"]   = NATURES.index("Hardy")
+        a["@genderflag"]   = None
+        a["@shinyflag"]    = False
         a["@trainerID"]    = combined_id
         a["@ot"]           = ot_name
         a["@otgender"]     = 0
@@ -2917,10 +3114,11 @@ class Editor(tk.Tk):
                 v[key].set(str(a.get(attr, 0)))
             self._set_form_value(v, a.get("@species", 0), a.get("@form", 0))
             v["nickname"].set(ds(a.get("@name", b"")))
-            v["nature_idx"].set(NATURES[pid % 25])
-            v["shiny"].set(is_shiny(pid, self.trainer_id, self.secret_id))
+            v["nature_idx"].set(NATURES[pokemon_nature(a)])
+            self._set_gender_value(v, a)
+            v["shiny"].set(pokemon_is_shiny(a, self.trainer_id, self.secret_id))
             ab = a.get("@abilityflag", None)
-            v["ability_slot"].set(str(ab if isinstance(ab, int) else pid & 1))
+            self._set_ability_value(v, ab if isinstance(ab, int) else pid & 1)
             iv = a.get("@iv", [])
             ev = a.get("@ev", [])
             for j, stat in enumerate(STATS):
@@ -2978,10 +3176,11 @@ class Editor(tk.Tk):
                     v[key].set(str(a.get(attr, 0)))
                 self._set_form_value(v, a.get("@species", 0), a.get("@form", 0))
                 v["nickname"].set(ds(a.get("@name", b"")))
-                v["nature_idx"].set(NATURES[pid % 25])
-                v["shiny"].set(is_shiny(pid, self.trainer_id, self.secret_id))
+                v["nature_idx"].set(NATURES[pokemon_nature(a)])
+                self._set_gender_value(v, a)
+                v["shiny"].set(pokemon_is_shiny(a, self.trainer_id, self.secret_id))
                 ab = a.get("@abilityflag", None)
-                v["ability_slot"].set(str(ab if isinstance(ab, int) else pid & 1))
+                self._set_ability_value(v, ab if isinstance(ab, int) else pid & 1)
                 iv = a.get("@iv", [])
                 ev = a.get("@ev", [])
                 for j, stat in enumerate(STATS):
@@ -3060,21 +3259,11 @@ class Editor(tk.Tk):
             a["@form"] = self._selected_form_id(v)
             a["@iv"] = iv; a["@ev"] = _sanitize_evs(ev)
 
-            old_pid = a.get("@personalID", 0) or 0
-            old_nat = NATURES[old_pid % 25] if old_pid else ""
-            old_shiny = is_shiny(old_pid, self.trainer_id, self.secret_id)
-            old_ab = old_pid & 1
-            
             nat_name = v["nature_idx"].get()
-            nat_i    = NATURES.index(nat_name) if nat_name in NATURES else old_pid % 25
+            nat_i    = NATURES.index(nat_name) if nat_name in NATURES else pokemon_nature(a)
             shiny    = bool(v["shiny"].get())
-            ab       = gi("ability_slot")
-            
-            if nat_name != old_nat or shiny != old_shiny or ab != old_ab:
-                new_pid  = find_pid(nat_i, shiny, self.trainer_id, self.secret_id)
-                new_pid  = (new_pid & 0xFFFFFFFE) | (ab & 1)
-                a["@personalID"] = new_pid
-            if "@abilityflag" in a: a["@abilityflag"] = ab
+            ab       = self._selected_ability_slot(v)
+            apply_pokemon_identity(a, nat_i, shiny, ab, v["gender"].get())
 
             moves = a.get("@moves", [])
             for i in range(4):
@@ -3128,21 +3317,11 @@ class Editor(tk.Tk):
                 if nick and nick != ds(a.get("@name", b"")):
                     a["@name"] = nick.encode("utf-8")
 
-                old_pid = a.get("@personalID", 0) or 0
-                old_nat = NATURES[old_pid % 25] if old_pid else ""
-                old_shiny = is_shiny(old_pid, self.trainer_id, self.secret_id)
-                old_ab = old_pid & 1
-                
                 nat_name = sv["nature_idx"].get()
-                nat_i    = NATURES.index(nat_name) if nat_name in NATURES else old_pid % 25
+                nat_i    = NATURES.index(nat_name) if nat_name in NATURES else pokemon_nature(a)
                 shiny    = bool(sv["shiny"].get())
-                ab       = gi("ability_slot")
-                
-                if nat_name != old_nat or shiny != old_shiny or ab != old_ab:
-                    new_pid  = find_pid(nat_i, shiny, self.trainer_id, self.secret_id)
-                    new_pid  = (new_pid & 0xFFFFFFFE) | (ab & 1)
-                    a["@personalID"] = new_pid
-                if "@abilityflag" in a: a["@abilityflag"] = ab
+                ab       = self._selected_ability_slot(sv)
+                apply_pokemon_identity(a, nat_i, shiny, ab, sv["gender"].get())
 
                 iv = a.get("@iv", [0]*6)
                 ev = a.get("@ev", [0]*6)

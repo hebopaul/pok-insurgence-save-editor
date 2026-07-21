@@ -9,7 +9,7 @@ Grab the latest `.exe` from the [Releases](https://github.com/hebopaul/pok-insur
 ## Features
 
 - Edit trainer money, Battle Points, and badges.
-- Edit all six party slots, including species, nickname, level, experience, stats, IVs, EVs, nature, ability slot, shiny flag, held item, status, moves, and PP.
+- Edit all six party slots, including species, nickname, level, experience, stats, IVs, EVs, nature, gender, ability slot, shiny flag, held item, status, moves, and PP.
 - Add Pokemon to empty party or PC slots with Pokemon, move, and EV pickers.
 - Browse PC boxes, edit boxed Pokemon, move Pokemon between boxes and party slots, or delete boxed Pokemon.
 - Manage the bag by pocket, with searchable item selection, quantities, item icons, and item details.
@@ -43,7 +43,7 @@ The source checkout includes the generated data files needed by the editor. The 
 ## Notes
 
 - Save files are Ruby Marshal streams.
-- Nature and shiny edits recalculate PID values, which can also affect gender.
+- Nature, gender, ability, and shiny edits use Insurgence's native override fields, preserving the Pokemon's PID and its other PID-derived traits.
 - Level and stat fields are written directly; the game may recalculate some derived values after loading.
 
 ## Disclaimer
