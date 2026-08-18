@@ -35,6 +35,7 @@ from save_editor import (
     item_picker_id,
     item_source_id,
     make_shadow,
+    move_party_pokemon_to_box,
     pokemon_gender,
     pokemon_is_shadow,
     pokemon_is_shiny,
@@ -389,6 +390,31 @@ class PokemonFormTests(unittest.TestCase):
             recommended_creation_move_ids(learnset, 20, moves),
             [1, 2, 3, 5],
         )
+
+    def test_moving_party_pokemon_to_empty_box_slot_compacts_party(self):
+        first = RubyObject("PokeBattle_Pokemon", {"@name": b"First"})
+        second = RubyObject("PokeBattle_Pokemon", {"@name": b"Second"})
+        party = [first, second]
+        box_pokemon = []
+
+        displaced = move_party_pokemon_to_box(party, 0, box_pokemon, 3)
+
+        self.assertIsNone(displaced)
+        self.assertEqual(party, [second])
+        self.assertEqual(box_pokemon[:3], [None, None, None])
+        self.assertIs(box_pokemon[3], first)
+
+    def test_moving_party_pokemon_to_occupied_box_slot_swaps(self):
+        party_pokemon = RubyObject("PokeBattle_Pokemon", {"@name": b"Party"})
+        box_pokemon = RubyObject("PokeBattle_Pokemon", {"@name": b"Box"})
+        party = [party_pokemon]
+        box = [box_pokemon]
+
+        displaced = move_party_pokemon_to_box(party, 0, box, 0)
+
+        self.assertIs(displaced, box_pokemon)
+        self.assertIs(party[0], box_pokemon)
+        self.assertIs(box[0], party_pokemon)
 
     def test_every_generated_form_override_is_well_formed(self):
         named_forms = {

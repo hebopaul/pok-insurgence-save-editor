@@ -598,6 +598,30 @@ def recommended_creation_move_ids(learnset: list, level: int,
     )
     return chosen
 
+
+def move_party_pokemon_to_box(party: list, party_slot: int,
+                              box_pokemon: list, box_slot: int):
+    """Move a party member into a PC slot, swapping when that slot is occupied."""
+    if not isinstance(party, list) or not isinstance(box_pokemon, list):
+        raise ValueError("Party and box Pokémon collections must be lists.")
+    if party_slot < 0 or party_slot >= len(party) or not isinstance(party[party_slot], RubyObject):
+        raise ValueError("The selected party slot is empty.")
+    if box_slot < 0:
+        raise ValueError("The destination box slot is invalid.")
+
+    while len(box_pokemon) <= box_slot:
+        box_pokemon.append(None)
+    pokemon = party[party_slot]
+    displaced = box_pokemon[box_slot]
+    box_pokemon[box_slot] = pokemon
+    if isinstance(displaced, RubyObject):
+        party[party_slot] = displaced
+    else:
+        # The game expects a compact party array, not empty gaps between slots.
+        party.pop(party_slot)
+        displaced = None
+    return displaced
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def ds(s):
@@ -1345,6 +1369,9 @@ class Editor(tk.Tk):
                 "accent2": "#1d4ed8",
                 "button": "#1e3a5f",
                 "button_active": "#2563a6",
+                "danger_button": "#7f1d1d",
+                "danger_button_active": "#991b1b",
+                "danger_text": "#fecaca",
                 "border": "#355172",
                 "select": "#1d4ed8",
                 "select_text": "#ffffff",
@@ -1364,6 +1391,9 @@ class Editor(tk.Tk):
             "accent2": "#0f5bbd",
             "button": "#f3f4f6",
             "button_active": "#e5e7eb",
+            "danger_button": "#fee2e2",
+            "danger_button_active": "#fecaca",
+            "danger_text": "#991b1b",
             "border": "#8aa9c8",
             "select": "#2b77d1",
             "select_text": "#ffffff",
@@ -1391,6 +1421,17 @@ class Editor(tk.Tk):
         self.style.configure("TLabel", background=p["bg"], foreground=p["text"])
         self.style.configure("TButton", background=p["button"], foreground=p["text"])
         self.style.map("TButton", background=[("active", p["button_active"])], foreground=[("active", p["text"])])
+        self.style.configure(
+            "Danger.TButton",
+            background=p["danger_button"],
+            foreground=p["danger_text"],
+            bordercolor=p["danger_text"],
+        )
+        self.style.map(
+            "Danger.TButton",
+            background=[("active", p["danger_button_active"])],
+            foreground=[("active", p["danger_text"])],
+        )
         # Without explicit state maps, clam keeps its light default for the hover
         # ("active") background and the indicator, which washes out the label text
         # of any checkbutton that has one.
@@ -2273,6 +2314,17 @@ class Editor(tk.Tk):
                    command=lambda vv=v: self._open_shadow_dialog(vv)).pack(pady=2)
         ttk.Label(bf, textvariable=v["shadow_status"], width=14,
                   anchor="center", justify="center").pack(pady=(0, 2))
+
+        manage = ttk.LabelFrame(e, text="Manage", padding=6)
+        manage.grid(row=1, column=2, sticky="n", padx=4, pady=4)
+        ttk.Button(
+            manage, text="Move", width=12,
+            command=lambda s=slot: self._move_party_pokemon(s),
+        ).pack(pady=2)
+        ttk.Button(
+            manage, text="Delete", width=12, style="Danger.TButton",
+            command=lambda s=slot: self._delete_party_pokemon(s),
+        ).pack(pady=2)
 
         df = ttk.LabelFrame(e, text="Pokedex", padding=6)
         df.grid(row=0, column=3, rowspan=3, sticky="nsew", padx=4, pady=4)
@@ -3259,7 +3311,7 @@ class Editor(tk.Tk):
             rp = ttk.Frame(sf); rp.pack(side="left", padx=4)
             np = ttk.Frame(sf); np.pack(side="left", padx=4)
             ip = ttk.Frame(sf); ip.pack(side="left", padx=4)
-            bp = ttk.Frame(sf); bp.pack(side="left", padx=4)
+            bp = ttk.Frame(sf); bp.pack(side="left", padx=4, fill="y")
 
             for i, (key, lbl, val) in enumerate([
                 ("species_id", "Species ID", str(sp)),
@@ -3350,19 +3402,23 @@ class Editor(tk.Tk):
             sv["shadow_status"] = tk.StringVar()
             sv["_title_frame"] = sf
             sv["_title_text"] = label
-            ttk.Button(bp, text="Max IVs", width=8, command=lambda vv=sv: self._max_ivs(vv)).pack(pady=2)
-            ttk.Button(bp, text="Zero EVs", width=8, command=lambda vv=sv: self._zero_evs(vv)).pack(pady=2)
-            ttk.Button(bp, text="Heal", width=8, command=lambda vv=sv: self._heal_slot(vv)).pack(pady=2)
-            ttk.Button(bp, text="Restore PP", width=8, command=lambda vv=sv: self._restore_pp(vv)).pack(pady=2)
-            ttk.Separator(bp, orient="horizontal").pack(fill="x", pady=4)
-            ttk.Button(bp, text="Shadow…", width=8,
+            quick = ttk.LabelFrame(bp, text="Quick Actions", padding=4)
+            quick.pack(fill="x", pady=(0, 4))
+            ttk.Button(quick, text="Max IVs", width=10, command=lambda vv=sv: self._max_ivs(vv)).pack(pady=2)
+            ttk.Button(quick, text="Zero EVs", width=10, command=lambda vv=sv: self._zero_evs(vv)).pack(pady=2)
+            ttk.Button(quick, text="Heal", width=10, command=lambda vv=sv: self._heal_slot(vv)).pack(pady=2)
+            ttk.Button(quick, text="Restore PP", width=10, command=lambda vv=sv: self._restore_pp(vv)).pack(pady=2)
+            ttk.Separator(quick, orient="horizontal").pack(fill="x", pady=4)
+            ttk.Button(quick, text="Shadow…", width=10,
                        command=lambda vv=sv: self._open_shadow_dialog(vv)).pack(pady=2)
-            ttk.Label(bp, textvariable=sv["shadow_status"], width=12,
+            ttk.Label(quick, textvariable=sv["shadow_status"], width=12,
                       anchor="center", justify="center").pack(pady=(0, 2))
             self._refresh_shadow_status(sv)
-            ttk.Separator(bp, orient="horizontal").pack(fill="x", pady=4)
-            ttk.Button(bp, text="Move", width=8, command=lambda b=bi, s=si, bx=box, pk=pkmn: self._move_box_pokemon(b, s, bx, pk)).pack(pady=2)
-            ttk.Button(bp, text="Delete", width=8, command=lambda b=bi, s=si, bx=box: self._delete_box_pokemon(b, s, bx)).pack(pady=2)
+            manage = ttk.LabelFrame(bp, text="Manage", padding=4)
+            manage.pack(fill="x")
+            ttk.Button(manage, text="Move", width=10, command=lambda b=bi, s=si, bx=box, pk=pkmn: self._move_box_pokemon(b, s, bx, pk)).pack(pady=2)
+            ttk.Button(manage, text="Delete", width=10, style="Danger.TButton",
+                       command=lambda b=bi, s=si, bx=box: self._delete_box_pokemon(b, s, bx)).pack(pady=2)
 
             dp = self._make_pokemon_dex_panel(
                 sf, sp if isinstance(sp, int) else 0, pokemon_form(a),
@@ -4210,7 +4266,155 @@ class Editor(tk.Tk):
             self._open_move_picker(sid, on_moves)
         self._open_pokemon_picker(on_pick)
 
+    def _delete_party_pokemon(self, slot: int):
+        if not self.trainer:
+            return
+        # Preserve unsaved edits in every party tab before the list is compacted
+        # and the UI is rebuilt around the new slot positions.
+        self._apply_party()
+        party = self.trainer.attributes.get("@party", [])
+        if not isinstance(party, list) or slot >= len(party) or not isinstance(party[slot], RubyObject):
+            return
+        pkmn = party[slot]
+        a = pkmn.attributes
+        nick = ds(a.get("@name", b"")) or f"Species#{a.get('@species', '?')}"
+        if not messagebox.askyesno(
+            "Delete Pokémon",
+            f"Permanently delete {nick} from the party?\nThis cannot be undone.",
+            icon="warning",
+            parent=self,
+        ):
+            return
+        party.pop(slot)
+        self._fill_party()
+        self.status.config(
+            text=f"Deleted {nick} from the party. Click Save to write.",
+            foreground="blue",
+        )
+
+    def _move_party_pokemon(self, slot: int):
+        if not self.trainer or not isinstance(self.storage, RubyObject):
+            return
+        # Moving rebuilds the party tabs; write their current UI values to the
+        # in-memory objects first so unrelated pending edits are not discarded.
+        self._apply_party()
+        self._apply_boxes()
+        party = self.trainer.attributes.get("@party", [])
+        if not isinstance(party, list) or slot >= len(party) or not isinstance(party[slot], RubyObject):
+            return
+        pkmn = party[slot]
+        a = pkmn.attributes
+        nick = ds(a.get("@name", b"")) or f"Species#{a.get('@species', '?')}"
+        boxes = self.storage.attributes.get("@boxes", [])
+        if not isinstance(boxes, list):
+            return
+
+        box_options = []
+        for box_idx, box in enumerate(boxes):
+            if not isinstance(box, RubyObject):
+                continue
+            box_name = ds(box.attributes.get("@name", f"Box {box_idx + 1}"))
+            box_options.append((box_idx, box, f"Box {box_idx + 1}: {box_name}"))
+        if not box_options:
+            messagebox.showerror("No PC boxes", "This save has no available PC boxes.", parent=self)
+            return
+
+        dlg = self._make_popup(f"Move {nick}", "470x190")
+        ttk.Label(
+            dlg, text=f"Send {nick} to a PC box", font=("", 10, "bold"),
+            padding=(0, 8, 0, 6),
+        ).pack()
+        destination = ttk.LabelFrame(dlg, text="Destination", padding=8)
+        destination.pack(fill="x", padx=10, pady=(0, 8))
+
+        labels = [label for _box_idx, _box, label in box_options]
+        current_box = self.storage.attributes.get("@currentBox", 0)
+        default_option = next(
+            (option for option in box_options if option[0] == current_box),
+            box_options[0],
+        )
+        box_var = tk.StringVar(value=default_option[2])
+        slot_var = tk.StringVar()
+        ttk.Label(destination, text="Box:").pack(side="left")
+        ttk.Combobox(
+            destination, textvariable=box_var, values=labels,
+            width=22, state="readonly",
+        ).pack(side="left", padx=(2, 10))
+        ttk.Label(destination, text="Slot:").pack(side="left")
+        slot_combo = ttk.Combobox(
+            destination, textvariable=slot_var, width=22, state="readonly",
+        )
+        slot_combo.pack(side="left", padx=(2, 0))
+
+        def selected_box_option():
+            selected_label = box_var.get()
+            return next(
+                (option for option in box_options if option[2] == selected_label),
+                box_options[0],
+            )
+
+        def refresh_slots(*_):
+            _box_idx, box, _label = selected_box_option()
+            pokemon_list = box.attributes.get("@pokemon", [])
+            if not isinstance(pokemon_list, list):
+                pokemon_list = []
+            slot_labels = []
+            for box_slot in range(max(len(pokemon_list), 30)):
+                if box_slot < len(pokemon_list) and isinstance(pokemon_list[box_slot], RubyObject):
+                    occupant = pokemon_list[box_slot].attributes
+                    occupant_name = ds(occupant.get("@name", b"")) or f"Species#{occupant.get('@species', '?')}"
+                    slot_labels.append(f"Slot {box_slot}: {occupant_name}")
+                else:
+                    slot_labels.append(f"Slot {box_slot}: (empty)")
+            slot_combo["values"] = slot_labels
+            slot_var.set(slot_labels[0] if slot_labels else "")
+
+        def send_to_box():
+            if slot_var.get() not in list(slot_combo["values"]):
+                return
+            dest_box_idx, dest_box, _label = selected_box_option()
+            dest_slot = list(slot_combo["values"]).index(slot_var.get())
+            dest_list = dest_box.attributes.get("@pokemon", [])
+            if not isinstance(dest_list, list):
+                dest_list = []
+                dest_box.attributes["@pokemon"] = dest_list
+            occupant = dest_list[dest_slot] if dest_slot < len(dest_list) else None
+            occupant_name = ""
+            if isinstance(occupant, RubyObject):
+                occupant_attrs = occupant.attributes
+                occupant_name = ds(occupant_attrs.get("@name", b"")) or f"Species#{occupant_attrs.get('@species', '?')}"
+                if not messagebox.askyesno(
+                    "Swap Pokémon",
+                    f"Box {dest_box_idx + 1} Slot {dest_slot} has {occupant_name}.\n"
+                    f"Swap it with {nick}?",
+                    parent=dlg,
+                ):
+                    return
+
+            move_party_pokemon_to_box(party, slot, dest_list, dest_slot)
+            self.storage.attributes["@currentBox"] = dest_box_idx
+            dlg.destroy()
+            self._fill_party()
+            self._rerender_box(dest_box_idx)
+            self._select_box_tab(dest_box_idx)
+            action = (
+                f"Swapped {nick} with {occupant_name} in Box {dest_box_idx + 1} Slot {dest_slot}."
+                if occupant_name else
+                f"Moved {nick} to Box {dest_box_idx + 1} Slot {dest_slot}."
+            )
+            self.status.config(text=action + " Click Save to write.", foreground="blue")
+
+        box_var.trace_add("write", refresh_slots)
+        refresh_slots()
+        button_row = ttk.Frame(dlg)
+        button_row.pack(pady=(0, 8))
+        ttk.Button(button_row, text="Send", command=send_to_box).pack(side="left", padx=4)
+        ttk.Button(button_row, text="Cancel", command=dlg.destroy).pack(side="left", padx=4)
+
     def _delete_box_pokemon(self, bi: int, si: int, box: RubyObject):
+        # Rerendering this box must not discard pending edits in any rendered
+        # PC slot.
+        self._apply_boxes()
         if "@pokemon" not in box.attributes:
             return
         pokemon_list = box.attributes["@pokemon"]
@@ -4229,6 +4433,10 @@ class Editor(tk.Tk):
             foreground="blue")
 
     def _move_box_pokemon(self, bi: int, si: int, box: RubyObject, pkmn: RubyObject):
+        # A move can rebuild both Party and Box editors, so preserve their
+        # current in-memory edits before opening the destination dialog.
+        self._apply_party()
+        self._apply_boxes()
         a    = pkmn.attributes
         nick = ds(a.get("@name", b"")) or f"Species#{a.get('@species', '?')}"
 
