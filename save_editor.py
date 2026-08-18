@@ -1134,6 +1134,26 @@ def set_heart_gauge(attributes: dict, value: int):
 def item_display_name(internet_id: int) -> str:
     return ITEM_NAMES.get(internet_id, f"Unknown (#{internet_id})")
 
+def item_picker_id(source_id: int) -> int:
+    """Convert a game's raw item constant to the encoded item-data key."""
+    try:
+        source_id = int(source_id)
+    except (TypeError, ValueError):
+        return 0
+    return source_id * 2 + 1 if source_id > 0 else 0
+
+def item_source_id(picker_id: int) -> int:
+    """Convert an encoded item-data key back to the raw saved item constant."""
+    try:
+        picker_id = int(picker_id)
+    except (TypeError, ValueError):
+        return 0
+    return (picker_id - 1) // 2 if picker_id > 0 else 0
+
+def bag_add_button_text(quantity) -> str:
+    value = str(quantity).strip()
+    return f"Add {value}" if value else "Add"
+
 _CAT_TO_POCKET = {
     "Items":        1,
     "Medicine":     2,
@@ -1409,8 +1429,15 @@ class Editor(tk.Tk):
                 canvas.configure(bg=p["bg"])
             except tk.TclError:
                 pass
+        live_info_buttons = []
         for canvas in self._info_buttons:
-            self._draw_info_button(canvas)
+            try:
+                if canvas.winfo_exists():
+                    self._draw_info_button(canvas)
+                    live_info_buttons.append(canvas)
+            except tk.TclError:
+                pass
+        self._info_buttons = live_info_buttons
         if hasattr(self, "status"):
             self.status.configure(foreground=p["muted"])
 
@@ -1736,6 +1763,73 @@ class Editor(tk.Tk):
             except Exception:
                 continue
         return None
+
+    def _refresh_held_item_display(self, v: dict):
+        try:
+            source_id = int(v["item"].get() or 0)
+        except (KeyError, ValueError):
+            source_id = 0
+        picker_id = item_picker_id(source_id)
+        name_var = v.get("item_name")
+        if name_var is not None:
+            name_var.set(item_display_name(picker_id) if picker_id else "None")
+        label = v.get("item_icon")
+        if label is not None:
+            icon = self._load_item_icon(picker_id, max_size=v.get("item_icon_size", 28)) if picker_id else None
+            label.configure(image=icon if icon else "", text="" if icon else "—")
+            label.image = icon
+
+    def _set_held_item_from_picker(self, v: dict, picker_id: int):
+        v["item"].set(str(item_source_id(picker_id)))
+
+    def _choose_held_item(self, v: dict):
+        try:
+            current = item_picker_id(int(v["item"].get() or 0))
+        except (KeyError, ValueError):
+            current = 0
+        self._open_item_picker(
+            current_id=current,
+            on_select=lambda picker_id, vv=v: self._set_held_item_from_picker(vv, picker_id),
+        )
+
+    def _show_held_item_info(self, v: dict):
+        try:
+            picker_id = item_picker_id(int(v["item"].get() or 0))
+        except (KeyError, ValueError):
+            picker_id = 0
+        if not picker_id:
+            messagebox.showinfo("Held Item", "This Pokémon is not holding an item.", parent=self)
+            return
+        self._show_item_info(picker_id)
+
+    def _make_held_item_control(self, parent, v: dict, row: int,
+                                label_width: int = 14, compact: bool = False):
+        ttk.Label(parent, text="Held Item:", width=label_width, anchor="e").grid(
+            row=row, column=0, sticky="e", pady=1 if compact else 2
+        )
+        holder = ttk.Frame(parent)
+        holder.grid(row=row, column=1, sticky="w", padx=2 if compact else 3,
+                    pady=1 if compact else 2)
+        v["item_name"] = tk.StringVar(value="None")
+        v["item_icon"] = ttk.Label(holder, width=3, anchor="center")
+        v["item_icon_size"] = 24 if compact else 28
+        v["item_icon"].pack(side="left", padx=(0, 2))
+        info = self._make_info_button(holder, lambda vv=v: self._show_held_item_info(vv))
+        info.pack(side="left", padx=(0, 2))
+        ttk.Label(
+            holder, textvariable=v["item_name"], anchor="w",
+            width=15 if compact else 19, relief="sunken",
+        ).pack(side="left", padx=(0, 3))
+        ttk.Button(
+            holder, text="Change", width=7,
+            command=lambda vv=v: self._choose_held_item(vv),
+        ).pack(side="left", padx=(0, 2))
+        ttk.Button(
+            holder, text="Remove", width=7,
+            command=lambda vv=v: vv["item"].set("0"),
+        ).pack(side="left")
+        v["item"].trace_add("write", lambda *_args, vv=v: self._refresh_held_item_display(vv))
+        self._refresh_held_item_display(v)
 
     def _show_item_info(self, item_id: int):
         data = ITEM_DATA.get(item_id, {"name": item_display_name(item_id), "description": ""})
@@ -2070,10 +2164,12 @@ class Editor(tk.Tk):
 
         rf = ttk.LabelFrame(e, text="Extra", padding=6)
         rf.grid(row=0, column=1, sticky="nsew", padx=4, pady=4)
+        v["item"] = tk.StringVar()
+        self._make_held_item_control(rf, v, row=0)
         for i, (key, lbl) in enumerate([
-            ("item","Held Item ID"),("happiness","Happiness"),
-            ("status","Status (0=OK)"),("ball","Ball Used ID"),("obtain_lv","Obtained Lv"),
-        ]):
+            ("happiness","Happiness"), ("status","Status (0=OK)"),
+            ("ball","Ball Used ID"), ("obtain_lv","Obtained Lv"),
+        ], start=1):
             v[key] = tk.StringVar()
             ttk.Label(rf, text=lbl+":", width=14, anchor="e").grid(row=i, column=0, sticky="e", pady=2)
             ttk.Entry(rf, textvariable=v[key], width=10).grid(row=i, column=1, sticky="w", pady=2, padx=3)
@@ -2651,17 +2747,41 @@ class Editor(tk.Tk):
     def _build_bag_tab(self):
         f = self.tab_bag
         f.columnconfigure(0, weight=1)
-        f.rowconfigure(1, weight=1)
+        f.rowconfigure(2, weight=1)
 
         hint = "Items are grouped by bag pocket. Use Change to swap an item, or i for source details."
         ttk.Label(f, text=hint, foreground="gray", padding=(4, 4)).grid(
             row=0, column=0, columnspan=2, sticky="w")
 
+        add_frame = ttk.LabelFrame(f, text="Add item", padding=(8, 5))
+        add_frame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=4, pady=(0, 4))
+        self._add_item_id = tk.StringVar()
+        self._add_qty = tk.StringVar(value="99")
+        self._add_item_name = tk.StringVar(value="Choose an item...")
+        self._add_button_text = tk.StringVar(value=bag_add_button_text(self._add_qty.get()))
+        ttk.Label(
+            add_frame, textvariable=self._add_item_name, width=28,
+            anchor="w", relief="sunken",
+        ).pack(side="left", padx=(0, 4))
+        ttk.Entry(add_frame, textvariable=self._add_qty, width=6).pack(side="left", padx=(0, 4))
+        ttk.Button(
+            add_frame, text="Browse...",
+            command=lambda: self._open_item_picker(self._add_item_id, self._add_item_name),
+        ).pack(side="left", padx=(0, 4))
+        ttk.Button(
+            add_frame, textvariable=self._add_button_text,
+            command=self._add_bag_item,
+        ).pack(side="left")
+        self._add_qty.trace_add(
+            "write",
+            lambda *_: self._add_button_text.set(bag_add_button_text(self._add_qty.get())),
+        )
+
         canvas = tk.Canvas(f, highlightthickness=0)
         sb = ttk.Scrollbar(f, orient="vertical", command=canvas.yview)
         canvas.configure(yscrollcommand=sb.set)
-        canvas.grid(row=1, column=0, sticky="nsew")
-        sb.grid(row=1, column=1, sticky="ns")
+        canvas.grid(row=2, column=0, sticky="nsew")
+        sb.grid(row=2, column=1, sticky="ns")
 
         self.bag_inner = ttk.Frame(canvas)
         win = canvas.create_window((0, 0), window=self.bag_inner, anchor="nw")
@@ -2673,6 +2793,10 @@ class Editor(tk.Tk):
         for w in self.bag_inner.winfo_children():
             w.destroy()
         self.bag_rows = []
+        if hasattr(self, "_add_item_id"):
+            self._add_item_id.set("")
+            self._add_item_name.set("Choose an item...")
+            self._add_qty.set("99")
 
         if not isinstance(self.bag, RubyObject):
             ttk.Label(self.bag_inner, text="No bag data found.").pack(); return
@@ -2744,28 +2868,10 @@ class Editor(tk.Tk):
                 self.bag_rows.append((pi, ei, id_var, qty_var))
                 grid_row += 1
 
-        # Add-item section
-        ttk.Separator(self.bag_inner, orient="horizontal").grid(
-            row=grid_row, column=0, columnspan=5, sticky="ew", pady=4); grid_row += 1
-
-        add_frame = ttk.Frame(self.bag_inner)
-        add_frame.grid(row=grid_row, column=0, columnspan=5, sticky="w", padx=4, pady=(0, 4))
-
-        self._add_item_id   = tk.StringVar()
-        self._add_qty       = tk.StringVar(value="99")
-        self._add_item_name = tk.StringVar(value="Choose an item...")
-
-        ttk.Label(add_frame, text="Add item:", font=("", 9, "bold")).grid(
-            row=0, column=0, columnspan=4, sticky="w", pady=(0, 2))
-        ttk.Label(add_frame, textvariable=self._add_item_name, width=24, anchor="w", relief="sunken").grid(
-            row=1, column=0, padx=(0, 4))
-        ttk.Entry(add_frame, textvariable=self._add_qty, width=6).grid(row=1, column=1, padx=(0, 4))
-        ttk.Button(add_frame, text="Browse...",
-                   command=lambda: self._open_item_picker(self._add_item_id, self._add_item_name)).grid(
-            row=1, column=2, padx=(0, 4))
-        ttk.Button(add_frame, text="Add", command=self._add_bag_item).grid(row=1, column=3)
-
     def _add_bag_item(self):
+        if not isinstance(self.bag, RubyObject):
+            messagebox.showerror("No bag loaded", "Load a save file with bag data first.", parent=self)
+            return
         try:
             internet_id = int(self._add_item_id.get())
             iid         = (internet_id - 1) // 2
@@ -2782,13 +2888,13 @@ class Editor(tk.Tk):
         pocket_list[pi].append([iid, qty])
         self._populate_bag()
         self.bag_canvas.update_idletasks()
-        self.bag_canvas.yview_moveto(1.0)
+        self.bag_canvas.yview_moveto(0.0)
         name = item_display_name(internet_id)
         pocket_name = POCKET_NAMES[pi] if pi < len(POCKET_NAMES) else "bag"
         self.status.config(text=f"Added: {name} x{qty} to {pocket_name} - click Save to write.",
                            foreground="blue")
 
-    def _open_item_picker(self, id_var: tk.StringVar, name_var):
+    def _open_item_picker(self, id_var=None, name_var=None, current_id=None, on_select=None):
         dlg = self._make_popup("Item Browser", "920x600", resizable=(True, True))
         dlg.columnconfigure(0, weight=1)
         dlg.rowconfigure(1, weight=1)
@@ -2816,7 +2922,7 @@ class Editor(tk.Tk):
         style = ttk.Style()
         style.configure("ItemBrowser.Treeview", rowheight=32)
 
-        cols = ("desc", "pocket", "price")
+        cols = ("desc", "pocket", "price", "id")
         tree = ttk.Treeview(tf, columns=cols, show="tree headings",
                             selectmode="browse", style="ItemBrowser.Treeview")
         vsb = ttk.Scrollbar(tf, orient="vertical", command=tree.yview)
@@ -2825,16 +2931,20 @@ class Editor(tk.Tk):
         vsb.grid(row=0, column=1, sticky="ns")
 
         tree.column("#0",     width=185, minwidth=120, stretch=False, anchor="w")
-        tree.column("desc",   width=390, minwidth=120, stretch=True,  anchor="w")
+        tree.column("desc",   width=340, minwidth=120, stretch=True,  anchor="w")
         tree.column("pocket", width=105, minwidth=80,  stretch=False, anchor="w")
         tree.column("price",  width=72,  minwidth=50,  stretch=False, anchor="e")
+        tree.column("id",     width=58,  minwidth=48,  stretch=False, anchor="e")
 
         # ── sort state ──────────────────────────────────────────────────────
         sort_state  = {"col": "#0", "rev": False}
         _images: dict = {}
         refresh_state = {"token": 0}
 
-        COL_LABELS = {"#0": "Name", "desc": "Description", "pocket": "Pocket", "price": "Price"}
+        COL_LABELS = {
+            "#0": "Name", "desc": "Description", "pocket": "Pocket",
+            "price": "Price", "id": "ID",
+        }
 
         def _apply_headings():
             for c, lbl in COL_LABELS.items():
@@ -2857,7 +2967,9 @@ class Editor(tk.Tk):
             items = [d for d in ITEM_DATA.values()
                      if (cat == "All" or d.get("pocket") == cat)
                      and (not q or q in d["name"].lower()
-                          or q in d.get("description", "").lower())]
+                          or q in d.get("description", "").lower()
+                          or q == str(d.get("source_id", ""))
+                          or q == str(d.get("id", "")))]
 
             col, rev = sort_state["col"], sort_state["rev"]
             if col in ("#0", "desc"):
@@ -2866,6 +2978,8 @@ class Editor(tk.Tk):
                 items.sort(key=lambda d: (d.get("pocket", ""), d["name"].lower()), reverse=rev)
             elif col == "price":
                 items.sort(key=lambda d: (d.get("price", 0), d["name"].lower()), reverse=rev)
+            elif col == "id":
+                items.sort(key=lambda d: (d.get("source_id", 0), d["name"].lower()), reverse=rev)
 
             tree.delete(*tree.get_children())
             _images.clear()
@@ -2886,7 +3000,8 @@ class Editor(tk.Tk):
                     tree.insert("", tk.END, iid=str(iid), text=" " + d["name"],
                                 image=icon or "",
                                 values=(desc, d.get("pocket", ""),
-                                        f"₽{price:,}" if price else "—"))
+                                        f"₽{price:,}" if price else "—",
+                                        d.get("source_id", 0)))
                 next_start = start + 80
                 count_lbl.configure(text=f"{min(next_start, len(items))}/{len(items)} items")
                 if next_start < len(items):
@@ -2900,8 +3015,8 @@ class Editor(tk.Tk):
             _insert_batch()
 
         try:
-            cur = str(int(id_var.get()))
-        except (ValueError, TypeError):
+            cur = str(int(current_id if current_id is not None else id_var.get()))
+        except (AttributeError, ValueError, TypeError):
             cur = ""
 
         def _initial_refresh():
@@ -2922,9 +3037,12 @@ class Editor(tk.Tk):
             if not sel:
                 return
             iid = int(sel[0])
-            id_var.set(str(iid))
+            if id_var is not None:
+                id_var.set(str(iid))
             if name_var is not None:
                 name_var.set(ITEM_DATA.get(iid, {}).get("name", item_display_name(iid)))
+            if on_select is not None:
+                on_select(iid)
             dlg.destroy()
 
         tree.bind("<Double-Button-1>", do_select)
@@ -3101,14 +3219,15 @@ class Editor(tk.Tk):
             self._set_form_value(sv, sp if isinstance(sp, int) else 0, pokemon_form(a))
             sv["species_id"].trace_add("write", lambda *_args, vv=sv: self._refresh_form_options(vv))
 
+            sv["item"] = tk.StringVar(value=str(a.get("@item", 0)))
+            self._make_held_item_control(rp, sv, row=0, label_width=12, compact=True)
             for i, (key, lbl, val) in enumerate([
-                ("item", "Item ID", str(a.get("@item", 0))),
                 ("happiness", "Happiness", str(a.get("@happiness", 0))),
                 ("status", "Status", str(a.get("@status", 0))),
                 ("exp", "Exp", str(a.get("@exp", 0))),
                 ("ball", "Ball ID", str(a.get("@ballused", 0))),
                 ("obtain_lv", "Obtained Lv", str(a.get("@obtainLevel", 0))),
-            ]):
+            ], start=1):
                 sv[key] = tk.StringVar(value=val)
                 ttk.Label(rp, text=lbl + ":", width=12, anchor="e").grid(row=i, column=0, sticky="e", pady=1)
                 ttk.Entry(rp, textvariable=sv[key], width=8).grid(row=i, column=1, sticky="w", pady=1, padx=2)

@@ -23,6 +23,7 @@ from save_editor import (
     _nature_stat_multiplier,
     _scale_ev_preset,
     _valid_ev_edit,
+    bag_add_button_text,
     _game_stats_to_display,
     _sanitize_evs,
     ability_choices_for_species,
@@ -31,6 +32,8 @@ from save_editor import (
     apply_pokemon_identity,
     gender_choices_for_species,
     heart_stage,
+    item_picker_id,
+    item_source_id,
     make_shadow,
     pokemon_gender,
     pokemon_is_shadow,
@@ -190,6 +193,17 @@ class PokemonIdentityTests(unittest.TestCase):
         self.assertEqual(_nature_stat_multiplier(modest, 3), 110)  # Sp. Attack
         self.assertEqual(_nature_stat_multiplier(modest, 1), 100)
 
+    def test_held_item_picker_ids_round_trip_to_raw_save_ids(self):
+        self.assertEqual(item_picker_id(554), 1109)
+        self.assertEqual(item_source_id(1109), 554)
+        self.assertEqual(item_picker_id(0), 0)
+        self.assertEqual(item_source_id(0), 0)
+
+    def test_bag_add_button_includes_the_selected_quantity(self):
+        self.assertEqual(bag_add_button_text("99"), "Add 99")
+        self.assertEqual(bag_add_button_text(" 5 "), "Add 5")
+        self.assertEqual(bag_add_button_text(""), "Add")
+
     def _party_editor(self, attributes):
         pokemon = RubyObject("PokeBattle_Pokemon", attributes)
         editor = Editor.__new__(Editor)
@@ -280,6 +294,18 @@ class PokemonIdentityTests(unittest.TestCase):
 
         self.assertEqual(pokemon.attributes["@ev"], [0, 0, 0, 252, 0, 0])
         self.assertNotIn("@natureflag", pokemon.attributes)
+
+    def test_held_item_picker_selection_writes_the_raw_game_item_id(self):
+        attributes = {
+            "@species": 3, "@name": b"Venusaur", "@personalID": 2,
+            "@item": 0, "@iv": [0] * 6, "@ev": [0] * 6, "@moves": [],
+        }
+        editor, pokemon, slot = self._party_editor(attributes)
+        slot["item"].set(str(item_source_id(395)))  # Griseous Orb
+
+        editor._apply_party()
+
+        self.assertEqual(pokemon.attributes["@item"], 197)
 
     def test_untouched_box_save_preserves_natural_identity_and_stat_arrays(self):
         attributes = {
