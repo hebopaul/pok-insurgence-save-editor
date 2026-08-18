@@ -64,10 +64,63 @@ def get_latest_save_file() -> str:
 DEFAULT_SAVE_DIR = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
 
 STATS   = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]
+# The editor displays stats in the conventional order above, but Essentials'
+# saved @iv/@ev arrays follow the dex/base-stat order:
+# HP, Attack, Defense, Speed, Special Attack, Special Defense.
+GAME_STAT_INDEX = {"hp": 0, "atk": 1, "def": 2, "spa": 4, "spd": 5, "spe": 3}
 NATURES = ["Hardy","Lonely","Brave","Adamant","Naughty","Bold","Docile","Relaxed",
            "Impish","Lax","Timid","Hasty","Serious","Jolly","Naive","Modest","Mild",
            "Quiet","Bashful","Rash","Calm","Gentle","Sassy","Careful","Quirky"]
 GENDERS = ["Male", "Female", "Genderless"]
+
+# Forms with a `getForm` handler are not actually controlled by @form.  The
+# game recomputes them whenever PokeBattle_Pokemon#form is read, so the editor
+# must read/write the same prerequisite state rather than only changing the
+# cosmetic form number.
+MEWTWO_SPECIES_ID = 150
+TYRANITAR_SPECIES_ID = 248
+FLYGON_SPECIES_ID = 330
+GIRATINA_SPECIES_ID = 487
+SHAYMIN_SPECIES_ID = 492
+ARCEUS_SPECIES_ID = 493
+LEAVANNY_SPECIES_ID = 542
+SEASONAL_FORM_SPECIES = {585, 586}  # Deerling and Sawsbuck
+ZEKROM_SPECIES_ID = 644
+KELDEO_SPECIES_ID = 647
+GENESECT_SPECIES_ID = 649
+DELTA_VOLCARONA_SPECIES_ID = 914
+
+GRISEOUS_ORB_ITEM_ID = 197
+GENESECT_FORM_ITEMS = {1: 199, 2: 200, 3: 201, 4: 198}
+ARCEUS_FORM_ITEMS = {
+    1: 158, 2: 161, 3: 159, 4: 160, 5: 164, 6: 163,
+    7: 165, 8: 168, 10: 153, 11: 154, 12: 156, 13: 155,
+    14: 162, 15: 157, 16: 166, 17: 167, 18: 723,
+}
+CRYSTAL_PIECE_ITEM_ID = 812
+MEWTWO_ARMOR_ITEM_ID = 554
+MEWTWONITE_Y_ITEM_ID = 635
+MEWTWONITE_X_ITEM_ID = 637
+ZEKROM_ARMOR_ITEM_ID = 752
+TYRANITAR_ARMOR_ITEM_ID = 753
+LEAVANNY_ARMOR_ITEM_ID = 754
+FLYGON_ARMOR_ITEM_ID = 755
+DELTA_VOLCARONA_ARMOR_ITEM_ID = 829
+
+ITEM_DERIVED_FORMS = {
+    ZEKROM_SPECIES_ID: {1: ZEKROM_ARMOR_ITEM_ID},
+    LEAVANNY_SPECIES_ID: {1: LEAVANNY_ARMOR_ITEM_ID},
+    DELTA_VOLCARONA_SPECIES_ID: {1: DELTA_VOLCARONA_ARMOR_ITEM_ID},
+    GENESECT_SPECIES_ID: GENESECT_FORM_ITEMS,
+}
+COMPUTED_FORM_SPECIES = {
+    MEWTWO_SPECIES_ID, TYRANITAR_SPECIES_ID, FLYGON_SPECIES_ID,
+    GIRATINA_SPECIES_ID, SHAYMIN_SPECIES_ID, ARCEUS_SPECIES_ID,
+    LEAVANNY_SPECIES_ID, *SEASONAL_FORM_SPECIES, ZEKROM_SPECIES_ID,
+    KELDEO_SPECIES_ID, GENESECT_SPECIES_ID, DELTA_VOLCARONA_SPECIES_ID,
+}
+SECRET_SWORD_MOVE_ID = 95
+FROZEN_STATUS_ID = 5
 EV_PRESETS = {
     "Fresh / zero EVs": [0, 0, 0, 0, 0, 0],
     "Balanced": [85, 85, 85, 85, 85, 85],
@@ -120,6 +173,25 @@ def _sanitize_evs(evs) -> list:
     while sum(result) > 510:
         idx = max(range(6), key=lambda j: result[j])
         result[idx] -= 1
+    return result
+
+def _game_stats_to_display(values) -> list:
+    """Convert a saved IV/EV array to the order shown by the editor."""
+    source = values if isinstance(values, list) else []
+    result = []
+    for stat in STATS:
+        idx = GAME_STAT_INDEX[stat.lower()]
+        result.append(source[idx] if idx < len(source) else 0)
+    return result
+
+def _display_stats_to_game(values) -> list:
+    """Convert editor-ordered IV/EV values to Pokémon Essentials save order."""
+    result = [0] * 6
+    for display_idx, stat in enumerate(STATS):
+        try:
+            result[GAME_STAT_INDEX[stat.lower()]] = values[display_idx]
+        except IndexError:
+            pass
     return result
 
 def _load_pokemon_data():
@@ -355,8 +427,29 @@ def _load_learnset_data():
                 pass
     return data
 
-MOVE_DATA     = _load_move_data()
-LEARNSET_DATA = _load_learnset_data()
+def _load_shadow_move_data():
+    path = resource_path("shadow_move_data.txt")
+    data = {}
+    if not os.path.exists(path):
+        return data
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("|", 1)
+            if len(parts) < 2:
+                continue
+            try:
+                sid = int(parts[0].strip())
+                data[sid] = [int(t) for t in parts[1].split()]
+            except (ValueError, IndexError):
+                pass
+    return data
+
+MOVE_DATA        = _load_move_data()
+LEARNSET_DATA    = _load_learnset_data()
+SHADOW_MOVE_DATA = _load_shadow_move_data()
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -473,27 +566,486 @@ def pokemon_gender(attributes: dict) -> str:
     low_byte = (pid if isinstance(pid, int) else 0) & 0xFF
     return "Female" if low_byte <= thresholds.get(rate, 126) else "Male"
 
+def _raw_pokemon_form(attributes: dict) -> int:
+    raw_form = attributes.get("@form", 0)
+    return raw_form if isinstance(raw_form, int) and not isinstance(raw_form, bool) else 0
+
+
+def _form_time_parts(now=None):
+    """Return local (month, hour), accepting a datetime/time tuple in tests."""
+    now = time.localtime() if now is None else now
+    month = getattr(now, "month", getattr(now, "tm_mon", 1))
+    hour = getattr(now, "hour", getattr(now, "tm_hour", 12))
+    return int(month), int(hour)
+
+
+def seasonal_pokemon_form(now=None) -> int:
+    """Mirror Deerling/Sawsbuck's month-derived getForm handler."""
+    month, _hour = _form_time_parts(now)
+    return 3 if month in (1, 2) else (month // 3) - 1
+
+
+def _saved_move_ids(attributes: dict) -> list:
+    """Read move IDs without padding or otherwise mutating an untouched save."""
+    result = []
+    moves = attributes.get("@moves")
+    if not isinstance(moves, list):
+        return result
+    for move in moves[:4]:
+        if isinstance(move, RubyObject):
+            move_id = move.attributes.get("@id", 0)
+            result.append(move_id if isinstance(move_id, int) else 0)
+        else:
+            result.append(0)
+    return result
+
+
+def pokemon_form(attributes: dict, now=None) -> int:
+    """Return exactly the form Insurgence's MultipleForms#getForm resolves.
+
+    Species without a getForm handler persist @form directly.  The exceptional
+    species below are recomputed by the game from items, moves, flags, time, or
+    condition; a bare @form value is ignored for them.
+    """
+    raw_form = _raw_pokemon_form(attributes)
+    species = attributes.get("@species")
+    item = attributes.get("@item", 0)
+
+    if species == GIRATINA_SPECIES_ID:
+        if item == GRISEOUS_ORB_ITEM_ID:
+            return 1
+        if item == CRYSTAL_PIECE_ITEM_ID and attributes.get("@primalBattle"):
+            return 2
+        return 0
+
+    if species == SHAYMIN_SPECIES_ID:
+        _month, hour = _form_time_parts(now)
+        if hour >= 20 or hour < 6 or attributes.get("@hp", 1) <= 0 \
+                or attributes.get("@status", 0) == FROZEN_STATUS_ID:
+            return 0
+        return raw_form
+
+    if species == ARCEUS_SPECIES_ID:
+        if attributes.get("@abilityflag") != 2:
+            for form_id, required_item in ARCEUS_FORM_ITEMS.items():
+                if item == required_item:
+                    return form_id
+        if item == CRYSTAL_PIECE_ITEM_ID and attributes.get("@primalBattle"):
+            return 19
+        return raw_form if attributes.get("@abilityflag") == 2 else 0
+
+    if species == MEWTWO_SPECIES_ID:
+        is_shadow = bool(attributes.get("@shadowMewtwo"))
+        if item == MEWTWO_ARMOR_ITEM_ID and not is_shadow:
+            return 1
+        if (item == MEWTWONITE_X_ITEM_ID and attributes.get("@normalMegaMewtwoX")
+                and attributes.get("@normalMewtwo")):
+            return 2
+        if (item == MEWTWONITE_Y_ITEM_ID and attributes.get("@normalMegaMewtwoY")
+                and attributes.get("@normalMewtwo")):
+            return 3
+        if is_shadow:
+            return 5 if attributes.get("@shadowMegaMewtwo") else 4
+        return 0
+
+    if species in SEASONAL_FORM_SPECIES:
+        return seasonal_pokemon_form(now)
+
+    if species == KELDEO_SPECIES_ID:
+        return 1 if SECRET_SWORD_MOVE_ID in _saved_move_ids(attributes) else 0
+
+    if species == TYRANITAR_SPECIES_ID:
+        if attributes.get("@megaTyranitar") and item != TYRANITAR_ARMOR_ITEM_ID:
+            return 1
+        return 2 if item == TYRANITAR_ARMOR_ITEM_ID else 0
+
+    if species == FLYGON_SPECIES_ID:
+        if item == FLYGON_ARMOR_ITEM_ID:
+            return 1
+        if attributes.get("@megaFlygon") and item != FLYGON_ARMOR_ITEM_ID:
+            return 2
+        return 0
+
+    item_forms = ITEM_DERIVED_FORMS.get(species)
+    if item_forms:
+        for form_id, required_item in item_forms.items():
+            if item == required_item:
+                return form_id
+        return 0
+
+    return raw_form
+
+
+def _clear_form_items(attributes: dict, item_ids):
+    if attributes.get("@item") in item_ids:
+        attributes["@item"] = 0
+
+
+def _set_keldeo_form(attributes: dict, form_id: int):
+    move_ids = _saved_move_ids(attributes)
+    if form_id == 1 and SECRET_SWORD_MOVE_ID not in move_ids:
+        if len(move_ids) >= 4 and all(move_ids):
+            raise ValueError(
+                "Resolute Keldeo requires Secret Sword. Put Secret Sword in a move slot first."
+            )
+        slots = _move_slots(attributes)
+        empty = next(i for i, move_id in enumerate(pokemon_move_ids(attributes)) if not move_id)
+        _write_move_slot(slots[empty], SECRET_SWORD_MOVE_ID)
+    elif form_id == 0 and SECRET_SWORD_MOVE_ID in move_ids:
+        if not any(move_id and move_id != SECRET_SWORD_MOVE_ID for move_id in move_ids):
+            raise ValueError(
+                "Ordinary Keldeo cannot keep Secret Sword. Give it another move before changing form."
+            )
+        for slot in _move_slots(attributes)[:4]:
+            if isinstance(slot, RubyObject) and slot.attributes.get("@id") == SECRET_SWORD_MOVE_ID:
+                _write_move_slot(slot, 0)
+        _compact_moves(attributes)
+
+
+def apply_pokemon_form(attributes: dict, form_id: int, now=None):
+    """Apply a form plus every prerequisite used by the game's getForm code."""
+    form_id = max(0, min(int(form_id), 99))
+    species = attributes.get("@species")
+
+    if species in SEASONAL_FORM_SPECIES:
+        current = seasonal_pokemon_form(now)
+        if form_id != current:
+            raise ValueError(
+                "Deerling and Sawsbuck forms are controlled by the current month "
+                f"(the game currently resolves form {current})."
+            )
+        attributes["@form"] = current
+        return
+
+    if species == KELDEO_SPECIES_ID:
+        if form_id not in (0, 1):
+            raise ValueError("Keldeo only has Ordinary and Resolute forms.")
+        _set_keldeo_form(attributes, form_id)
+        attributes["@form"] = form_id
+        return
+
+    attributes["@form"] = form_id
+
+    if species == GIRATINA_SPECIES_ID:
+        if form_id not in (0, 1, 2):
+            raise ValueError("Giratina only has Altered, Origin, and Primal forms.")
+        attributes["@primalBattle"] = form_id == 2
+        if form_id == 1:
+            attributes["@item"] = GRISEOUS_ORB_ITEM_ID
+        elif form_id == 2:
+            attributes["@item"] = CRYSTAL_PIECE_ITEM_ID
+        else:
+            _clear_form_items(attributes, {GRISEOUS_ORB_ITEM_ID, CRYSTAL_PIECE_ITEM_ID})
+        return
+
+    if species == SHAYMIN_SPECIES_ID:
+        if form_id not in (0, 1):
+            raise ValueError("Shaymin only has Land and Sky forms.")
+        return
+
+    if species == ARCEUS_SPECIES_ID:
+        valid_forms = {0, 9, 19, *ARCEUS_FORM_ITEMS}
+        if form_id not in valid_forms:
+            raise ValueError("That Arceus form is not defined by the game.")
+        attributes["@primalBattle"] = form_id == 19
+        controlling_items = {*ARCEUS_FORM_ITEMS.values(), CRYSTAL_PIECE_ITEM_ID}
+        if form_id in ARCEUS_FORM_ITEMS:
+            attributes["@item"] = ARCEUS_FORM_ITEMS[form_id]
+        elif form_id == 19:
+            attributes["@item"] = CRYSTAL_PIECE_ITEM_ID
+        else:
+            _clear_form_items(attributes, controlling_items)
+            if form_id == 9:
+                # Form 9 has no plate.  It persists only through the handler's
+                # Protean (ability slot 2) branch, which deliberately returns nil.
+                attributes["@abilityflag"] = 2
+        return
+
+    if species == MEWTWO_SPECIES_ID:
+        if form_id not in range(6):
+            raise ValueError("That Mewtwo form is not defined by the game.")
+        is_normal = form_id in (0, 1, 2, 3)
+        attributes["@normalMewtwo"] = is_normal
+        attributes["@shadowMewtwo"] = form_id in (4, 5)
+        attributes["@shadowMegaMewtwo"] = form_id == 5
+        attributes["@normalMegaMewtwoX"] = form_id == 2
+        attributes["@normalMegaMewtwoY"] = form_id == 3
+        if form_id == 1:
+            attributes["@item"] = MEWTWO_ARMOR_ITEM_ID
+        elif form_id == 2:
+            attributes["@item"] = MEWTWONITE_X_ITEM_ID
+        elif form_id == 3:
+            attributes["@item"] = MEWTWONITE_Y_ITEM_ID
+        elif form_id == 0:
+            _clear_form_items(attributes, {MEWTWO_ARMOR_ITEM_ID})
+        return
+
+    if species == TYRANITAR_SPECIES_ID:
+        if form_id not in (0, 1, 2):
+            raise ValueError("Tyranitar only has normal, Mega, and Armored forms.")
+        attributes["@megaTyranitar"] = form_id == 1
+        if form_id == 2:
+            attributes["@item"] = TYRANITAR_ARMOR_ITEM_ID
+        elif form_id in (0, 1):
+            _clear_form_items(attributes, {TYRANITAR_ARMOR_ITEM_ID})
+        return
+
+    if species == FLYGON_SPECIES_ID:
+        if form_id not in (0, 1, 2):
+            raise ValueError("Flygon only has normal, Armored, and Mega forms.")
+        attributes["@megaFlygon"] = form_id == 2
+        if form_id == 1:
+            attributes["@item"] = FLYGON_ARMOR_ITEM_ID
+        elif form_id in (0, 2):
+            _clear_form_items(attributes, {FLYGON_ARMOR_ITEM_ID})
+        return
+
+    item_forms = ITEM_DERIVED_FORMS.get(species)
+    if item_forms:
+        if form_id not in {0, *item_forms}:
+            raise ValueError("That form is not defined by the game's item handler.")
+        if form_id:
+            attributes["@item"] = item_forms[form_id]
+        else:
+            _clear_form_items(attributes, set(item_forms.values()))
+
 def apply_pokemon_identity(attributes: dict, nature_index: int, shiny: bool,
-                           ability_slot: int, gender: str):
+                           ability_slot: int, gender: str, changed_fields=None):
     """Apply PID-related choices using Insurgence's native override fields.
 
     Keeping the PID intact is important: nature, gender, shininess, ability, and
     several cosmetic forms can all derive from it.  Insurgence supplies explicit
     flags for the editable properties, so changing one must not disturb the rest.
     """
-    if not 0 <= nature_index < len(NATURES):
+    fields = set(changed_fields) if changed_fields is not None else {
+        "nature", "shiny", "ability", "gender"
+    }
+    if "nature" in fields and not 0 <= nature_index < len(NATURES):
         raise ValueError("Invalid Pokemon nature.")
     ability_slot = min(2, max(0, int(ability_slot)))
     species_id = attributes.get("@species", 0)
     choices = gender_choices_for_species(species_id)
-    if gender not in choices:
+    if "gender" in fields and gender not in choices:
         species_name = PKMN_DATA.get(species_id, {}).get("name", f"Species #{species_id}")
         raise ValueError(f"{species_name} cannot be set to {gender.lower()}.")
 
-    attributes["@natureflag"] = nature_index
-    attributes["@shinyflag"] = bool(shiny)
-    attributes["@abilityflag"] = ability_slot
-    attributes["@genderflag"] = GENDERS.index(gender) if len(choices) > 1 else None
+    if "nature" in fields:
+        attributes["@natureflag"] = nature_index
+    if "shiny" in fields:
+        attributes["@shinyflag"] = bool(shiny)
+    if "ability" in fields:
+        attributes["@abilityflag"] = ability_slot
+    if "gender" in fields:
+        attributes["@genderflag"] = GENDERS.index(gender) if len(choices) > 1 else None
+
+# ── shadow Pokemon ────────────────────────────────────────────────────────────
+# Mirrors the PokemonShadowPokemon script (makeShadow / pbUpdateShadowMoves /
+# pbReplaceMoves / pbPurify).  Shadow state lives entirely in save attributes:
+#   @shadow @heartgauge @hypermode @savedev @savedexp @shadowmoves @shadowmovenum
+# @shadowmoves is 8 long: [0..3] shadow moves, [4..7] the original move ids.
+
+HEART_GAUGE_SIZE = 3840
+SHADOW_RUSH_ID   = 593
+# Original moves handed back per heart stage, straight from pbUpdateShadowMoves.
+SHADOW_RELEARN_BY_STAGE = [3, 3, 2, 1, 1, 0]
+
+def heart_stage(gauge) -> int:
+    """0-5, matching PokeBattle_Pokemon#heartStage (5 = fully shadow)."""
+    try:
+        gauge = int(gauge or 0)
+    except (TypeError, ValueError):
+        gauge = 0
+    if gauge <= 0:
+        return 0
+    return math.ceil(min(gauge, HEART_GAUGE_SIZE) / (HEART_GAUGE_SIZE / 5.0))
+
+def pokemon_heart_gauge(attributes: dict) -> int:
+    gauge = attributes.get("@heartgauge", 0)
+    return gauge if isinstance(gauge, int) else 0
+
+def pokemon_is_shadow(attributes: dict) -> bool:
+    """isShadow? — the @shadow flag is the switch, the gauge only has to be >= 0."""
+    return bool(attributes.get("@shadow")) and pokemon_heart_gauge(attributes) >= 0
+
+def _shadow_move_ids() -> list:
+    """Every Shadow move in the game, for the shadow move chooser.
+
+    Matching is on the Shadow *type*, plus Shadow Sword, which is typed Normal
+    but is a Shadow move in every other respect.  Deliberately not a name match:
+    Shadow Ball, Claw, Punch, Sneak and Force are ordinary Ghost moves.
+    """
+    ids = [mid for mid, m in MOVE_DATA.items()
+           if m.get("type") == "Shadow" or m.get("name") == "Shadow Sword"]
+    return sorted(ids)
+
+SHADOW_MOVE_IDS = _shadow_move_ids()
+
+def set_shadow_move_sets(attributes: dict, shadow_moves: list, originals: list):
+    """Rewrite @shadowmoves / @shadowmovenum, then resync the live moves.
+
+    Shadow moves are packed to the front because pbUpdateShadowMoves uses
+    @shadowmovenum as an index cutoff when deciding which originals to return.
+    """
+    packed = [m for m in shadow_moves if m][:4]
+    attributes["@shadowmovenum"] = len(packed)
+    attributes["@shadowmoves"] = (packed + [0, 0, 0, 0])[:4] + (list(originals) + [0, 0, 0, 0])[:4]
+    update_shadow_moves(attributes)
+
+def shadow_move_sets(attributes: dict):
+    """(shadow_moves, originals) as two 4-long lists, or None when not stored."""
+    stored = attributes.get("@shadowmoves")
+    if not isinstance(stored, list) or len(stored) < 8:
+        return None
+    values = [m if isinstance(m, int) else 0 for m in stored[:8]]
+    return values[:4], values[4:8]
+
+def shadow_moves_for_species(species_id: int) -> list:
+    """The Shadow moves makeShadow would grant (max 4, Shadow Rush as fallback)."""
+    moves = SHADOW_MOVE_DATA.get(species_id) or []
+    if not moves:
+        return [SHADOW_RUSH_ID]
+    return list(moves[:4])
+
+def _move_slots(attributes: dict) -> list:
+    moves = attributes.get("@moves")
+    if not isinstance(moves, list):
+        moves = []
+        attributes["@moves"] = moves
+    while len(moves) < 4:
+        moves.append(RubyObject("PBMove", {"@id": 0, "@pp": 0, "@ppup": 0}))
+    return moves
+
+def _write_move_slot(slot, move_id: int):
+    if not isinstance(slot, RubyObject):
+        return
+    slot.attributes["@id"]   = move_id
+    slot.attributes["@pp"]   = MOVE_DATA.get(move_id, {}).get("pp", 0) if move_id else 0
+    slot.attributes["@ppup"] = 0
+
+def pokemon_move_ids(attributes: dict) -> list:
+    ids = []
+    for slot in _move_slots(attributes)[:4]:
+        mid = slot.attributes.get("@id", 0) if isinstance(slot, RubyObject) else 0
+        ids.append(mid if isinstance(mid, int) else 0)
+    return ids
+
+def _replace_moves(attributes: dict, wanted: list):
+    """pbReplaceMoves: keep the wanted moves, clear anything else out."""
+    wanted = (list(wanted) + [0, 0, 0, 0])[:4]
+    slots  = _move_slots(attributes)
+    for move in wanted:
+        current = pokemon_move_ids(attributes)
+        if move != 0 and move in current:
+            continue  # already known — nothing to do
+        for i in range(4):
+            if (current[i] == 0 and move != 0) or (current[i] not in wanted):
+                _write_move_slot(slots[i], move)
+                break
+
+def _compact_moves(attributes: dict):
+    """Slide filled move slots to the front, keeping id/PP/PP-Ups together.
+
+    pbReplaceMoves can leave an empty slot in front of a filled one when the move
+    it wants is already in a later slot.  The game tolerates that, but it looks
+    broken in the summary screen, and a packed list is what pbReplaceMoves would
+    produce next time anyway, so tidy it here.
+    """
+    slots = _move_slots(attributes)
+    filled = [(s.attributes.get("@id", 0), s.attributes.get("@pp", 0), s.attributes.get("@ppup", 0))
+              for s in slots[:4] if isinstance(s, RubyObject) and s.attributes.get("@id", 0)]
+    for i, slot in enumerate(slots[:4]):
+        if not isinstance(slot, RubyObject):
+            continue
+        mid, pp, ppup = filled[i] if i < len(filled) else (0, 0, 0)
+        slot.attributes["@id"]   = mid
+        slot.attributes["@pp"]   = pp
+        slot.attributes["@ppup"] = ppup
+
+def update_shadow_moves(attributes: dict, allmoves: bool = False):
+    """pbUpdateShadowMoves — resync @moves with the shadow/original move sets."""
+    stored = attributes.get("@shadowmoves")
+    if not isinstance(stored, list) or len(stored) < 8:
+        return
+    if not pokemon_is_shadow(attributes):
+        _replace_moves(attributes, stored[4:8])
+        _compact_moves(attributes)
+        attributes.pop("@shadowmoves", None)
+        attributes.pop("@shadowmovenum", None)
+        return
+    movenum = attributes.get("@shadowmovenum", 0)
+    movenum = movenum if isinstance(movenum, int) else 0
+    moves   = [m for m in stored[:4] if m]
+    stage   = heart_stage(pokemon_heart_gauge(attributes))
+    relearning = 3 if allmoves else SHADOW_RELEARN_BY_STAGE[min(stage, 5)]
+    relearned  = 0
+    for i in range(4):
+        if i < movenum:
+            continue
+        if stored[4 + i] and relearned < relearning:
+            moves.append(stored[4 + i])
+            relearned += 1
+    _replace_moves(attributes, moves)
+    _compact_moves(attributes)
+
+def make_shadow(attributes: dict):
+    """makeShadow — full heart gauge, shadow moves in, originals stashed away."""
+    species_id = attributes.get("@species", 0)
+    shadow_moves = shadow_moves_for_species(species_id if isinstance(species_id, int) else 0)
+    originals = pokemon_move_ids(attributes)
+
+    attributes["@shadow"]        = True
+    attributes["@heartgauge"]    = HEART_GAUGE_SIZE
+    attributes["@savedexp"]      = 0
+    attributes["@savedev"]       = [0] * 6
+    attributes["@hypermode"]     = False
+    attributes["@shadowmovenum"] = len(shadow_moves)
+    attributes["@shadowmoves"]   = (shadow_moves + [0, 0, 0, 0])[:4] + originals
+    update_shadow_moves(attributes)
+
+def purify(attributes: dict) -> dict:
+    """pbPurify — drop the shadow flag, give back moves, EVs and stashed EXP.
+
+    Returns what was handed back so the caller can tell the user.  Stats are not
+    recalculated here; the editor's stat fields stay under the user's control.
+    """
+    restored = {"exp": 0, "ev": [0] * 6}
+    before = pokemon_move_ids(attributes)
+    attributes["@shadow"]     = False
+    attributes["@heartgauge"] = 0
+    attributes["@hypermode"]  = False
+    update_shadow_moves(attributes)
+
+    saved_ev = attributes.get("@savedev")
+    if isinstance(saved_ev, list):
+        ev = attributes.get("@ev")
+        ev = list(ev) if isinstance(ev, list) else [0] * 6
+        while len(ev) < 6:
+            ev.append(0)
+        for i in range(6):
+            gain = saved_ev[i] if i < len(saved_ev) and isinstance(saved_ev[i], int) else 0
+            if gain:
+                ev[i] += gain
+                restored["ev"][i] = gain
+        attributes["@ev"] = _sanitize_evs(ev)
+    attributes.pop("@savedev", None)
+
+    saved_exp = attributes.get("@savedexp")
+    if isinstance(saved_exp, int) and saved_exp:
+        exp = attributes.get("@exp", 0)
+        attributes["@exp"] = (exp if isinstance(exp, int) else 0) + saved_exp
+        restored["exp"] = saved_exp
+    attributes.pop("@savedexp", None)
+
+    restored["moves"] = [m for m in pokemon_move_ids(attributes) if m and m not in before]
+    return restored
+
+def set_heart_gauge(attributes: dict, value: int):
+    """adjustHeart's clamping, then resync moves the way pbReadyToPurify does."""
+    value = min(HEART_GAUGE_SIZE, max(0, int(value)))
+    attributes["@heartgauge"] = value
+    if value == 0:
+        attributes["@hypermode"] = False
+    update_shadow_moves(attributes)
 
 def item_display_name(internet_id: int) -> str:
     return ITEM_NAMES.get(internet_id, f"Unknown (#{internet_id})")
@@ -600,6 +1152,7 @@ class Editor(tk.Tk):
         self._build_ui()
         self._apply_theme("dark")
         self.bind_all("<MouseWheel>", self._on_mousewheel)
+        self.bind_all("<Shift-MouseWheel>", lambda e: self._on_mousewheel(e, horizontal=True))
         if os.path.exists(self.save_path):
             self._do_load(self.save_path)
 
@@ -671,8 +1224,30 @@ class Editor(tk.Tk):
         self.style.configure("TLabel", background=p["bg"], foreground=p["text"])
         self.style.configure("TButton", background=p["button"], foreground=p["text"])
         self.style.map("TButton", background=[("active", p["button_active"])], foreground=[("active", p["text"])])
-        self.style.configure("TCheckbutton", background=p["bg"], foreground=p["text"])
-        self.style.configure("TRadiobutton", background=p["bg"], foreground=p["text"])
+        # Without explicit state maps, clam keeps its light default for the hover
+        # ("active") background and the indicator, which washes out the label text
+        # of any checkbutton that has one.
+        for widget in ("TCheckbutton", "TRadiobutton"):
+            self.style.configure(
+                widget,
+                background=p["bg"],
+                foreground=p["text"],
+                indicatorbackground=p["field"],
+                indicatorforeground=p["text"],
+                focuscolor=p["accent"],
+            )
+            self.style.map(
+                widget,
+                background=[("active", p["panel"]), ("disabled", p["bg"])],
+                foreground=[("disabled", p["muted"]), ("active", p["text"])],
+                indicatorbackground=[
+                    ("disabled", p["panel"]),
+                    ("selected", p["select"]),
+                    ("active", p["field"]),
+                    ("!selected", p["field"]),
+                ],
+                indicatorforeground=[("selected", p["select_text"]), ("!selected", p["text"])],
+            )
         self.style.configure("TNotebook", background=p["bg"])
         self.style.configure("TNotebook.Tab", background=p["panel"], foreground=p["text"])
         self.style.map("TNotebook.Tab", background=[("selected", p["field"])], foreground=[("selected", p["text"])])
@@ -768,11 +1343,15 @@ class Editor(tk.Tk):
             win.grab_set()
         return win
 
-    def _on_mousewheel(self, e):
+    def _on_mousewheel(self, e, horizontal: bool = False):
         w = self.winfo_containing(e.x_root, e.y_root)
         while w is not None:
             if w in self._scroll_canvases:
-                w.yview_scroll(int(-1 * (e.delta / 120)), "units")
+                amount = int(-1 * (e.delta / 120))
+                if horizontal:
+                    w.xview_scroll(amount, "units")
+                else:
+                    w.yview_scroll(amount, "units")
                 return
             w = getattr(w, "master", None)
 
@@ -833,16 +1412,23 @@ class Editor(tk.Tk):
     def _form_choices(self, species_id: int, current_form: int = 0) -> list:
         forms = dict(FORM_DATA.get(species_id, []))
         forms.setdefault(0, "Default")
+        if species_id in SEASONAL_FORM_SPECIES:
+            seasonal_form = seasonal_pokemon_form()
+            name = forms.get(seasonal_form, f"Form {seasonal_form}")
+            return [f"{seasonal_form} - {name} (current season)"]
         forms.setdefault(current_form, "Default" if current_form == 0 else f"Form {current_form}")
         return [f"{fid} - {name}" for fid, name in sorted(forms.items())]
 
     def _set_form_value(self, v: dict, species_id: int, form_id: int):
         form_id = max(0, min(self._parse_form_id(form_id), 99))
+        if species_id in SEASONAL_FORM_SPECIES:
+            form_id = seasonal_pokemon_form()
         choices = self._form_choices(species_id, form_id)
         combo = v.get("form_combo")
         if combo is not None:
             combo.configure(values=choices)
-        v["form"].set(self._form_label(species_id, form_id))
+        v["form"].set(choices[0] if species_id in SEASONAL_FORM_SPECIES
+                      else self._form_label(species_id, form_id))
 
     def _refresh_form_options(self, v: dict):
         try:
@@ -855,6 +1441,18 @@ class Editor(tk.Tk):
         self._set_ability_value(v)
         if v.get("dex_sprite"):
             self._set_pokemon_dex_vars(v, species_id, current_form)
+        self._refresh_form_sprite(v, species_id, current_form)
+
+    def _refresh_form_sprite(self, v: dict, species_id: int, form_id: int):
+        """Refresh a compact form sprite, used by lazily rendered PC slots."""
+        label = v.get("form_sprite")
+        if label is None:
+            return
+        img = self._load_pokemon_sprite(
+            species_id, form_id, max_size=v.get("form_sprite_size", 72)
+        )
+        label.configure(image=img if img else "", text="" if img else "(no sprite)")
+        label.image = img
 
     def _set_gender_value(self, v: dict, attributes: dict = None):
         gender_var = v.get("gender")
@@ -907,6 +1505,26 @@ class Editor(tk.Tk):
     def _selected_form_id(self, v: dict) -> int:
         return max(0, min(self._parse_form_id(v.get("form").get() if v.get("form") else 0), 99))
 
+    def _identity_values(self, v: dict) -> dict:
+        return {
+            "nature": v["nature_idx"].get(),
+            "shiny": bool(v["shiny"].get()),
+            "ability": self._selected_ability_slot(v),
+            "gender": v["gender"].get(),
+        }
+
+    def _remember_identity_values(self, v: dict):
+        """Remember exactly what the identity controls showed after load/save."""
+        v["_loaded_identity"] = self._identity_values(v)
+
+    def _changed_identity_fields(self, v: dict) -> set:
+        """Only explicit UI changes may create native identity override flags."""
+        loaded = v.get("_loaded_identity")
+        if not isinstance(loaded, dict):
+            return {"nature", "shiny", "ability", "gender"}
+        current = self._identity_values(v)
+        return {field for field, value in current.items() if value != loaded.get(field)}
+
     def _pokemon_sprite_paths(self, species_id: int, form: int = 0) -> list:
         names = []
         if form:
@@ -953,7 +1571,7 @@ class Editor(tk.Tk):
             label.image = img
 
     def _make_pokemon_dex_panel(self, parent, species_id: int, form: int = 0, compact: bool = False,
-                                ability_slot_var=None, pkmn=None):
+                                ability_slot_var=None, pkmn=None, slot_vars=None):
         data = PKMN_DATA.get(species_id, {})
         frame = ttk.LabelFrame(parent, text="Pokedex", padding=4)
         sprite = ttk.Label(frame, anchor="center", width=12)
@@ -961,6 +1579,9 @@ class Editor(tk.Tk):
         img = self._load_pokemon_sprite(species_id, form, max_size=72 if compact else 96)
         sprite.configure(image=img if img else "", text="" if img else "(no sprite)")
         sprite.image = img
+        if slot_vars is not None:
+            slot_vars["form_sprite"] = sprite
+            slot_vars["form_sprite_size"] = 72 if compact else 96
         name = data.get("name", f"Species#{species_id}")
         lines = [
             f"#{species_id} {name}",
@@ -1381,6 +2002,12 @@ class Editor(tk.Tk):
         ttk.Button(bf, text="Max IVs",    width=12, command=lambda vv=v: self._max_ivs(vv)).pack(pady=2)
         ttk.Button(bf, text="Zero EVs",   width=12, command=lambda vv=v: self._zero_evs(vv)).pack(pady=2)
         ttk.Button(bf, text="Restore PP", width=12, command=lambda vv=v: self._restore_pp(vv)).pack(pady=2)
+        ttk.Separator(bf, orient="horizontal").pack(fill="x", pady=4)
+        v["shadow_status"] = tk.StringVar(value="Not Shadow")
+        ttk.Button(bf, text="Shadow…", width=12,
+                   command=lambda vv=v: self._open_shadow_dialog(vv)).pack(pady=2)
+        ttk.Label(bf, textvariable=v["shadow_status"], width=14,
+                  anchor="center", justify="center").pack(pady=(0, 2))
 
         df = ttk.LabelFrame(e, text="Pokedex", padding=6)
         df.grid(row=0, column=3, rowspan=3, sticky="nsew", padx=4, pady=4)
@@ -1473,6 +2100,371 @@ class Editor(tk.Tk):
             if max_pp:
                 v[f"movepp{i}"].set(str(max_pp))
 
+
+    # ── shadow Pokemon ────────────────────────────────────────────────────────
+
+    def _sync_slot_vars_from_obj(self, v):
+        """Re-read the fields the shadow dialog can rewrite behind the UI's back.
+
+        The dialog edits the save object directly (moves, EVs, EXP), while
+        _apply_party/_apply_boxes later write the UI vars back onto that object.
+        Without this resync the stale vars would undo the shadow change on save.
+        """
+        pkmn = v.get("_pkmn_obj")
+        if not isinstance(pkmn, RubyObject):
+            return
+        a = pkmn.attributes
+        moves = a.get("@moves", [])
+        for i in range(4):
+            if f"move{i}" not in v:
+                continue
+            mid = pp = 0
+            if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
+                mid = moves[i].attributes.get("@id", 0) or 0
+                pp  = moves[i].attributes.get("@pp", 0) or 0
+            m = MOVE_DATA.get(mid, {})
+            v[f"move{i}"].set(str(mid))
+            v[f"move{i}_name"].set(m.get("name", "—") if mid else "—")
+            v[f"movepp{i}"].set(str(pp))
+            v[f"move{i}_maxpp"].set(f"/{m.get('pp', 0)}" if mid else "/0")
+        if "exp" in v:
+            v["exp"].set(str(a.get("@exp", 0)))
+        ev = _game_stats_to_display(a.get("@ev", []))
+        for j, stat in enumerate(STATS):
+            key = "ev_" + stat.lower()
+            if key in v:
+                v[key].set(str(ev[j]))
+
+    def _open_shadow_move_chooser(self, parent, title: str, current_id: int, callback,
+                                  shadow_only: bool = True, allow_none: bool = True):
+        """Small move chooser used by the shadow dialog. callback(move_id), 0 = none."""
+        win = self._make_popup(title, "600x460", resizable=(True, True))
+
+        def close():
+            win.destroy()
+            try:
+                parent.grab_set()  # hand modality back to the shadow dialog
+            except tk.TclError:
+                pass
+
+        win.protocol("WM_DELETE_WINDOW", close)
+
+        frow = ttk.Frame(win, padding=(10, 8, 10, 4))
+        frow.pack(fill="x")
+        ttk.Label(frow, text="Search:").pack(side="left")
+        search_var = tk.StringVar()
+        ent = ttk.Entry(frow, textvariable=search_var, width=22)
+        ent.pack(side="left", padx=(2, 14))
+        all_var = tk.BooleanVar(value=not shadow_only)
+        ttk.Checkbutton(frow, text="Show all moves", variable=all_var).pack(side="left")
+
+        tv_frame = ttk.Frame(win, padding=(10, 0, 10, 4))
+        tv_frame.pack(fill="both", expand=True)
+        cols = ("name", "type", "cat", "pwr", "acc", "pp")
+        tree = ttk.Treeview(tv_frame, columns=cols, show="headings", height=14, selectmode="browse")
+        for col, w, anch, text in [
+            ("name", 170, "w", "Name"),
+            ("type",  84, "center", "Type"),
+            ("cat",   74, "center", "Category"),
+            ("pwr",   52, "center", "Power"),
+            ("acc",   58, "center", "Accuracy"),
+            ("pp",    40, "center", "PP"),
+        ]:
+            tree.heading(col, text=text)
+            tree.column(col, width=w, anchor=anch, stretch=False)
+        vsb = ttk.Scrollbar(tv_frame, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=vsb.set)
+        tree.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="left", fill="y")
+
+        desc_frame = ttk.LabelFrame(win, text="Description", padding=(6, 2))
+        desc_frame.pack(fill="x", padx=10, pady=(0, 4))
+        desc_lbl = ttk.Label(desc_frame, text="", wraplength=560, justify="left")
+        desc_lbl.pack(fill="x")
+
+        btn_row = ttk.Frame(win, padding=(10, 0, 10, 8))
+        btn_row.pack(fill="x")
+        ttk.Button(btn_row, text="Select", command=lambda: confirm()).pack(side="right", padx=4)
+        ttk.Button(btn_row, text="Cancel", command=close).pack(side="right")
+
+        def refresh(*_):
+            term = search_var.get().strip().lower()
+            tree.delete(*tree.get_children())
+            if allow_none:
+                tree.insert("", "end", iid="0", values=("(none)", "—", "—", "—", "—", "—"))
+            entries = MOVE_DATA.items() if all_var.get() else \
+                [(mid, MOVE_DATA[mid]) for mid in SHADOW_MOVE_IDS]
+            for mid, m in sorted(entries, key=lambda x: x[1].get("name", "").lower()):
+                name = m.get("name", "")
+                if term and term not in name.lower() and term not in m.get("description", "").lower():
+                    continue
+                tree.insert("", "end", iid=str(mid), values=(
+                    name, m.get("type", ""), m.get("category", ""),
+                    m.get("power", 0) or "—", m.get("accuracy", 0) or "—", m.get("pp", 0),
+                ))
+            if tree.exists(str(current_id)):
+                tree.selection_set(str(current_id))
+                tree.see(str(current_id))
+
+        def on_select(_event=None):
+            sel = tree.selection()
+            if sel:
+                desc_lbl.config(text=MOVE_DATA.get(int(sel[0]), {}).get("description", ""))
+
+        def confirm(_event=None):
+            sel = tree.selection()
+            if not sel:
+                return
+            move_id = int(sel[0])
+            close()
+            callback(move_id)
+
+        search_var.trace_add("write", refresh)
+        all_var.trace_add("write", refresh)
+        tree.bind("<<TreeviewSelect>>", on_select)
+        tree.bind("<Double-1>", confirm)
+        refresh()
+        ent.focus_set()
+
+    def _refresh_shadow_status(self, v):
+        """Update the slot's shadow caption plus its tab / frame title marker."""
+        pkmn = v.get("_pkmn_obj")
+        a = pkmn.attributes if isinstance(pkmn, RubyObject) else None
+        is_shadow = bool(a) and pokemon_is_shadow(a)
+
+        if "shadow_status" in v:
+            if a is None:
+                v["shadow_status"].set("—")
+            elif is_shadow:
+                gauge = pokemon_heart_gauge(a)
+                v["shadow_status"].set(f"Shadow ♥{gauge}\nstage {heart_stage(gauge)}")
+            else:
+                v["shadow_status"].set("Not Shadow")
+
+        marker = "◆ " if is_shadow else ""
+        title_frame = v.get("_title_frame")
+        if title_frame is not None and v.get("_title_text"):
+            title_frame.config(text=marker + v["_title_text"])
+        tab_ref = v.get("_tab_ref")
+        if tab_ref:
+            notebook, index, text = tab_ref
+            notebook.tab(index, text=f" {marker}{text} ")
+
+    def _open_shadow_dialog(self, v):
+        pkmn = v.get("_pkmn_obj")
+        if not isinstance(pkmn, RubyObject):
+            messagebox.showinfo("Shadow Pokémon", "This slot is empty.", parent=self)
+            return
+        a = pkmn.attributes
+        species_id = a.get("@species", 0)
+        species_id = species_id if isinstance(species_id, int) else 0
+        name = ds(a.get("@name", b"")) or PKMN_DATA.get(species_id, {}).get("name", f"#{species_id}")
+
+        win = self._make_popup(f"Shadow Pokemon - {name}", "560x620")
+        win.title(f"Shadow Pokémon — {name}")
+
+        head = ttk.Frame(win, padding=(12, 10, 12, 4)); head.pack(fill="x")
+        state_var = tk.StringVar()
+        ttk.Label(head, textvariable=state_var, font=("", 10, "bold")).pack(anchor="w")
+        detail_var = tk.StringVar()
+        ttk.Label(head, textvariable=detail_var, wraplength=420, justify="left").pack(anchor="w", pady=(4, 0))
+
+        gauge_frame = ttk.LabelFrame(win, text="Heart Gauge", padding=8)
+        gauge_frame.pack(fill="x", padx=12, pady=6)
+        gauge_var = tk.StringVar(value=str(pokemon_heart_gauge(a)))
+        stage_var = tk.StringVar()
+        row = ttk.Frame(gauge_frame); row.pack(fill="x")
+        ttk.Label(row, text=f"Gauge (0–{HEART_GAUGE_SIZE}):", width=18, anchor="e").pack(side="left")
+        gauge_entry = ttk.Entry(row, textvariable=gauge_var, width=8)
+        gauge_entry.pack(side="left", padx=4)
+        ttk.Label(row, textvariable=stage_var).pack(side="left", padx=6)
+        ttk.Label(gauge_frame,
+                  text="The gauge counts down as you walk. At 0 the Pokémon can be\n"
+                       "purified at the Relic Stone; lower stages hand back the\n"
+                       "original moves one at a time.",
+                  justify="left", foreground="gray").pack(anchor="w", pady=(6, 0))
+
+        hyper_var = tk.BooleanVar(value=bool(a.get("@hypermode")))
+        ttk.Checkbutton(gauge_frame, text="Hyper Mode", variable=hyper_var).pack(anchor="w", pady=(4, 0))
+
+        moves_frame = ttk.LabelFrame(win, text="Move Sets", padding=8)
+        moves_frame.pack(fill="both", expand=True, padx=12, pady=4)
+        moves_var = tk.StringVar()
+        ttk.Label(moves_frame, textvariable=moves_var, justify="left", wraplength=520).pack(anchor="w")
+
+        grid = ttk.Frame(moves_frame)
+        grid.pack(fill="x", pady=(6, 0))
+        ttk.Label(grid, text="Shadow moves", font=("", 9, "bold")).grid(row=0, column=0, sticky="w")
+        ttk.Separator(grid, orient="vertical").grid(row=0, column=1, rowspan=6, sticky="ns", padx=10)
+        ttk.Label(grid, text="Originals (returned on purify)", font=("", 9, "bold")).grid(row=0, column=2, sticky="w")
+        shadow_btns, original_btns = [], []
+        for i in range(4):
+            sb = ttk.Button(grid, width=24)
+            sb.grid(row=1 + i, column=0, sticky="w", pady=1)
+            shadow_btns.append(sb)
+            ob = ttk.Button(grid, width=24)
+            ob.grid(row=1 + i, column=2, sticky="w", pady=1)
+            original_btns.append(ob)
+        copy_btn = ttk.Button(grid, text="Copy current moves")
+        copy_btn.grid(row=5, column=2, sticky="w", pady=(4, 0))
+        hint = ttk.Label(moves_frame, foreground="gray", wraplength=520, justify="left",
+                         text="Edits here are what the game reloads whenever it resyncs shadow "
+                              "moves (purification, gauge reaching 0, scents, daycare steps).")
+        hint.pack(anchor="w", pady=(6, 0))
+
+        btns = ttk.Frame(win, padding=(12, 4, 12, 10)); btns.pack(fill="x")
+        make_btn   = ttk.Button(btns, text="Make Shadow")
+        purify_btn = ttk.Button(btns, text="Purify")
+        apply_btn  = ttk.Button(btns, text="Apply Gauge")
+        make_btn.pack(side="left", padx=(0, 4))
+        purify_btn.pack(side="left", padx=4)
+        apply_btn.pack(side="left", padx=4)
+        ttk.Button(btns, text="Close", command=win.destroy).pack(side="right")
+
+        def move_names(ids):
+            named = [MOVE_DATA.get(m, {}).get("name", f"#{m}") for m in ids if m]
+            return ", ".join(named) if named else "—"
+
+        def move_label(move_id):
+            if not move_id:
+                return "(none)"
+            return MOVE_DATA.get(move_id, {}).get("name", f"#{move_id}")
+
+        def choose_shadow(idx: int):
+            sets = shadow_move_sets(a)
+            if not sets:
+                return
+            shadow_set, original_set = sets
+
+            def apply(move_id):
+                new_set = list(shadow_set)
+                new_set[idx] = move_id
+                if not any(new_set):
+                    messagebox.showinfo(
+                        "Shadow moves",
+                        "A Shadow Pokémon needs at least one Shadow move — with none "
+                        "stored, a full heart gauge would leave it with no moves at all.",
+                        parent=win,
+                    )
+                    return
+                set_shadow_move_sets(a, new_set, original_set)
+                refresh()
+
+            self._open_shadow_move_chooser(
+                win, f"Shadow move {idx + 1}", shadow_set[idx], apply, shadow_only=True)
+
+        def choose_original(idx: int):
+            sets = shadow_move_sets(a)
+            if not sets:
+                return
+            shadow_set, original_set = sets
+
+            def apply(move_id):
+                new_set = list(original_set)
+                new_set[idx] = move_id
+                set_shadow_move_sets(a, shadow_set, new_set)
+                refresh()
+
+            self._open_shadow_move_chooser(
+                win, f"Original move {idx + 1}", original_set[idx], apply, shadow_only=False)
+
+        def copy_current():
+            sets = shadow_move_sets(a)
+            if not sets:
+                return
+            shadow_set, _ = sets
+            current = pokemon_move_ids(a)
+            overlap = [m for m in current if m and m in shadow_set]
+            if overlap:
+                if not messagebox.askyesno(
+                    "Copy current moves",
+                    f"{move_names(overlap)} {'is a Shadow move' if len(overlap) == 1 else 'are Shadow moves'} "
+                    "and would be stored as an original, so purification would keep it.\n\nStore them anyway?",
+                    parent=win,
+                ):
+                    return
+            set_shadow_move_sets(a, shadow_set, current)
+            refresh()
+
+        def refresh(sync: bool = True):
+            is_shadow = pokemon_is_shadow(a)
+            gauge = pokemon_heart_gauge(a)
+            state_var.set("Shadow Pokémon" if is_shadow else "Not a Shadow Pokémon")
+            stage_var.set(f"stage {heart_stage(gauge)} of 5")
+            gauge_var.set(str(gauge))
+            hyper_var.set(bool(a.get("@hypermode")))
+            sets = shadow_move_sets(a)
+            lines = [f"Current moves: {move_names(pokemon_move_ids(a))}"]
+            if not sets:
+                lines.append(f"Would gain: {move_names(shadow_moves_for_species(species_id))}")
+            moves_var.set("\n".join(lines))
+
+            shadow_set, original_set = sets if sets else ([0] * 4, [0] * 4)
+            for i in range(4):
+                shadow_btns[i].configure(text=move_label(shadow_set[i]),
+                                         command=lambda idx=i: choose_shadow(idx))
+                original_btns[i].configure(text=move_label(original_set[i]),
+                                           command=lambda idx=i: choose_original(idx))
+                shadow_btns[i].state(["!disabled"] if sets else ["disabled"])
+                original_btns[i].state(["!disabled"] if sets else ["disabled"])
+            copy_btn.configure(command=copy_current)
+            copy_btn.state(["!disabled"] if sets else ["disabled"])
+            if is_shadow:
+                saved_ev = a.get("@savedev") or [0] * 6
+                saved_ev = [x if isinstance(x, int) else 0 for x in saved_ev]
+                detail_var.set(
+                    f"EXP held back: {a.get('@savedexp', 0) or 0}   "
+                    f"EVs held back: {sum(saved_ev)}\n"
+                    "While shadow, EXP and EVs are stored instead of applied, "
+                    "and the summary screen hides nature and IVs above stage 3."
+                )
+            else:
+                detail_var.set(
+                    "Making this a Shadow Pokémon fills the heart gauge, swaps in its "
+                    "Shadow moves and stores the current ones until purification."
+                )
+            make_btn.state(["disabled"] if is_shadow else ["!disabled"])
+            purify_btn.state(["!disabled"] if is_shadow else ["disabled"])
+            apply_btn.state(["!disabled"] if is_shadow else ["disabled"])
+            gauge_entry.state(["!disabled"] if is_shadow else ["disabled"])
+            self._refresh_shadow_status(v)
+            # Only pull the slot's vars back from the object once this dialog has
+            # actually rewritten it — otherwise merely opening the dialog would
+            # discard move/EV/EXP edits the user has made but not saved yet.
+            if sync:
+                self._sync_slot_vars_from_obj(v)
+
+        def do_make():
+            make_shadow(a)
+            refresh()
+
+        def do_purify():
+            restored = purify(a)
+            refresh()
+            bits = []
+            if restored["moves"]:
+                bits.append("Regained " + move_names(restored["moves"]) + ".")
+            if restored["exp"]:
+                bits.append(f"Regained {restored['exp']} Exp. Points.")
+            if any(restored["ev"]):
+                bits.append(f"Regained {sum(restored['ev'])} EVs.")
+            bits.append("Stats are not recalculated — adjust them or level the Pokémon in game.")
+            messagebox.showinfo(f"{name} was purified", "\n".join(bits), parent=win)
+
+        def do_apply_gauge():
+            try:
+                value = int(gauge_var.get() or 0)
+            except ValueError:
+                messagebox.showerror("Heart Gauge", "Enter a whole number.", parent=win)
+                return
+            set_heart_gauge(a, value)
+            a["@hypermode"] = bool(hyper_var.get()) and pokemon_heart_gauge(a) > 0
+            refresh()
+
+        make_btn.configure(command=do_make)
+        purify_btn.configure(command=do_purify)
+        apply_btn.configure(command=do_apply_gauge)
+        refresh(sync=False)
 
     def _open_pkmn_picker(self, callback):
         win = self._make_popup("Select Pokemon", "700x600")
@@ -1938,13 +2930,19 @@ class Editor(tk.Tk):
 
         canvas = tk.Canvas(outer, highlightthickness=0)
         sb = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
-        canvas.configure(yscrollcommand=sb.set)
+        hsb = ttk.Scrollbar(outer, orient="horizontal", command=canvas.xview)
+        canvas.configure(yscrollcommand=sb.set, xscrollcommand=hsb.set)
         canvas.grid(row=0, column=0, sticky="nsew")
         sb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
         inner = ttk.Frame(canvas)
         win = canvas.create_window((0, 0), window=inner, anchor="nw")
         inner.bind("<Configure>", lambda _e, c=canvas: c.configure(scrollregion=c.bbox("all")))
-        canvas.bind("<Configure>", lambda e, c=canvas, w=win: c.itemconfig(w, width=e.width))
+        # Slot rows are wide; stretch them to the canvas when there is room and
+        # let the horizontal scrollbar take over when there isn't, so the right
+        # hand panels can never be clipped away.
+        canvas.bind("<Configure>",
+                    lambda e, c=canvas, w=win, f=inner: c.itemconfig(w, width=max(e.width, f.winfo_reqwidth())))
         self._make_scrollable(canvas)
 
         slot_vars = []
@@ -1966,7 +2964,7 @@ class Editor(tk.Tk):
             pid = a.get("@personalID", 0) or 0
 
             label = f"Slot {si}: {nick or f'Species#{sp}'}  [#{sp}]"
-            sf = ttk.LabelFrame(inner, text=label, padding=4)
+            sf = ttk.LabelFrame(inner, text=("◆ " + label) if pokemon_is_shadow(a) else label, padding=4)
             sf.pack(fill="x", pady=2, padx=2)
 
             sv = {}
@@ -1978,7 +2976,7 @@ class Editor(tk.Tk):
 
             for i, (key, lbl, val) in enumerate([
                 ("species_id", "Species ID", str(sp)),
-                ("form", "Form ID", str(a.get("@form", 0))),
+                ("form", "Form ID", str(pokemon_form(a))),
                 ("nickname", "Nickname", nick),
                 ("hp", "HP", str(a.get("@hp", 0))),
                 ("totalhp", "Max HP", str(a.get("@totalhp", 0))),
@@ -1988,9 +2986,13 @@ class Editor(tk.Tk):
                 if key == "form":
                     sv["form_combo"] = ttk.Combobox(lp, textvariable=sv[key], values=["0 - Default"], width=18, state="readonly")
                     sv["form_combo"].grid(row=i, column=1, sticky="w", pady=1, padx=2)
+                    sv["form_combo"].bind(
+                        "<<ComboboxSelected>>",
+                        lambda _event, vv=sv: self._refresh_form_options(vv),
+                    )
                 else:
                     ttk.Entry(lp, textvariable=sv[key], width=8).grid(row=i, column=1, sticky="w", pady=1, padx=2)
-            self._set_form_value(sv, sp if isinstance(sp, int) else 0, a.get("@form", 0))
+            self._set_form_value(sv, sp if isinstance(sp, int) else 0, pokemon_form(a))
             sv["species_id"].trace_add("write", lambda *_args, vv=sv: self._refresh_form_options(vv))
 
             for i, (key, lbl, val) in enumerate([
@@ -1998,9 +3000,11 @@ class Editor(tk.Tk):
                 ("happiness", "Happiness", str(a.get("@happiness", 0))),
                 ("status", "Status", str(a.get("@status", 0))),
                 ("exp", "Exp", str(a.get("@exp", 0))),
+                ("ball", "Ball ID", str(a.get("@ballused", 0))),
+                ("obtain_lv", "Obtained Lv", str(a.get("@obtainLevel", 0))),
             ]):
                 sv[key] = tk.StringVar(value=val)
-                ttk.Label(rp, text=lbl + ":", width=10, anchor="e").grid(row=i, column=0, sticky="e", pady=1)
+                ttk.Label(rp, text=lbl + ":", width=12, anchor="e").grid(row=i, column=0, sticky="e", pady=1)
                 ttk.Entry(rp, textvariable=sv[key], width=8).grid(row=i, column=1, sticky="w", pady=1, padx=2)
 
             sv["nature_idx"] = tk.StringVar(value=NATURES[pokemon_nature(a)])
@@ -2024,31 +3028,58 @@ class Editor(tk.Tk):
             )
             sv["ability_combo"].grid(row=3, column=1, padx=2)
             self._set_ability_value(sv, selected_ability_slot)
+            self._remember_identity_values(sv)
 
             iv = a.get("@iv", [])
             ev = a.get("@ev", [])
+            display_iv = _game_stats_to_display(iv)
+            display_ev = _game_stats_to_display(ev)
             ttk.Label(ip, text="IVs:", font=("", 8, "bold")).grid(row=0, column=0, columnspan=6)
             ttk.Label(ip, text="EVs:", font=("", 8, "bold")).grid(row=3, column=0, columnspan=6, pady=(4, 0))
             for j, stat in enumerate(STATS):
                 key = stat.lower()
-                sv["iv_" + key] = tk.StringVar(value=str(iv[j] if isinstance(iv, list) and j < len(iv) else 0))
-                sv["ev_" + key] = tk.StringVar(value=str(ev[j] if isinstance(ev, list) and j < len(ev) else 0))
+                sv["iv_" + key] = tk.StringVar(value=str(display_iv[j]))
+                sv["ev_" + key] = tk.StringVar(value=str(display_ev[j]))
                 ttk.Label(ip, text=stat, width=4).grid(row=1, column=j)
                 ttk.Entry(ip, textvariable=sv["iv_" + key], width=3).grid(row=2, column=j)
                 ttk.Label(ip, text=stat, width=4).grid(row=4, column=j)
                 ttk.Entry(ip, textvariable=sv["ev_" + key], width=3).grid(row=5, column=j)
 
+            # Battle stats — same fields the party tab exposes, kept compact.
+            ttk.Label(ip, text="Stats:", font=("", 8, "bold")).grid(row=6, column=0, columnspan=6, pady=(4, 0))
+            for j, (key, attr, lbl) in enumerate([
+                ("attack", "@attack", "Atk"),
+                ("defense", "@defense", "Def"),
+                ("spatk", "@spatk", "SpA"),
+                ("spdef", "@spdef", "SpD"),
+                ("speed", "@speed", "Spe"),
+            ]):
+                sv[key] = tk.StringVar(value=str(a.get(attr, 0)))
+                ttk.Label(ip, text=lbl, width=4).grid(row=7, column=j)
+                ttk.Entry(ip, textvariable=sv[key], width=4).grid(row=8, column=j)
+
             sv["_pkmn_obj"] = pkmn
+            sv["shadow_status"] = tk.StringVar()
+            sv["_title_frame"] = sf
+            sv["_title_text"] = label
             ttk.Button(bp, text="Max IVs", width=8, command=lambda vv=sv: self._max_ivs(vv)).pack(pady=2)
             ttk.Button(bp, text="Zero EVs", width=8, command=lambda vv=sv: self._zero_evs(vv)).pack(pady=2)
             ttk.Button(bp, text="Heal", width=8, command=lambda vv=sv: self._heal_slot(vv)).pack(pady=2)
+            ttk.Button(bp, text="Restore PP", width=8, command=lambda vv=sv: self._restore_pp(vv)).pack(pady=2)
+            ttk.Separator(bp, orient="horizontal").pack(fill="x", pady=4)
+            ttk.Button(bp, text="Shadow…", width=8,
+                       command=lambda vv=sv: self._open_shadow_dialog(vv)).pack(pady=2)
+            ttk.Label(bp, textvariable=sv["shadow_status"], width=12,
+                      anchor="center", justify="center").pack(pady=(0, 2))
+            self._refresh_shadow_status(sv)
             ttk.Separator(bp, orient="horizontal").pack(fill="x", pady=4)
             ttk.Button(bp, text="Move", width=8, command=lambda b=bi, s=si, bx=box, pk=pkmn: self._move_box_pokemon(b, s, bx, pk)).pack(pady=2)
             ttk.Button(bp, text="Delete", width=8, command=lambda b=bi, s=si, bx=box: self._delete_box_pokemon(b, s, bx)).pack(pady=2)
 
             dp = self._make_pokemon_dex_panel(
-                sf, sp if isinstance(sp, int) else 0, a.get("@form", 0),
+                sf, sp if isinstance(sp, int) else 0, pokemon_form(a),
                 compact=True, ability_slot_var=sv["ability_slot"], pkmn=pkmn,
+                slot_vars=sv,
             )
             dp.pack(side="left", padx=4, fill="y")
 
@@ -2343,8 +3374,12 @@ class Editor(tk.Tk):
         a["@obtainMap"]    = 0
         a["@obtainText"]   = None
         a["@timeReceived"] = int(time.time())
-        a["@iv"]           = [iv_hp, iv_atk, iv_def, iv_spa, iv_spd, iv_spe]
-        a["@ev"]           = [ev_hp, ev_atk, ev_def, ev_spa, ev_spd, ev_spe]
+        a["@iv"]           = _display_stats_to_game(
+            [iv_hp, iv_atk, iv_def, iv_spa, iv_spd, iv_spe]
+        )
+        a["@ev"]           = _display_stats_to_game(
+            [ev_hp, ev_atk, ev_def, ev_spa, ev_spd, ev_spe]
+        )
         a["@form"]         = 0
         a["@abilityflag"]  = 0
         a["@natureflag"]   = NATURES.index("Hardy")
@@ -3112,19 +4147,22 @@ class Editor(tk.Tk):
                 ("status","@status"),("ball","@ballused"),("obtain_lv","@obtainLevel"),
             ]:
                 v[key].set(str(a.get(attr, 0)))
-            self._set_form_value(v, a.get("@species", 0), a.get("@form", 0))
+            self._set_form_value(v, a.get("@species", 0), pokemon_form(a))
             v["nickname"].set(ds(a.get("@name", b"")))
             v["nature_idx"].set(NATURES[pokemon_nature(a)])
             self._set_gender_value(v, a)
             v["shiny"].set(pokemon_is_shiny(a, self.trainer_id, self.secret_id))
             ab = a.get("@abilityflag", None)
             self._set_ability_value(v, ab if isinstance(ab, int) else pid & 1)
+            self._remember_identity_values(v)
             iv = a.get("@iv", [])
             ev = a.get("@ev", [])
+            display_iv = _game_stats_to_display(iv)
+            display_ev = _game_stats_to_display(ev)
             for j, stat in enumerate(STATS):
                 key = stat.lower()
-                v[f"iv_{key}"].set(str(iv[j] if isinstance(iv, list) and j < len(iv) else 0))
-                v[f"ev_{key}"].set(str(ev[j] if isinstance(ev, list) and j < len(ev) else 0))
+                v[f"iv_{key}"].set(str(display_iv[j]))
+                v[f"ev_{key}"].set(str(display_ev[j]))
             moves = a.get("@moves", [])
             for i in range(4):
                 if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
@@ -3174,19 +4212,22 @@ class Editor(tk.Tk):
                     ("status","@status"),("ball","@ballused"),("obtain_lv","@obtainLevel"),
                 ]:
                     v[key].set(str(a.get(attr, 0)))
-                self._set_form_value(v, a.get("@species", 0), a.get("@form", 0))
+                self._set_form_value(v, a.get("@species", 0), pokemon_form(a))
                 v["nickname"].set(ds(a.get("@name", b"")))
                 v["nature_idx"].set(NATURES[pokemon_nature(a)])
                 self._set_gender_value(v, a)
                 v["shiny"].set(pokemon_is_shiny(a, self.trainer_id, self.secret_id))
                 ab = a.get("@abilityflag", None)
                 self._set_ability_value(v, ab if isinstance(ab, int) else pid & 1)
+                self._remember_identity_values(v)
                 iv = a.get("@iv", [])
                 ev = a.get("@ev", [])
+                display_iv = _game_stats_to_display(iv)
+                display_ev = _game_stats_to_display(ev)
                 for j, stat in enumerate(STATS):
                     key = stat.lower()
-                    v[f"iv_{key}"].set(str(iv[j] if isinstance(iv, list) and j < len(iv) else 0))
-                    v[f"ev_{key}"].set(str(ev[j] if isinstance(ev, list) and j < len(ev) else 0))
+                    v[f"iv_{key}"].set(str(display_iv[j]))
+                    v[f"ev_{key}"].set(str(display_ev[j]))
                 moves = a.get("@moves", [])
                 for i in range(4):
                     if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
@@ -3201,17 +4242,20 @@ class Editor(tk.Tk):
                         v[f"move{i}"].set("0"); v[f"move{i}_name"].set("—")
                         v[f"movepp{i}"].set("0"); v[f"move{i}_maxpp"].set("/0")
                 sp    = a.get("@species", slot+1)
-                form  = a.get("@form", 0)
+                form  = pokemon_form(a)
                 self._set_pokemon_dex_vars(v, sp, form if isinstance(form, int) else 0)
                 nick  = ds(a.get("@name", b""))
                 label = (nick or f"Species#{sp}") + f" [#{sp}]"
-                self.party_nb.tab(slot, text=f" {label[:16]} ")
+                v["_tab_ref"] = (self.party_nb, slot, label[:16])
+                self._refresh_shadow_status(v)
                 v["editor_frame"].pack(fill="both", expand=True)
                 v["add_btn"].pack_forget()
             else:
                 v["_pkmn_obj"] = None
+                v["_tab_ref"] = None
                 self.party_nb.tab(slot, text=f" Slot {slot+1} (empty)")
                 self._clear_pokemon_editor_vars(v)
+                self._refresh_shadow_status(v)
                 if v.get("dex_sprite"):
                     v["dex_sprite"].configure(image="", text="")
                     v["dex_sprite"].image = None
@@ -3242,34 +4286,48 @@ class Editor(tk.Tk):
                 except: return default
 
             for key, attr in [
-                ("hp","@hp"),("totalhp","@totalhp"),
+                ("species_id","@species"),("hp","@hp"),("totalhp","@totalhp"),
                 ("attack","@attack"),("defense","@defense"),("spatk","@spatk"),
                 ("spdef","@spdef"),("speed","@speed"),("exp","@exp"),
                 ("item","@item"),("happiness","@happiness"),("status","@status"),
                 ("ball","@ballused"),("obtain_lv","@obtainLevel"),
             ]:
-                a[attr] = gi(key)
+                value = gi(key)
+                if value != a.get(attr, 0):
+                    a[attr] = value
 
-            iv = a.get("@iv", [0]*6)
-            ev = a.get("@ev", [0]*6)
-            for j, stat in enumerate(STATS):
-                key = stat.lower()
-                if isinstance(iv, list) and j < len(iv): iv[j] = min(31,  max(0, gi(f"iv_{key}")))
-                if isinstance(ev, list) and j < len(ev): ev[j] = min(252, max(0, gi(f"ev_{key}")))
-            a["@form"] = self._selected_form_id(v)
-            a["@iv"] = iv; a["@ev"] = _sanitize_evs(ev)
-
+            current_iv = a.get("@iv", [])
+            current_ev = a.get("@ev", [])
+            display_iv = [min(31, max(0, gi(f"iv_{stat.lower()}"))) for stat in STATS]
+            display_ev = [min(252, max(0, gi(f"ev_{stat.lower()}"))) for stat in STATS]
+            if display_iv != _game_stats_to_display(current_iv):
+                a["@iv"] = _display_stats_to_game(display_iv)
+            if display_ev != _game_stats_to_display(current_ev):
+                a["@ev"] = _display_stats_to_game(_sanitize_evs(display_ev))
             nat_name = v["nature_idx"].get()
             nat_i    = NATURES.index(nat_name) if nat_name in NATURES else pokemon_nature(a)
             shiny    = bool(v["shiny"].get())
             ab       = self._selected_ability_slot(v)
-            apply_pokemon_identity(a, nat_i, shiny, ab, v["gender"].get())
+            apply_pokemon_identity(
+                a, nat_i, shiny, ab, v["gender"].get(), self._changed_identity_fields(v)
+            )
 
             moves = a.get("@moves", [])
             for i in range(4):
                 if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
-                    moves[i].attributes["@id"] = gi(f"move{i}")
-                    moves[i].attributes["@pp"] = gi(f"movepp{i}")
+                    move_id = gi(f"move{i}")
+                    move_pp = gi(f"movepp{i}")
+                    if move_id != moves[i].attributes.get("@id", 0):
+                        moves[i].attributes["@id"] = move_id
+                    if move_pp != moves[i].attributes.get("@pp", 0):
+                        moves[i].attributes["@pp"] = move_pp
+
+            # Moves and ability are form prerequisites for Keldeo and Arceus,
+            # so resolve the requested form only after applying those fields.
+            form = self._selected_form_id(v)
+            if form != pokemon_form(a):
+                apply_pokemon_form(a, form)
+                v["item"].set(str(a.get("@item", 0)))
 
             nick = v["nickname"].get()
             if nick and nick != ds(a.get("@name", b"")):
@@ -3309,11 +4367,15 @@ class Editor(tk.Tk):
                     ("species_id","@species"),("hp","@hp"),
                     ("totalhp","@totalhp"),("item","@item"),("happiness","@happiness"),
                     ("status","@status"),("exp","@exp"),
+                    ("attack","@attack"),("defense","@defense"),("spatk","@spatk"),
+                    ("spdef","@spdef"),("speed","@speed"),
+                    ("ball","@ballused"),("obtain_lv","@obtainLevel"),
                 ]:
-                    a[attr] = gi(key)
+                    value = gi(key)
+                    if value != a.get(attr, 0):
+                        a[attr] = value
 
                 nick = sv["nickname"].get()
-                a["@form"] = self._selected_form_id(sv)
                 if nick and nick != ds(a.get("@name", b"")):
                     a["@name"] = nick.encode("utf-8")
 
@@ -3321,23 +4383,33 @@ class Editor(tk.Tk):
                 nat_i    = NATURES.index(nat_name) if nat_name in NATURES else pokemon_nature(a)
                 shiny    = bool(sv["shiny"].get())
                 ab       = self._selected_ability_slot(sv)
-                apply_pokemon_identity(a, nat_i, shiny, ab, sv["gender"].get())
+                apply_pokemon_identity(
+                    a, nat_i, shiny, ab, sv["gender"].get(), self._changed_identity_fields(sv)
+                )
 
-                iv = a.get("@iv", [0]*6)
-                ev = a.get("@ev", [0]*6)
-                for j, stat in enumerate(STATS):
-                    if isinstance(iv, list) and j < len(iv):
-                        iv[j] = min(31, max(0, gi("iv_"+stat.lower())))
-                    if isinstance(ev, list) and j < len(ev):
-                        ev[j] = min(252, max(0, gi("ev_"+stat.lower())))
-                a["@iv"] = iv
-                a["@ev"] = _sanitize_evs(ev)
+                current_iv = a.get("@iv", [])
+                current_ev = a.get("@ev", [])
+                display_iv = [min(31, max(0, gi("iv_" + stat.lower()))) for stat in STATS]
+                display_ev = [min(252, max(0, gi("ev_" + stat.lower()))) for stat in STATS]
+                if display_iv != _game_stats_to_display(current_iv):
+                    a["@iv"] = _display_stats_to_game(display_iv)
+                if display_ev != _game_stats_to_display(current_ev):
+                    a["@ev"] = _display_stats_to_game(_sanitize_evs(display_ev))
 
                 moves = a.get("@moves", [])
                 for i in range(4):
                     if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
-                        moves[i].attributes["@id"] = gi(f"move{i}")
-                        moves[i].attributes["@pp"] = gi(f"movepp{i}")
+                        move_id = gi(f"move{i}")
+                        move_pp = gi(f"movepp{i}")
+                        if move_id != moves[i].attributes.get("@id", 0):
+                            moves[i].attributes["@id"] = move_id
+                        if move_pp != moves[i].attributes.get("@pp", 0):
+                            moves[i].attributes["@pp"] = move_pp
+
+                form = self._selected_form_id(sv)
+                if form != pokemon_form(a):
+                    apply_pokemon_form(a, form)
+                    sv["item"].set(str(a.get("@item", 0)))
 
     # ── save ──────────────────────────────────────────────────────────────────
 
@@ -3397,6 +4469,19 @@ class Editor(tk.Tk):
                 f.write(result)
         except Exception as e:
             messagebox.showerror("Write error", str(e)); return
+
+        # Future saves must compare against the file and identity selections we
+        # just wrote.  This also makes changing a nature back after one save work
+        # correctly, without ever treating a mere load as an identity edit.
+        self.raw = result
+        self.positions = split_streams(result)
+        for v in self.pkmn_vars:
+            if isinstance(v.get("_pkmn_obj"), RubyObject):
+                self._remember_identity_values(v)
+        for _bi, _box, slot_vars in self.box_vars.values():
+            for item in slot_vars:
+                if item is not None:
+                    self._remember_identity_values(item[1])
 
         self.status.config(
             text=f"Saved!  ({len(result):,} bytes)  Backup → {os.path.basename(bak)}",

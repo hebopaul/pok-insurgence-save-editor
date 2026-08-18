@@ -11,7 +11,8 @@ Grab the latest `.exe` from the [Releases](https://github.com/hebopaul/pok-insur
 - Edit trainer money, Battle Points, and badges.
 - Edit all six party slots, including species, nickname, level, experience, stats, IVs, EVs, nature, gender, ability slot, shiny flag, held item, status, moves, and PP.
 - Add Pokemon to empty party or PC slots with Pokemon, move, and EV pickers.
-- Browse PC boxes, edit boxed Pokemon, move Pokemon between boxes and party slots, or delete boxed Pokemon.
+- Browse PC boxes, edit boxed Pokemon (same fields as the party tab), move Pokemon between boxes and party slots, or delete boxed Pokemon.
+- Turn any Pokemon into a Shadow Pokemon, set its heart gauge, choose its Shadow moves and the moves it gets back on purification, or purify it, from either the party tab or the PC boxes.
 - Manage the bag by pocket, with searchable item selection, quantities, item icons, and item details.
 - View Pokemon sprite/type/ability details and move descriptions while editing.
 - Heal Pokemon, restore PP, max IVs, zero EVs, and set all badges with one-click actions.

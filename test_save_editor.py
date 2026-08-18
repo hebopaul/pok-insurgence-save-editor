@@ -1,18 +1,57 @@
 import unittest
 import tkinter as tk
+import os
+from types import SimpleNamespace
+
+from rubymarshal.classes import RubyObject
+from rubymarshal.reader import loads
+from rubymarshal.writer import writes
 
 from save_editor import (
     Editor,
+    COMPUTED_FORM_SPECIES,
+    FORM_DATA,
+    HEART_GAUGE_SIZE,
+    MOVE_DATA,
     NATURES,
+    Ruby18Writer,
+    SHADOW_MOVE_IDS,
+    SHADOW_RUSH_ID,
+    STATS,
+    _display_stats_to_game,
+    _game_stats_to_display,
     _sanitize_evs,
     ability_choices_for_species,
     ability_slot_from_value,
+    apply_pokemon_form,
     apply_pokemon_identity,
     gender_choices_for_species,
+    heart_stage,
+    make_shadow,
     pokemon_gender,
+    pokemon_is_shadow,
     pokemon_is_shiny,
+    pokemon_form,
+    pokemon_move_ids,
     pokemon_nature,
+    purify,
+    resource_path,
+    set_heart_gauge,
+    set_shadow_move_sets,
+    seasonal_pokemon_form,
+    shadow_move_sets,
 )
+
+
+class FakeVar:
+    def __init__(self, value):
+        self.value = value
+
+    def get(self):
+        return self.value
+
+    def set(self, value):
+        self.value = value
 
 
 class PokemonIdentityTests(unittest.TestCase):
@@ -107,6 +146,465 @@ class PokemonIdentityTests(unittest.TestCase):
 
     def test_hp_and_special_attack_ev_spread_keeps_stat_order(self):
         self.assertEqual(_sanitize_evs([252, 0, 0, 252, 0, 0]), [252, 0, 0, 252, 0, 0])
+
+    def test_saved_stat_order_is_converted_to_and_from_display_order(self):
+        saved = [1, 2, 3, 4, 5, 6]  # HP, Atk, Def, Speed, SpA, SpD
+
+        displayed = _game_stats_to_display(saved)
+
+        self.assertEqual(displayed, [1, 2, 3, 5, 6, 4])
+        self.assertEqual(_display_stats_to_game(displayed), saved)
+
+    def _party_editor(self, attributes):
+        pokemon = RubyObject("PokeBattle_Pokemon", attributes)
+        editor = Editor.__new__(Editor)
+        editor.trainer_id = 0
+        editor.secret_id = 0
+        editor.trainer = RubyObject("PokeBattle_Trainer", {"@party": [pokemon]})
+
+        values = {
+            "species_id": attributes.get("@species", 0),
+            "form": attributes.get("@form", 0),
+            "nickname": attributes.get("@name", b"").decode("utf-8"),
+            "hp": attributes.get("@hp", 0),
+            "totalhp": attributes.get("@totalhp", 0),
+            "attack": attributes.get("@attack", 0),
+            "defense": attributes.get("@defense", 0),
+            "spatk": attributes.get("@spatk", 0),
+            "spdef": attributes.get("@spdef", 0),
+            "speed": attributes.get("@speed", 0),
+            "exp": attributes.get("@exp", 0),
+            "item": attributes.get("@item", 0),
+            "happiness": attributes.get("@happiness", 0),
+            "status": attributes.get("@status", 0),
+            "ball": attributes.get("@ballused", 0),
+            "obtain_lv": attributes.get("@obtainLevel", 0),
+            "nature_idx": NATURES[pokemon_nature(attributes)],
+            "gender": pokemon_gender(attributes),
+            "shiny": pokemon_is_shiny(attributes),
+            "ability_slot": "Overgrow",
+        }
+        display_iv = _game_stats_to_display(attributes.get("@iv", []))
+        display_ev = _game_stats_to_display(attributes.get("@ev", []))
+        for i, stat in enumerate(STATS):
+            values["iv_" + stat.lower()] = display_iv[i]
+            values["ev_" + stat.lower()] = display_ev[i]
+        for i, move in enumerate(attributes.get("@moves", [])):
+            values[f"move{i}"] = move.attributes.get("@id", 0)
+            values[f"movepp{i}"] = move.attributes.get("@pp", 0)
+
+        slot = {key: FakeVar(str(value)) for key, value in values.items()}
+        slot["shiny"] = FakeVar(bool(values["shiny"]))
+        slot["_ability_choices"] = {"Overgrow": 0}
+        slot["_pkmn_obj"] = pokemon
+        editor.pkmn_vars = [slot]
+        editor._remember_identity_values(slot)
+        return editor, pokemon, slot
+
+    def test_untouched_party_save_does_not_add_identity_overrides(self):
+        moves = [RubyObject("PBMove", {"@id": i + 1, "@pp": 10, "@ppup": 0}) for i in range(4)]
+        attributes = {
+            "@species": 3,
+            "@name": b"Venusaur",
+            "@personalID": 2,
+            "@hp": 100,
+            "@totalhp": 100,
+            "@attack": 80,
+            "@defense": 81,
+            "@spatk": 100,
+            "@spdef": 101,
+            "@speed": 79,
+            "@exp": 1000,
+            "@item": 0,
+            "@happiness": 70,
+            "@status": 0,
+            "@ballused": 4,
+            "@obtainLevel": 5,
+            "@iv": [1, 2, 3, 4, 5, 6],
+            "@ev": [11, 12, 13, 14, 15, 16],
+            "@moves": moves,
+        }
+        editor, pokemon, _slot = self._party_editor(attributes)
+        before = writes(editor.trainer, cls=Ruby18Writer)
+
+        editor._apply_party()
+
+        self.assertEqual(writes(editor.trainer, cls=Ruby18Writer), before)
+        for field in ("@natureflag", "@shinyflag", "@abilityflag", "@genderflag"):
+            self.assertNotIn(field, pokemon.attributes)
+
+    def test_speed_ev_edit_writes_saved_speed_index(self):
+        attributes = {
+            "@species": 3, "@name": b"Venusaur", "@personalID": 2,
+            "@iv": [0] * 6, "@ev": [0] * 6, "@moves": [],
+        }
+        editor, pokemon, slot = self._party_editor(attributes)
+        slot["ev_spe"].set("252")
+
+        editor._apply_party()
+
+        self.assertEqual(pokemon.attributes["@ev"], [0, 0, 0, 252, 0, 0])
+        self.assertNotIn("@natureflag", pokemon.attributes)
+
+    def test_untouched_box_save_preserves_natural_identity_and_stat_arrays(self):
+        attributes = {
+            "@species": 3, "@name": b"Venusaur", "@personalID": 2,
+            "@iv": [1, 2, 3, 4, 5, 6], "@ev": [11, 12, 13, 14, 15, 16],
+            "@moves": [],
+        }
+        editor, pokemon, slot = self._party_editor(attributes)
+        box = RubyObject("PokemonBox", {"@pokemon": [pokemon]})
+        editor.pkmn_vars = []
+        editor.box_vars = {0: (0, box, [(0, slot)])}
+        before = writes(box, cls=Ruby18Writer)
+
+        editor._apply_boxes()
+
+        self.assertEqual(writes(box, cls=Ruby18Writer), before)
+        self.assertEqual(pokemon.attributes["@iv"], [1, 2, 3, 4, 5, 6])
+        self.assertEqual(pokemon.attributes["@ev"], [11, 12, 13, 14, 15, 16])
+        self.assertNotIn("@natureflag", pokemon.attributes)
+
+
+class PokemonFormTests(unittest.TestCase):
+    @staticmethod
+    def _clock(month=7, hour=12):
+        return SimpleNamespace(month=month, hour=hour)
+
+    @staticmethod
+    def _attributes(species):
+        return {
+            "@species": species, "@form": 0, "@item": 0,
+            "@hp": 100, "@status": 0, "@moves": [],
+        }
+
+    def test_bare_shadow_mewtwo_form_is_not_valid_game_state(self):
+        attributes = {"@species": 150, "@form": 4, "@item": 0}
+
+        self.assertEqual(pokemon_form(attributes), 0)
+
+    def test_form_selection_refreshes_the_compact_box_sprite(self):
+        class FakeLabel:
+            def __init__(self):
+                self.options = {}
+                self.image = None
+
+            def configure(self, **kwargs):
+                self.options.update(kwargs)
+
+        editor = Editor.__new__(Editor)
+        requested = []
+        editor._load_pokemon_sprite = lambda species, form, max_size: (
+            requested.append((species, form, max_size)) or "shadow-mewtwo-image"
+        )
+        editor._set_gender_value = lambda _slot: None
+        editor._set_ability_value = lambda _slot: None
+        label = FakeLabel()
+        slot = {
+            "species_id": FakeVar("150"),
+            "form": FakeVar("4 - Shadow Mewtwo"),
+            "form_sprite": label,
+            "form_sprite_size": 72,
+        }
+
+        editor._refresh_form_options(slot)
+
+        self.assertEqual(requested, [(150, 4, 72)])
+        self.assertEqual(label.options, {"image": "shadow-mewtwo-image", "text": ""})
+        self.assertEqual(label.image, "shadow-mewtwo-image")
+
+    def test_shadow_mewtwo_form_sets_the_native_state_flags(self):
+        attributes = {"@species": 150, "@form": 0, "@item": 0}
+
+        apply_pokemon_form(attributes, 4)
+
+        self.assertEqual(pokemon_form(attributes), 4)
+        self.assertIs(attributes["@normalMewtwo"], False)
+        self.assertIs(attributes["@shadowMewtwo"], True)
+        self.assertIs(attributes["@shadowMegaMewtwo"], False)
+
+    def test_shadow_mewtwo_state_survives_a_writer_round_trip(self):
+        pokemon = RubyObject("PokeBattle_Pokemon", {"@species": 150, "@form": 0, "@item": 0})
+        apply_pokemon_form(pokemon.attributes, 5)
+
+        reloaded = loads(writes(pokemon, cls=Ruby18Writer))
+
+        self.assertEqual(pokemon_form(reloaded.attributes), 5)
+        self.assertIs(reloaded.attributes["@shadowMewtwo"], True)
+        self.assertIs(reloaded.attributes["@shadowMegaMewtwo"], True)
+
+    def test_item_derived_mewtwo_forms_receive_the_required_item(self):
+        attributes = {"@species": 150, "@form": 0, "@item": 0}
+
+        apply_pokemon_form(attributes, 1)
+        self.assertEqual((pokemon_form(attributes), attributes["@item"]), (1, 554))
+
+        apply_pokemon_form(attributes, 2)
+        self.assertEqual((pokemon_form(attributes), attributes["@item"]), (2, 637))
+
+        apply_pokemon_form(attributes, 3)
+        self.assertEqual((pokemon_form(attributes), attributes["@item"]), (3, 635))
+
+    def test_every_direct_named_form_persists_without_hidden_prerequisites(self):
+        """Audit every catalogued species that has no game getForm handler."""
+        checked = 0
+        for species, forms in FORM_DATA.items():
+            if species in COMPUTED_FORM_SPECIES:
+                continue
+            for form_id, _name in forms:
+                attributes = self._attributes(species)
+                apply_pokemon_form(attributes, form_id, now=self._clock())
+                self.assertEqual(
+                    pokemon_form(attributes, now=self._clock()), form_id,
+                    f"species {species}, form {form_id}",
+                )
+                reloaded = loads(writes(
+                    RubyObject("PokeBattle_Pokemon", attributes), cls=Ruby18Writer
+                ))
+                self.assertEqual(
+                    pokemon_form(reloaded.attributes, now=self._clock()), form_id,
+                    f"writer round trip: species {species}, form {form_id}",
+                )
+                checked += 1
+        self.assertGreater(checked, 300)
+
+    def test_every_named_alternate_form_has_its_own_battler_sprite(self):
+        battlers = resource_path(os.path.join("game_resources", "Graphics", "Battlers"))
+        checked = 0
+        for species, forms in FORM_DATA.items():
+            for form_id, form_name in forms:
+                if form_id == 0:
+                    continue
+                candidates = (
+                    f"{species:03d}_{form_id}.png",
+                    f"{species:03d}-{form_id}.png",
+                    f"{species:03d}{form_id}.png",
+                )
+                self.assertTrue(
+                    any(os.path.exists(os.path.join(battlers, name)) for name in candidates),
+                    f"species {species}, form {form_id} ({form_name}) has no form sprite",
+                )
+                checked += 1
+        self.assertEqual(checked, 264)
+
+    def test_every_named_computed_form_gets_its_native_prerequisites(self):
+        """Exercise every named form belonging to a getForm species."""
+        for species in COMPUTED_FORM_SPECIES - {585, 586}:
+            for form_id, _name in FORM_DATA.get(species, []):
+                attributes = self._attributes(species)
+                if species == 647 and form_id == 0:
+                    attributes["@moves"] = [RubyObject(
+                        "PBMove", {"@id": 1, "@pp": 10, "@ppup": 0}
+                    )]
+                apply_pokemon_form(attributes, form_id, now=self._clock())
+                self.assertEqual(
+                    pokemon_form(attributes, now=self._clock()), form_id,
+                    f"species {species}, form {form_id}",
+                )
+
+                reloaded = loads(writes(
+                    RubyObject("PokeBattle_Pokemon", attributes), cls=Ruby18Writer
+                ))
+                self.assertEqual(
+                    pokemon_form(reloaded.attributes, now=self._clock()), form_id,
+                    f"writer round trip: species {species}, form {form_id}",
+                )
+
+    def test_all_arceus_plate_forms_set_the_matching_game_item(self):
+        expected = {
+            1: 158, 2: 161, 3: 159, 4: 160, 5: 164, 6: 163,
+            7: 165, 8: 168, 10: 153, 11: 154, 12: 156, 13: 155,
+            14: 162, 15: 157, 16: 166, 17: 167, 18: 723,
+        }
+        for form_id, item_id in expected.items():
+            attributes = self._attributes(493)
+            apply_pokemon_form(attributes, form_id)
+            self.assertEqual((pokemon_form(attributes), attributes["@item"]),
+                             (form_id, item_id))
+
+        mystery = self._attributes(493)
+        apply_pokemon_form(mystery, 9)
+        self.assertEqual((pokemon_form(mystery), mystery["@abilityflag"]), (9, 2))
+
+        primal = self._attributes(493)
+        apply_pokemon_form(primal, 19)
+        self.assertEqual((pokemon_form(primal), primal["@item"], primal["@primalBattle"]),
+                         (19, 812, True))
+
+    def test_armor_drive_and_mega_handlers_resolve_like_the_game(self):
+        cases = [
+            (487, 1, 197, None), (487, 2, 812, "@primalBattle"),
+            (248, 1, 0, "@megaTyranitar"), (248, 2, 753, None),
+            (330, 1, 755, None), (330, 2, 0, "@megaFlygon"),
+            (542, 1, 754, None), (644, 1, 752, None), (914, 1, 829, None),
+            (649, 1, 199, None), (649, 2, 200, None),
+            (649, 3, 201, None), (649, 4, 198, None),
+        ]
+        for species, form_id, item_id, flag in cases:
+            attributes = self._attributes(species)
+            apply_pokemon_form(attributes, form_id)
+            self.assertEqual(pokemon_form(attributes), form_id,
+                             f"species {species}, form {form_id}")
+            self.assertEqual(attributes["@item"], item_id)
+            if flag:
+                self.assertIs(attributes[flag], True)
+
+    def test_keldeo_form_is_derived_from_secret_sword(self):
+        attributes = self._attributes(647)
+        apply_pokemon_form(attributes, 1)
+        self.assertIn(95, pokemon_move_ids(attributes))
+        self.assertEqual(pokemon_form(attributes), 1)
+
+        # A normal move keeps the Pokemon valid when Secret Sword is removed.
+        attributes["@moves"][1] = RubyObject("PBMove", {"@id": 1, "@pp": 10, "@ppup": 0})
+        apply_pokemon_form(attributes, 0)
+        self.assertNotIn(95, pokemon_move_ids(attributes))
+        self.assertEqual(pokemon_form(attributes), 0)
+
+    def test_deerling_and_sawsbuck_are_month_controlled(self):
+        expected = {1: 3, 2: 3, 3: 0, 5: 0, 6: 1, 8: 1,
+                    9: 2, 11: 2, 12: 3}
+        for month, form_id in expected.items():
+            now = self._clock(month=month)
+            self.assertEqual(seasonal_pokemon_form(now), form_id)
+            for species in (585, 586):
+                attributes = self._attributes(species)
+                attributes["@form"] = (form_id + 1) % 4
+                self.assertEqual(pokemon_form(attributes, now=now), form_id)
+
+        with self.assertRaisesRegex(ValueError, "controlled by the current month"):
+            apply_pokemon_form(self._attributes(585), 0, now=self._clock(month=7))
+
+    def test_shaymin_sky_form_obeys_time_hp_and_frozen_state(self):
+        attributes = self._attributes(492)
+        apply_pokemon_form(attributes, 1)
+        self.assertEqual(pokemon_form(attributes, now=self._clock(hour=12)), 1)
+        self.assertEqual(pokemon_form(attributes, now=self._clock(hour=22)), 0)
+
+        attributes["@hp"] = 0
+        self.assertEqual(pokemon_form(attributes, now=self._clock(hour=12)), 0)
+        attributes["@hp"] = 100
+        attributes["@status"] = 5
+        self.assertEqual(pokemon_form(attributes, now=self._clock(hour=12)), 0)
+
+
+class ShadowPokemonTests(unittest.TestCase):
+    """Mirrors makeShadow / pbUpdateShadowMoves / pbPurify from the game script."""
+
+    def _pokemon(self, species=18, move_ids=(1, 2, 3, 4)):
+        moves = [RubyObject("PBMove", {"@id": mid, "@pp": 10, "@ppup": 0}) for mid in move_ids]
+        return {
+            "@species": species,
+            "@moves": moves,
+            "@ev": [4, 0, 0, 0, 0, 0],
+            "@exp": 1000,
+            "@heartgauge": 0,
+            "@hypermode": False,
+        }
+
+    def test_make_shadow_sets_state_and_swaps_in_shadow_moves(self):
+        a = self._pokemon(species=18)  # has shadowmoves.dat entry [585, 602]
+
+        make_shadow(a)
+
+        self.assertTrue(pokemon_is_shadow(a))
+        self.assertEqual(a["@heartgauge"], HEART_GAUGE_SIZE)
+        self.assertEqual(heart_stage(a["@heartgauge"]), 5)
+        self.assertEqual(a["@savedexp"], 0)
+        self.assertEqual(a["@savedev"], [0] * 6)
+        self.assertEqual(a["@shadowmovenum"], 2)
+        self.assertEqual(a["@shadowmoves"], [585, 602, 0, 0, 1, 2, 3, 4])
+        # Full gauge means no original moves are handed back yet.
+        self.assertEqual(pokemon_move_ids(a), [585, 602, 0, 0])
+
+    def test_species_without_shadow_moves_falls_back_to_shadow_rush(self):
+        a = self._pokemon(species=1)
+
+        make_shadow(a)
+
+        self.assertEqual(a["@shadowmovenum"], 1)
+        self.assertEqual(pokemon_move_ids(a), [SHADOW_RUSH_ID, 0, 0, 0])
+
+    def test_lowering_the_gauge_hands_original_moves_back(self):
+        a = self._pokemon(species=18)
+        make_shadow(a)
+
+        set_heart_gauge(a, 1000)  # stage 2 → two original moves returned
+
+        self.assertEqual(heart_stage(a["@heartgauge"]), 2)
+        self.assertEqual(pokemon_move_ids(a), [585, 602, 3, 4])
+
+    def test_purify_restores_moves_evs_and_saved_exp(self):
+        a = self._pokemon(species=18)
+        make_shadow(a)
+        a["@savedexp"] = 500
+        a["@savedev"] = [0, 8, 0, 0, 0, 0]
+
+        restored = purify(a)
+
+        self.assertFalse(pokemon_is_shadow(a))
+        self.assertIs(a["@shadow"], False)
+        self.assertEqual(a["@heartgauge"], 0)
+        self.assertEqual(pokemon_move_ids(a), [1, 2, 3, 4])
+        self.assertEqual(a["@ev"], [4, 8, 0, 0, 0, 0])
+        self.assertEqual(a["@exp"], 1500)
+        self.assertEqual(restored["exp"], 500)
+        self.assertNotIn("@shadowmoves", a)
+        self.assertNotIn("@savedev", a)
+        self.assertNotIn("@savedexp", a)
+
+    def test_custom_shadow_moves_are_packed_and_applied(self):
+        a = self._pokemon(species=1)
+        make_shadow(a)
+        shadow_set, original_set = shadow_move_sets(a)
+
+        # a gap in the middle must be compacted so @shadowmovenum stays meaningful
+        set_shadow_move_sets(a, [586, 0, 590, 0], original_set)
+
+        self.assertEqual(a["@shadowmovenum"], 2)
+        self.assertEqual(a["@shadowmoves"], [586, 590, 0, 0, 1, 2, 3, 4])
+        self.assertEqual(pokemon_move_ids(a), [586, 590, 0, 0])
+
+    def test_dropping_a_shadow_move_leaves_no_gap_in_the_move_slots(self):
+        a = self._pokemon(species=1)
+        make_shadow(a)
+        _, original_set = shadow_move_sets(a)
+        set_shadow_move_sets(a, [SHADOW_RUSH_ID, 586], original_set)
+        self.assertEqual(pokemon_move_ids(a), [SHADOW_RUSH_ID, 586, 0, 0])
+
+        set_shadow_move_sets(a, [586], original_set)  # drop the first shadow move
+
+        self.assertEqual(pokemon_move_ids(a), [586, 0, 0, 0])
+
+    def test_restashing_originals_changes_what_purify_returns(self):
+        a = self._pokemon(species=1)
+        make_shadow(a)
+        shadow_set, _ = shadow_move_sets(a)
+
+        set_shadow_move_sets(a, shadow_set, [10, 20, 0, 0])
+        purify(a)
+
+        self.assertEqual(pokemon_move_ids(a), [10, 20, 0, 0])
+
+    def test_shadow_move_ids_cover_the_shadow_type_and_shadow_sword(self):
+        self.assertIn(593, SHADOW_MOVE_IDS)  # Shadow Rush
+        self.assertIn(631, SHADOW_MOVE_IDS)  # Shadow Sword — typed Normal
+        self.assertTrue(all(mid in MOVE_DATA for mid in SHADOW_MOVE_IDS))
+        # Ghost moves that merely start with "Shadow" are not Shadow moves
+        for ghost_move in (174, 175, 176, 178, 180):  # Force, Ball, Claw, Punch, Sneak
+            self.assertNotIn(ghost_move, SHADOW_MOVE_IDS)
+
+    def test_shadow_state_survives_a_ruby18_writer_round_trip(self):
+        pkmn = RubyObject("PokeBattle_Pokemon", self._pokemon(species=18))
+        make_shadow(pkmn.attributes)
+
+        reloaded = loads(writes(pkmn, cls=Ruby18Writer))
+
+        a = reloaded.attributes
+        self.assertIs(a["@shadow"], True)
+        self.assertEqual(a["@heartgauge"], HEART_GAUGE_SIZE)
+        self.assertEqual(a["@shadowmoves"], [585, 602, 0, 0, 1, 2, 3, 4])
+        self.assertTrue(pokemon_is_shadow(a))
 
 
 if __name__ == "__main__":

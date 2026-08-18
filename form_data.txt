@@ -327,11 +327,6 @@
 671 | Florges | 2 | Orange Flower
 671 | Florges | 3 | Blue Flower
 671 | Florges | 4 | White Flower
-672 | Skiddo | 0 | Red Flower
-672 | Skiddo | 1 | Yellow Flower
-672 | Skiddo | 2 | Orange Flower
-672 | Skiddo | 3 | Blue Flower
-672 | Skiddo | 4 | White Flower
 676 | Furfrou | 0 | Natural Form
 676 | Furfrou | 1 | Heart Trim
 676 | Furfrou | 2 | Star Trim
@@ -359,8 +354,8 @@
 735 | Blastoise | 1 | Mega Blastoise
 737 | Bisharp | 0 | Bisharp
 737 | Bisharp | 1 | Mega Bisharp
-739 | Kirlia | 0 | Gallade
-739 | Kirlia | 1 | Mega Gallade
+741 | Gallade | 0 | Gallade
+741 | Gallade | 1 | Mega Gallade
 740 | Gardevoir | 0 | Gardevoir
 740 | Gardevoir | 1 | Mega Gardevoir
 743 | Sunflora | 0 | Sunflora
@@ -398,8 +393,8 @@
 870 | Metagross | 0 | Metagross
 870 | Metagross | 1 | Mega Metagross
 870 | Metagross | 2 | Crystal Metagross
-871 | Buneary | 0 | Lopunny
-871 | Buneary | 1 | Mega Lopunny
+872 | Lopunny | 0 | Lopunny
+872 | Lopunny | 1 | Mega Lopunny
 874 | Lucario | 0 | Lucario
 874 | Lucario | 1 | Mega Lucario
 896 | Emolga | 0 | Delta Emolga
