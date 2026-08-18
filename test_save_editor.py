@@ -10,6 +10,7 @@ from rubymarshal.writer import writes
 from save_editor import (
     Editor,
     COMPUTED_FORM_SPECIES,
+    FORM_OVERRIDE_DATA,
     FORM_DATA,
     HEART_GAUGE_SIZE,
     MOVE_DATA,
@@ -19,6 +20,9 @@ from save_editor import (
     SHADOW_RUSH_ID,
     STATS,
     _display_stats_to_game,
+    _nature_stat_multiplier,
+    _scale_ev_preset,
+    _valid_ev_edit,
     _game_stats_to_display,
     _sanitize_evs,
     ability_choices_for_species,
@@ -32,6 +36,8 @@ from save_editor import (
     pokemon_is_shadow,
     pokemon_is_shiny,
     pokemon_form,
+    pokemon_base_stats,
+    pokemon_learnset,
     pokemon_move_ids,
     pokemon_nature,
     purify,
@@ -155,6 +161,35 @@ class PokemonIdentityTests(unittest.TestCase):
         self.assertEqual(displayed, [1, 2, 3, 5, 6, 4])
         self.assertEqual(_display_stats_to_game(displayed), saved)
 
+    def test_ev_training_multipliers_scale_and_round_presets(self):
+        physical = [4, 252, 0, 0, 0, 252]
+        balanced = [85] * 6
+
+        self.assertEqual(_scale_ev_preset(physical, 0.01), [0, 3, 0, 0, 0, 3])
+        self.assertEqual(_scale_ev_preset(physical, 0.65), [3, 164, 0, 0, 0, 164])
+        self.assertEqual(_scale_ev_preset(physical, 0.10), [0, 25, 0, 0, 0, 25])
+        self.assertEqual(_scale_ev_preset(physical, 0.30), [1, 76, 0, 0, 0, 76])
+        self.assertEqual(_scale_ev_preset(physical, 0.60), [2, 151, 0, 0, 0, 151])
+        self.assertEqual(_scale_ev_preset(balanced, 0.65), [55] * 6)
+        self.assertEqual(_scale_ev_preset(physical, 1.0), physical)
+
+    def test_custom_ev_validation_enforces_each_stat_and_total_limits(self):
+        current = [252, 252, 0, 0, 0, 0]
+
+        self.assertTrue(_valid_ev_edit(current, 2, "6"))
+        self.assertFalse(_valid_ev_edit(current, 2, "7"))
+        self.assertFalse(_valid_ev_edit(current, 2, "253"))
+        self.assertFalse(_valid_ev_edit(current, 2, "-1"))
+        self.assertFalse(_valid_ev_edit(current, 2, "abc"))
+        self.assertTrue(_valid_ev_edit(current, 0, ""))
+
+    def test_nature_modifiers_match_the_game_nature_grid(self):
+        modest = NATURES.index("Modest")
+
+        self.assertEqual(_nature_stat_multiplier(modest, 0), 90)   # Attack
+        self.assertEqual(_nature_stat_multiplier(modest, 3), 110)  # Sp. Attack
+        self.assertEqual(_nature_stat_multiplier(modest, 1), 100)
+
     def _party_editor(self, attributes):
         pokemon = RubyObject("PokeBattle_Pokemon", attributes)
         editor = Editor.__new__(Editor)
@@ -277,6 +312,64 @@ class PokemonFormTests(unittest.TestCase):
             "@species": species, "@form": 0, "@item": 0,
             "@hp": 100, "@status": 0, "@moves": [],
         }
+
+    @staticmethod
+    def _creation_editor():
+        editor = Editor.__new__(Editor)
+        editor.trainer_id = 0
+        editor.secret_id = 0
+        editor.storage = None
+        editor.trainer = RubyObject("PokeBattle_Trainer", {"@party": []})
+        return editor
+
+    def test_generated_form_overrides_cover_known_stats_and_learnsets(self):
+        self.assertGreater(len(FORM_OVERRIDE_DATA), 100)
+        self.assertEqual(pokemon_base_stats(386, 1), [50, 180, 20, 180, 20, 150])
+        attack_moves = pokemon_learnset(386, 1)
+        defense_moves = pokemon_learnset(386, 2)
+        self.assertIn((49, 88), attack_moves)   # Superpower
+        self.assertIn((33, 239), defense_moves) # Spikes
+        self.assertNotEqual(attack_moves, defense_moves)
+
+    def test_every_generated_form_override_is_well_formed(self):
+        named_forms = {
+            (species_id, form_id)
+            for species_id, forms in FORM_DATA.items()
+            for form_id, _name in forms
+        }
+        for key, override in FORM_OVERRIDE_DATA.items():
+            self.assertIn(key, named_forms)
+            stats = override.get("stats")
+            moves = override.get("moves")
+            self.assertTrue(stats or moves)
+            if stats:
+                self.assertEqual(len(stats), 6)
+                self.assertTrue(all(value > 0 for value in stats))
+            if moves:
+                self.assertTrue(all(level >= 1 and move_id in MOVE_DATA
+                                    for level, move_id in moves))
+
+    def test_creation_uses_selected_form_stats_and_nature(self):
+        editor = self._creation_editor()
+
+        pokemon = editor._create_pokemon_obj(
+            386, form_id=1, nature_index=NATURES.index("Modest"),
+            level=50, evs=[0] * 6,
+        )
+
+        attributes = pokemon.attributes
+        self.assertEqual(pokemon_form(attributes), 1)
+        self.assertEqual(attributes["@natureflag"], NATURES.index("Modest"))
+        self.assertEqual(attributes["@attack"], 180)
+        self.assertEqual(attributes["@spatk"], 220)
+
+    def test_creation_applies_move_controlled_form_prerequisites(self):
+        editor = self._creation_editor()
+
+        pokemon = editor._create_pokemon_obj(647, form_id=1, level=50)
+
+        self.assertEqual(pokemon_form(pokemon.attributes), 1)
+        self.assertIn(95, pokemon_move_ids(pokemon.attributes))
 
     def test_bare_shadow_mewtwo_form_is_not_valid_game_state(self):
         attributes = {"@species": 150, "@form": 4, "@item": 0}

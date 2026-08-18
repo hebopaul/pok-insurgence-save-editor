@@ -130,6 +130,13 @@ EV_PRESETS = {
     "Bulky special": [252, 0, 0, 252, 4, 0],
     "Custom": [0, 0, 0, 0, 0, 0],
 }
+EV_TRAINING_LEVELS = {
+    "Adapted": None,  # selected level / 100
+    "Weak": 0.10,
+    "Capable": 0.30,
+    "Strong": 0.60,
+    "Maxed": 1.00,
+}
 
 POKEMON_TYPES = [
     "Normal","Fire","Water","Electric","Grass","Ice","Fighting","Poison",
@@ -174,6 +181,38 @@ def _sanitize_evs(evs) -> list:
         idx = max(range(6), key=lambda j: result[j])
         result[idx] -= 1
     return result
+
+def _scale_ev_preset(values, multiplier: float) -> list:
+    """Scale a legal EV preset using conventional half-up integer rounding."""
+    multiplier = min(1.0, max(0.0, float(multiplier)))
+    return _sanitize_evs([int((int(value) * multiplier) + 0.5) for value in values])
+
+def _valid_ev_edit(values, index: int, proposed: str) -> bool:
+    """Validate one custom EV entry without silently clamping user input."""
+    if proposed == "":
+        value = 0
+    elif proposed.isdigit():
+        value = int(proposed)
+    else:
+        return False
+    if value > 252 or not 0 <= index < 6:
+        return False
+    candidate = list(values[:6]) + [0] * max(0, 6 - len(values))
+    candidate[index] = value
+    return sum(candidate) <= 510
+
+def _nature_stat_multiplier(nature_index: int, game_stat_index: int) -> int:
+    """Return the game's 90/100/110 modifier for Atk/Def/Spe/SpA/SpD."""
+    nature_index = max(0, min(24, int(nature_index)))
+    raised = nature_index // 5
+    lowered = nature_index % 5
+    if raised == lowered:
+        return 100
+    if game_stat_index == raised:
+        return 110
+    if game_stat_index == lowered:
+        return 90
+    return 100
 
 def _game_stats_to_display(values) -> list:
     """Convert a saved IV/EV array to the order shown by the editor."""
@@ -269,6 +308,31 @@ def _load_form_data():
             form_name = parts[3] or f"Form {form_id}"
             data.setdefault(sid, {})[form_id] = form_name
     return {sid: sorted(forms.items()) for sid, forms in data.items()}
+
+def _load_form_override_data():
+    path = resource_path("form_override_data.txt")
+    data = {}
+    if not os.path.exists(path):
+        return data
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = [part.strip() for part in line.split("|")]
+            if len(parts) < 4:
+                continue
+            try:
+                key = (int(parts[0]), int(parts[1]))
+                stats = None if parts[2] == "-" else [int(value) for value in parts[2].split()]
+                moves = None if parts[3] == "-" else [
+                    tuple(int(value) for value in token.split(":", 1))
+                    for token in parts[3].split()
+                ]
+            except (ValueError, IndexError):
+                continue
+            data[key] = {"stats": stats, "moves": moves}
+    return data
 
 # Pocket 0 = unused, 1 = Items, 2 = Medicine, 3 = Balls, 4 = TMs, 5 = Berries,
 # 6 = Mail, 7 = Clothes/Mail depending on save data, 8 = Key Items
@@ -369,6 +433,7 @@ ABILITY_DATA, ABILITY_BY_NAME = _load_ability_data()
 ITEM_CAT_LIST = ["All"] + sorted(set(ITEM_CATS.values()))
 PKMN_DATA = _load_pokemon_data()
 FORM_DATA = _load_form_data()
+FORM_OVERRIDE_DATA = _load_form_override_data()
 POKEMON_DATA = {
     sid: {"name": d["name"], "t1": d["type1"], "t2": d["type2"], "stage": d["stage"], "rarity": d["rarity"]}
     for sid, d in PKMN_DATA.items()
@@ -450,6 +515,25 @@ def _load_shadow_move_data():
 MOVE_DATA        = _load_move_data()
 LEARNSET_DATA    = _load_learnset_data()
 SHADOW_MOVE_DATA = _load_shadow_move_data()
+
+def pokemon_base_stats(species_id: int, form_id: int = 0) -> list:
+    """Return HP/Atk/Def/SpA/SpD/Spe, honoring form script overrides."""
+    override = FORM_OVERRIDE_DATA.get((species_id, form_id), {}).get("stats")
+    if override:
+        return list(override)
+    data = PKMN_DATA.get(species_id, {})
+    return [data.get(key, 0) for key in ("hp", "atk", "def", "spa", "spd", "spe")]
+
+def pokemon_learnset(species_id: int, form_id: int = 0) -> list:
+    """Return the level-up learnset resolved by PokemonMultipleForms."""
+    override = FORM_OVERRIDE_DATA.get((species_id, form_id), {}).get("moves")
+    return list(override) if override is not None else list(LEARNSET_DATA.get(species_id, []))
+
+def required_form_moves(species_id: int, form_id: int) -> set:
+    """Moves required for a form to remain valid in the game's getForm handler."""
+    if species_id == KELDEO_SPECIES_ID and form_id == 1:
+        return {SECRET_SWORD_MOVE_ID}
+    return set()
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -1255,6 +1339,28 @@ class Editor(tk.Tk):
         self.style.map("Treeview", background=[("selected", p["select"])], foreground=[("selected", p["select_text"])])
         self.style.configure("Treeview.Heading", background=p["panel"], foreground=p["text"])
         self.style.configure("TEntry", fieldbackground=p["field"], foreground=p["text"])
+        self.style.configure(
+            "TSpinbox",
+            fieldbackground=p["field"],
+            foreground=p["text"],
+            background=p["button"],
+            arrowcolor=p["text"],
+            bordercolor=p["border"],
+            lightcolor=p["border"],
+            darkcolor=p["border"],
+            insertcolor=p["text"],
+            selectbackground=p["select"],
+            selectforeground=p["select_text"],
+        )
+        self.style.map(
+            "TSpinbox",
+            fieldbackground=[("disabled", p["panel"]), ("!disabled", p["field"])],
+            foreground=[("disabled", p["muted"]), ("!disabled", p["text"])],
+            background=[("active", p["button_active"]), ("disabled", p["panel"])],
+            arrowcolor=[("disabled", p["muted"]), ("!disabled", p["text"])],
+            selectbackground=[("!disabled", p["select"])],
+            selectforeground=[("!disabled", p["select_text"])],
+        )
         self.style.configure(
             "TCombobox",
             fieldbackground=p["field"],
@@ -3295,19 +3401,18 @@ class Editor(tk.Tk):
                 if isinstance(p, RubyObject): return p
         return None
 
-    def _create_pokemon_obj(self, species_id: int, level: int = None, moves: list = None, evs: list = None) -> RubyObject:
+    def _create_pokemon_obj(self, species_id: int, form_id: int = 0,
+                            nature_index: int = 0, level: int = None,
+                            moves: list = None, evs: list = None) -> RubyObject:
         d      = PKMN_DATA.get(species_id, {})
         stage  = d.get("stage",  "1")
         rarity = d.get("rarity", "Common")
         if level is None:
             level = _default_level(stage, rarity)
 
-        hp_b  = d.get("hp",  0)
-        atk_b = d.get("atk", 0)
-        def_b = d.get("def", 0)
-        spa_b = d.get("spa", 0)
-        spd_b = d.get("spd", 0)
-        spe_b = d.get("spe", 0)
+        hp_b, atk_b, def_b, spa_b, spd_b, spe_b = pokemon_base_stats(
+            species_id, form_id
+        )
 
         iv_hp  = min(31, hp_b  // 4)
         iv_atk = min(31, atk_b // 4)
@@ -3318,12 +3423,15 @@ class Editor(tk.Tk):
         ev_hp, ev_atk, ev_def, ev_spa, ev_spd, ev_spe = _sanitize_evs(evs or [0, 0, 0, 0, 0, 0])
 
         total_hp = (2 * hp_b + iv_hp + ev_hp // 4)  * level // 100 + level + 10
-        def calc(b, iv, ev): return (2 * b + iv + ev // 4) * level // 100 + 5
+        def calc(b, iv, ev, game_stat_index):
+            raw = (2 * b + iv + ev // 4) * level // 100 + 5
+            return raw * _nature_stat_multiplier(nature_index, game_stat_index) // 100
 
         name_str = d.get("name", f"#{species_id}")
         growth   = d.get("growth", "medium-fast")
         exp      = _exp_for_level(growth, level)
-        pid      = find_pid(NATURES.index("Hardy"), False, self.trainer_id, self.secret_id)
+        nature_index = max(0, min(24, int(nature_index)))
+        pid      = find_pid(nature_index, False, self.trainer_id, self.secret_id)
 
         ot_name     = b""
         combined_id = 0
@@ -3358,11 +3466,11 @@ class Editor(tk.Tk):
         a["@personalID"]   = pid
         a["@hp"]           = total_hp
         a["@totalhp"]      = total_hp
-        a["@attack"]       = calc(atk_b, iv_atk, ev_atk)
-        a["@defense"]      = calc(def_b, iv_def, ev_def)
-        a["@spatk"]        = calc(spa_b, iv_spa, ev_spa)
-        a["@spdef"]        = calc(spd_b, iv_spd, ev_spd)
-        a["@speed"]        = calc(spe_b, iv_spe, ev_spe)
+        a["@attack"]       = calc(atk_b, iv_atk, ev_atk, 0)
+        a["@defense"]      = calc(def_b, iv_def, ev_def, 1)
+        a["@spatk"]        = calc(spa_b, iv_spa, ev_spa, 3)
+        a["@spdef"]        = calc(spd_b, iv_spd, ev_spd, 4)
+        a["@speed"]        = calc(spe_b, iv_spe, ev_spe, 2)
         a["@exp"]          = exp
         a["@item"]         = 0
         a["@happiness"]    = 70
@@ -3382,7 +3490,7 @@ class Editor(tk.Tk):
         )
         a["@form"]         = 0
         a["@abilityflag"]  = 0
-        a["@natureflag"]   = NATURES.index("Hardy")
+        a["@natureflag"]   = nature_index
         a["@genderflag"]   = None
         a["@shinyflag"]    = False
         a["@trainerID"]    = combined_id
@@ -3414,25 +3522,44 @@ class Editor(tk.Tk):
                     move_objs[i].attributes["@ppup"] = 0
             a["@moves"] = move_objs
 
+        apply_pokemon_form(a, form_id)
+
         return pkmn
 
     def _open_move_picker(self, species_id: int, callback):
-        """Move selection popup. callback(level, [(move_id, pp), ...])"""
+        """Creation setup popup. callback(form, nature, level, selected moves)."""
         d       = PKMN_DATA.get(species_id, {})
         name    = d.get("name", f"#{species_id}")
-        growth  = d.get("growth", "medium-fast")
         def_lv  = _default_level(d.get("stage", "1"), d.get("rarity", "Common"))
-        learnset = LEARNSET_DATA.get(species_id, [])
 
-        win = self._make_popup(f"Choose Moves - {name}", "800x540")
+        win = self._make_popup(f"Create {name}", "900x570")
 
-        # ── Level row ────────────────────────────────────────────────────────
+        # ── Form, Nature, and level row ──────────────────────────────────────
         top = ttk.Frame(win, padding=(10, 8, 10, 4))
         top.pack(fill="x")
-        ttk.Label(top, text=f"Moves for {name}   —   Level:").pack(side="left")
+        form_choices = self._form_choices(species_id, 0)
+        form_var = tk.StringVar(value=form_choices[0])
+        initial_form = self._parse_form_id(form_choices[0])
+        nature_var = tk.StringVar(value=NATURES[0])
         level_var = tk.IntVar(value=def_lv)
-        ttk.Spinbox(top, from_=1, to=100, textvariable=level_var, width=5).pack(side="left", padx=6)
-        ttk.Label(top, text="(double-click a move to add it)", foreground="gray").pack(side="left", padx=10)
+        sprite = ttk.Label(top, width=8, anchor="center")
+        sprite.pack(side="left", padx=(0, 10))
+        initial_image = self._load_pokemon_sprite(species_id, initial_form, max_size=56)
+        sprite.configure(image=initial_image if initial_image else "", text="" if initial_image else "(no sprite)")
+        sprite.image = initial_image
+
+        ttk.Label(top, text="Form:").pack(side="left")
+        form_combo = ttk.Combobox(
+            top, textvariable=form_var, values=form_choices, width=22, state="readonly"
+        )
+        form_combo.pack(side="left", padx=(4, 12))
+        ttk.Label(top, text="Nature:").pack(side="left")
+        ttk.Combobox(
+            top, textvariable=nature_var, values=NATURES, width=10, state="readonly"
+        ).pack(side="left", padx=(4, 12))
+        ttk.Label(top, text="Level:").pack(side="left")
+        ttk.Spinbox(top, from_=1, to=100, textvariable=level_var, width=5).pack(side="left", padx=4)
+        ttk.Label(top, text="(double-click a move to add it)", foreground="gray").pack(side="left", padx=8)
 
         # ── Main split ───────────────────────────────────────────────────────
         mid_frame = ttk.Frame(win, padding=(10, 0, 10, 4))
@@ -3498,6 +3625,16 @@ class Editor(tk.Tk):
                 else:
                     slot_vars[i].set(f"  {i+1}.  —")
 
+        def _current_form():
+            return self._parse_form_id(form_var.get())
+
+        def _current_learnset():
+            form_id = _current_form()
+            result = pokemon_learnset(species_id, form_id)
+            existing = {move_id for _level, move_id in result}
+            required = required_form_moves(species_id, form_id)
+            return [(1, move_id) for move_id in sorted(required - existing)] + result
+
         def _refresh_tree(*_):
             try:
                 lvl = max(1, min(100, int(level_var.get())))
@@ -3505,7 +3642,7 @@ class Editor(tk.Tk):
                 return
             tree.delete(*tree.get_children())
             seen = set()
-            for learn_lv, mid in learnset:
+            for learn_lv, mid in _current_learnset():
                 if learn_lv > lvl or mid in seen:
                     continue
                 seen.add(mid)
@@ -3533,6 +3670,9 @@ class Editor(tk.Tk):
 
         def _remove(idx: int):
             if idx < len(selected):
+                if selected[idx][0] in required_form_moves(species_id, _current_form()):
+                    win.bell()
+                    return
                 selected.pop(idx)
                 _refresh_slots()
 
@@ -3541,7 +3681,8 @@ class Editor(tk.Tk):
                 lvl = max(1, min(100, int(level_var.get())))
             except (ValueError, tk.TclError):
                 lvl = def_lv
-            available = [(lv, mid) for lv, mid in learnset if lv <= lvl]
+            available = [(lv, mid) for lv, mid in _current_learnset() if lv <= lvl]
+            required = required_form_moves(species_id, _current_form())
             damaging = sorted(
                 [(MOVE_DATA.get(m, {}).get("power", 0) * (MOVE_DATA.get(m, {}).get("accuracy", 0) or 100) / 100, lv, m)
                  for lv, m in available if MOVE_DATA.get(m, {}).get("power", 0) > 0],
@@ -3551,14 +3692,20 @@ class Editor(tk.Tk):
                 [(lv, m) for lv, m in available if MOVE_DATA.get(m, {}).get("power", 0) == 0],
                 reverse=True,
             )
-            result = [m for _, _lv, m in damaging[:3]]
+            result = [move_id for move_id in sorted(required)]
+            for _score, _lv, move_id in damaging:
+                if len(result) >= 3:
+                    break
+                if move_id not in result:
+                    result.append(move_id)
             if status:
-                result.append(status[0][1])
+                if status[0][1] not in result:
+                    result.append(status[0][1])
             # Fill remaining slots if we got fewer than 4
-            for _, _lv, m in damaging[3:]:
+            for _, _lv, m in damaging:
                 if len(result) >= 4: break
                 if m not in result: result.append(m)
-            for _lv, m in status[1:]:
+            for _lv, m in status:
                 if len(result) >= 4: break
                 if m not in result: result.append(m)
             selected.clear()
@@ -3589,10 +3736,35 @@ class Editor(tk.Tk):
                 lvl = max(1, min(100, int(level_var.get())))
             except (ValueError, tk.TclError):
                 lvl = def_lv
+            form_id = _current_form()
+            required = required_form_moves(species_id, form_id)
+            selected_ids = {move_id for move_id, _pp in selected}
+            if not required.issubset(selected_ids):
+                names = ", ".join(MOVE_DATA.get(mid, {}).get("name", f"#{mid}") for mid in required)
+                messagebox.showerror(
+                    "Required form move",
+                    f"This form requires {names}. Add it before continuing.",
+                    parent=win,
+                )
+                return
+            try:
+                nature_index = NATURES.index(nature_var.get())
+            except ValueError:
+                nature_index = 0
             win.destroy()
-            callback(lvl, list(selected))
+            callback(form_id, nature_index, lvl, list(selected))
+
+        def _on_form_changed(*_):
+            form_id = _current_form()
+            image = self._load_pokemon_sprite(species_id, form_id, max_size=56)
+            sprite.configure(image=image if image else "", text="" if image else "(no sprite)")
+            sprite.image = image
+            selected.clear()
+            _refresh_tree()
+            _auto()
 
         level_var.trace_add("write", _refresh_tree)
+        form_var.trace_add("write", _on_form_changed)
         tree.bind("<<TreeviewSelect>>", _on_select)
         tree.bind("<Double-1>", _on_double)
 
@@ -3601,12 +3773,13 @@ class Editor(tk.Tk):
 
     # ── move browser (change existing move) ──────────────────────────────────
 
-    def _open_ev_picker(self, species_id: int, callback):
+    def _open_ev_picker(self, species_id: int, level: int, callback):
         """EV selection popup. callback([hp, atk, def, spa, spd, spe]) on confirm."""
         d = PKMN_DATA.get(species_id, {})
         name = d.get("name", f"#{species_id}")
+        level = max(1, min(100, int(level)))
 
-        win = self._make_popup(f"Choose EVs - {name}", "520x320")
+        win = self._make_popup(f"Choose EVs - {name}", "720x350")
 
         ttk.Label(win, text=f"EV spread for {name}", font=("", 10, "bold"),
                   padding=(10, 10, 10, 4)).pack(anchor="w")
@@ -3621,28 +3794,25 @@ class Editor(tk.Tk):
         for preset in EV_PRESETS:
             ttk.Radiobutton(left, text=preset, value=preset, variable=preset_var).pack(anchor="w", pady=2)
 
+        training = ttk.LabelFrame(body, text="Training", padding=6)
+        training.pack(side="left", fill="y", padx=(0, 8))
+        training_var = tk.StringVar(value="Adapted")
+        for choice in EV_TRAINING_LEVELS:
+            ttk.Radiobutton(
+                training, text=choice, value=choice, variable=training_var
+            ).pack(anchor="w", pady=2)
+        ttk.Label(
+            training,
+            text=f"Adapted uses level {level}\n({level}% of the preset).",
+            foreground="gray",
+            justify="left",
+        ).pack(anchor="w", pady=(8, 0))
+
         right = ttk.LabelFrame(body, text="Values", padding=8)
         right.pack(side="left", fill="both", expand=True)
 
         ev_vars = []
-        for i, stat in enumerate(STATS):
-            ttk.Label(right, text=stat, width=5).grid(row=0, column=i, padx=2)
-            var = tk.StringVar(value="0")
-            ttk.Entry(right, textvariable=var, width=5).grid(row=1, column=i, padx=2, pady=2)
-            ev_vars.append(var)
-
-        total_var = tk.StringVar(value="Total: 0 / 510")
-        total_lbl = ttk.Label(right, textvariable=total_var)
-        total_lbl.grid(row=2, column=0, columnspan=6, sticky="w", pady=(8, 0))
         syncing_preset = {"active": False}
-
-        ttk.Label(right, text="Each stat is clamped to 0-252. Total must be 510 or less.",
-                  foreground="gray", wraplength=290).grid(row=3, column=0, columnspan=6, sticky="w", pady=(8, 0))
-
-        btn_row = ttk.Frame(win, padding=(10, 0, 10, 10))
-        btn_row.pack(fill="x")
-        ttk.Button(btn_row, text="Confirm", command=lambda: _confirm()).pack(side="right", padx=4)
-        ttk.Button(btn_row, text="Cancel", command=win.destroy).pack(side="right")
 
         def _raw_values():
             values = []
@@ -3652,6 +3822,37 @@ class Editor(tk.Tk):
                 except ValueError:
                     values.append(0)
             return values
+
+        def _validate_ev_edit(index, proposed):
+            if syncing_preset["active"]:
+                return True
+            if not _valid_ev_edit(_raw_values(), index, proposed):
+                win.bell()
+                return False
+            return True
+
+        for i, stat in enumerate(STATS):
+            ttk.Label(right, text=stat, width=5).grid(row=0, column=i, padx=2)
+            var = tk.StringVar(value="0")
+            validate = (win.register(
+                lambda proposed, index=i: _validate_ev_edit(index, proposed)
+            ), "%P")
+            ttk.Entry(
+                right, textvariable=var, width=5,
+                validate="key", validatecommand=validate,
+            ).grid(row=1, column=i, padx=2, pady=2)
+            ev_vars.append(var)
+
+        total_var = tk.StringVar(value="Total: 0 / 510")
+        total_lbl = ttk.Label(right, textvariable=total_var)
+        total_lbl.grid(row=2, column=0, columnspan=6, sticky="w", pady=(8, 0))
+        ttk.Label(right, text="Each stat is clamped to 0-252. Total must be 510 or less.",
+                  foreground="gray", wraplength=290).grid(row=3, column=0, columnspan=6, sticky="w", pady=(8, 0))
+
+        btn_row = ttk.Frame(win, padding=(10, 0, 10, 10))
+        btn_row.pack(fill="x")
+        ttk.Button(btn_row, text="Confirm", command=lambda: _confirm()).pack(side="right", padx=4)
+        ttk.Button(btn_row, text="Cancel", command=win.destroy).pack(side="right")
 
         def _refresh_total(*_):
             values = _raw_values()
@@ -3664,8 +3865,12 @@ class Editor(tk.Tk):
             preset = preset_var.get()
             if preset == "Custom":
                 return
+            multiplier = EV_TRAINING_LEVELS.get(training_var.get())
+            if multiplier is None:
+                multiplier = level / 100.0
+            values = _scale_ev_preset(EV_PRESETS[preset], multiplier)
             syncing_preset["active"] = True
-            for var, val in zip(ev_vars, EV_PRESETS[preset]):
+            for var, val in zip(ev_vars, values):
                 var.set(str(val))
             syncing_preset["active"] = False
             _refresh_total()
@@ -3691,6 +3896,7 @@ class Editor(tk.Tk):
             callback(_sanitize_evs(values))
 
         preset_var.trace_add("write", _apply_preset)
+        training_var.trace_add("write", _apply_preset)
         for var in ev_vars:
             var.trace_add("write", _mark_custom)
         _apply_preset()
@@ -3831,18 +4037,21 @@ class Editor(tk.Tk):
         if not self.trainer:
             messagebox.showerror("No save loaded", "Load a save file first."); return
         def on_pick(sid):
-            def on_moves(level, moves):
+            def on_moves(form_id, nature_index, level, moves):
                 def on_evs(evs):
                     party = self.trainer.attributes.setdefault("@party", [])
                     while len(party) <= slot:
                         party.append(None)
-                    party[slot] = self._create_pokemon_obj(sid, level=level, moves=moves, evs=evs)
+                    party[slot] = self._create_pokemon_obj(
+                        sid, form_id=form_id, nature_index=nature_index,
+                        level=level, moves=moves, evs=evs,
+                    )
                     self._fill_party()
                     name = PKMN_DATA.get(sid, {}).get("name", f"#{sid}")
                     self.status.config(
                         text=f"Added {name} to party slot {slot+1}. Click Save to write.",
                         foreground="blue")
-                self._open_ev_picker(sid, on_evs)
+                self._open_ev_picker(sid, level, on_evs)
             self._open_move_picker(sid, on_moves)
         self._open_pokemon_picker(on_pick)
 
@@ -3991,12 +4200,15 @@ class Editor(tk.Tk):
         if not self.trainer:
             messagebox.showerror("No save loaded", "Load a save file first."); return
         def on_pick(sid):
-            def on_moves(level, moves):
+            def on_moves(form_id, nature_index, level, moves):
                 def on_evs(evs):
                     pokemon_list = box.attributes.get("@pokemon", [])
                     while len(pokemon_list) <= slot_idx:
                         pokemon_list.append(None)
-                    pokemon_list[slot_idx] = self._create_pokemon_obj(sid, level=level, moves=moves, evs=evs)
+                    pokemon_list[slot_idx] = self._create_pokemon_obj(
+                        sid, form_id=form_id, nature_index=nature_index,
+                        level=level, moves=moves, evs=evs,
+                    )
                     box.attributes["@pokemon"] = pokemon_list
                     # Point the PC to this box so it opens here directly, avoiding
                     # pbSwitchBoxToRight which can crash on nil slots in previously-empty boxes.
@@ -4007,7 +4219,7 @@ class Editor(tk.Tk):
                     self.status.config(
                         text=f"Added {name} to box {box_idx+1}. PC will open at this box. Click Save to write.",
                         foreground="blue")
-                self._open_ev_picker(sid, on_evs)
+                self._open_ev_picker(sid, level, on_evs)
             self._open_move_picker(sid, on_moves)
         self._open_pokemon_picker(on_pick)
 
