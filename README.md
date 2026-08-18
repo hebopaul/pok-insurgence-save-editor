@@ -32,7 +32,7 @@ Use **Load Save** to open another `.rxdata` file. Use **Save (auto-backup)** to 
 
 ## Building
 
-Run `.\build.ps1` to rebuild only the executable without reading the version history or creating a ZIP. Use `.\build.ps1 -v` for a small increase (`0.3.2` → `0.3.3`) or `.\build.ps1 -V` for a major increase (`0.3.2` → `0.4.0`); these versioned builds create the matching ZIP and record the successful increase in `version_history.txt`.
+Run `.\build.ps1` to rebuild only the executable without reading the version history or creating a ZIP. Use `.\build.ps1 -o` to rebuild and overwrite the current version's ZIP without changing the history, `.\build.ps1 -v` for a small increase (`0.3.2` → `0.3.3`), or `.\build.ps1 -V` for a major increase (`0.3.2` → `0.4.0`). Version increases are recorded in `version_history.txt`.
 
 ## Running from Source
 

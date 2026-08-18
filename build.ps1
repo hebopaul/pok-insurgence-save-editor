@@ -8,25 +8,28 @@ Set-Location $scriptDir
 # intentionally distinguishes -v from -V. Parse the untouched arguments with
 # case-sensitive comparisons instead of declaring a param() block.
 if ($args.Count -gt 1) {
-    throw 'Usage: .\build.ps1 [-v|-V]'
+    throw 'Usage: .\build.ps1 [-o|-v|-V]'
 }
 
-$versionBump = 'none'
+$buildMode = 'exe-only'
 if ($args.Count -eq 1) {
-    if ($args[0] -ceq '-v') {
-        $versionBump = 'small'
+    if ($args[0] -ceq '-o') {
+        $buildMode = 'overwrite'
+    }
+    elseif ($args[0] -ceq '-v') {
+        $buildMode = 'small'
     }
     elseif ($args[0] -ceq '-V') {
-        $versionBump = 'major'
+        $buildMode = 'major'
     }
     else {
-        throw "Unknown option '$($args[0])'. Usage: .\build.ps1 [-v|-V]"
+        throw "Unknown option '$($args[0])'. Usage: .\build.ps1 [-o|-v|-V]"
     }
 }
 
 $versionLogPath = Join-Path $scriptDir 'version_history.txt'
 $targetVersion = $null
-if ($versionBump -ne 'none') {
+if ($buildMode -ne 'exe-only') {
     if (-not (Test-Path -LiteralPath $versionLogPath -PathType Leaf)) {
         throw "Version log not found: $versionLogPath"
     }
@@ -46,7 +49,10 @@ if ($versionBump -ne 'none') {
     }
     $currentVersion = [Version]$currentVersionText
 
-    switch ($versionBump) {
+    switch ($buildMode) {
+        'overwrite' {
+            $targetVersion = $currentVersionText
+        }
         'small' {
             $targetVersion = '{0}.{1}.{2}' -f $currentVersion.Major, $currentVersion.Minor, ($currentVersion.Build + 1)
         }
@@ -94,11 +100,13 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
     throw "Build completed without producing the expected executable: $exePath"
 }
 
-if ($versionBump -ne 'none') {
+if ($buildMode -ne 'exe-only') {
     $archiveName = "Pokemon.Insurgence.Save.Editor.v$targetVersion.zip"
     $archivePath = Join-Path $scriptDir "dist\$archiveName"
     Compress-Archive -LiteralPath $exePath -DestinationPath $archivePath -CompressionLevel Optimal -Force
-    Add-Content -LiteralPath $versionLogPath -Value $targetVersion
+    if ($buildMode -in @('small', 'major')) {
+        Add-Content -LiteralPath $versionLogPath -Value $targetVersion
+    }
     Write-Host "Created dist\$archiveName"
 }
 else {
