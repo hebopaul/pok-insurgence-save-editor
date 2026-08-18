@@ -44,6 +44,7 @@ from save_editor import (
     pokemon_move_ids,
     pokemon_nature,
     purify,
+    recommended_creation_move_ids,
     resource_path,
     set_heart_gauge,
     set_shadow_move_sets,
@@ -356,6 +357,38 @@ class PokemonFormTests(unittest.TestCase):
         self.assertIn((49, 88), attack_moves)   # Superpower
         self.assertIn((33, 239), defense_moves) # Spikes
         self.assertNotEqual(attack_moves, defense_moves)
+
+    def test_you_decide_uses_each_move_slot_rule_without_duplicates(self):
+        moves = {
+            1: {"category": "Physical", "power": 110, "accuracy": 80},
+            2: {"category": "Special", "power": 90, "accuracy": 100},
+            3: {"category": "Special", "power": 120, "accuracy": 70},
+            4: {"category": "Physical", "power": 80, "accuracy": 100},
+            5: {"category": "Status", "power": 0, "accuracy": 0},
+            6: {"category": "Status", "power": 0, "accuracy": 0},
+        }
+        learnset = [(1, 1), (5, 2), (10, 3), (15, 4), (20, 5), (30, 6)]
+
+        self.assertEqual(
+            recommended_creation_move_ids(learnset, 30, moves),
+            [3, 2, 4, 6],
+        )
+
+    def test_you_decide_filters_by_level_and_uses_category_for_support(self):
+        moves = {
+            1: {"category": "Physical", "power": 80, "accuracy": 95},
+            2: {"category": "Special", "power": 70, "accuracy": 100},
+            3: {"category": "Physical", "power": 0, "accuracy": 100},
+            4: {"category": "Status", "power": 0, "accuracy": 0},
+            5: {"category": "Status", "power": 0, "accuracy": 0},
+            6: {"category": "Physical", "power": 150, "accuracy": 100},
+        }
+        learnset = [(1, 1), (5, 2), (12, 3), (15, 4), (20, 5), (40, 6)]
+
+        self.assertEqual(
+            recommended_creation_move_ids(learnset, 20, moves),
+            [1, 2, 3, 5],
+        )
 
     def test_every_generated_form_override_is_well_formed(self):
         named_forms = {

@@ -535,6 +535,69 @@ def required_form_moves(species_id: int, form_id: int) -> set:
         return {SECRET_SWORD_MOVE_ID}
     return set()
 
+
+def recommended_creation_move_ids(learnset: list, level: int,
+                                   move_data: dict = None) -> list:
+    """Choose up to four distinct creation moves using the picker slot rules.
+
+    The slots are strongest damaging move, strongest remaining Special move,
+    most accurate remaining move (power breaks ties), and latest-learned
+    remaining Status move. A slot is omitted when it has no valid candidate.
+    """
+    data = MOVE_DATA if move_data is None else move_data
+    level = max(1, min(100, int(level)))
+
+    # Keep the latest eligible occurrence of a move. The source position makes
+    # same-level support-move ties deterministic and follows learnset order.
+    available = {}
+    for position, (learn_level, move_id) in enumerate(learnset):
+        if learn_level > level or move_id not in data:
+            continue
+        previous = available.get(move_id)
+        if previous is None or (learn_level, position) > previous[:2]:
+            available[move_id] = (learn_level, position, data[move_id])
+
+    chosen = []
+
+    def choose(predicate, key):
+        candidates = [
+            (move_id, details)
+            for move_id, details in available.items()
+            if move_id not in chosen and predicate(details[2])
+        ]
+        if candidates:
+            move_id, _details = max(candidates, key=lambda entry: key(entry[0], entry[1]))
+            chosen.append(move_id)
+
+    # A lower move ID is the final tie-breaker so recommendations never depend
+    # on dictionary ordering.
+    choose(
+        lambda move: move.get("power", 0) > 0,
+        lambda move_id, details: (
+            details[2].get("power", 0), details[0],
+            details[2].get("accuracy", 0), -move_id,
+        ),
+    )
+    choose(
+        lambda move: move.get("category") == "Special" and move.get("power", 0) > 0,
+        lambda move_id, details: (
+            details[2].get("power", 0), details[0],
+            details[2].get("accuracy", 0), -move_id,
+        ),
+    )
+    choose(
+        lambda move: move.get("accuracy", 0) > 0,
+        lambda move_id, details: (
+            details[2].get("accuracy", 0), details[2].get("power", 0),
+            details[0], -move_id,
+        ),
+    )
+    choose(
+        lambda move: move.get("category") == "Status",
+        lambda move_id, details: (details[0], details[1], -move_id),
+    )
+    return chosen
+
 # ── helpers ───────────────────────────────────────────────────────────────────
 
 def ds(s):
@@ -3720,7 +3783,7 @@ class Editor(tk.Tk):
             slot_btns.append(b)
 
         ttk.Separator(right, orient="horizontal").pack(fill="x", pady=8)
-        ttk.Button(right, text="You Decide", command=lambda: _auto()).pack(fill="x", padx=2)
+        ttk.Button(right, text="YOU DECIDE", command=lambda: _auto()).pack(fill="x", padx=2)
 
         # ── Description ──────────────────────────────────────────────────────
         desc_frame = ttk.LabelFrame(win, text="Description", padding=(6, 2))
@@ -3800,33 +3863,7 @@ class Editor(tk.Tk):
                 lvl = max(1, min(100, int(level_var.get())))
             except (ValueError, tk.TclError):
                 lvl = def_lv
-            available = [(lv, mid) for lv, mid in _current_learnset() if lv <= lvl]
-            required = required_form_moves(species_id, _current_form())
-            damaging = sorted(
-                [(MOVE_DATA.get(m, {}).get("power", 0) * (MOVE_DATA.get(m, {}).get("accuracy", 0) or 100) / 100, lv, m)
-                 for lv, m in available if MOVE_DATA.get(m, {}).get("power", 0) > 0],
-                reverse=True,
-            )
-            status = sorted(
-                [(lv, m) for lv, m in available if MOVE_DATA.get(m, {}).get("power", 0) == 0],
-                reverse=True,
-            )
-            result = [move_id for move_id in sorted(required)]
-            for _score, _lv, move_id in damaging:
-                if len(result) >= 3:
-                    break
-                if move_id not in result:
-                    result.append(move_id)
-            if status:
-                if status[0][1] not in result:
-                    result.append(status[0][1])
-            # Fill remaining slots if we got fewer than 4
-            for _, _lv, m in damaging:
-                if len(result) >= 4: break
-                if m not in result: result.append(m)
-            for _lv, m in status:
-                if len(result) >= 4: break
-                if m not in result: result.append(m)
+            result = recommended_creation_move_ids(_current_learnset(), lvl)
             selected.clear()
             for mid in result[:4]:
                 pp = MOVE_DATA.get(mid, {}).get("pp", 0)
@@ -3880,7 +3917,7 @@ class Editor(tk.Tk):
             sprite.image = image
             selected.clear()
             _refresh_tree()
-            _auto()
+            _refresh_slots()
 
         level_var.trace_add("write", _refresh_tree)
         form_var.trace_add("write", _on_form_changed)
@@ -3888,7 +3925,6 @@ class Editor(tk.Tk):
         tree.bind("<Double-1>", _on_double)
 
         _refresh_tree()
-        _auto()
 
     # ── move browser (change existing move) ──────────────────────────────────
 
