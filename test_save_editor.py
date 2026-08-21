@@ -26,6 +26,7 @@ from save_editor import (
     bag_add_button_text,
     _game_stats_to_display,
     _sanitize_evs,
+    split_streams,
     ability_choices_for_species,
     ability_slot_from_value,
     apply_pokemon_form,
@@ -35,6 +36,7 @@ from save_editor import (
     item_picker_id,
     item_source_id,
     make_shadow,
+    marshal_stream_end,
     move_party_pokemon_to_box,
     pokemon_gender,
     pokemon_is_shadow,
@@ -783,6 +785,91 @@ class ShadowPokemonTests(unittest.TestCase):
         self.assertEqual(a["@heartgauge"], HEART_GAUGE_SIZE)
         self.assertEqual(a["@shadowmoves"], [585, 602, 0, 0, 1, 2, 3, 4])
         self.assertTrue(pokemon_is_shadow(a))
+
+
+class StreamSplittingTests(unittest.TestCase):
+    """A save file is a bare concatenation of Marshal streams with no index."""
+
+    @staticmethod
+    def _stream(obj):
+        return writes(obj, cls=Ruby18Writer)
+
+    def test_marshal_stream_end_measures_a_single_stream(self):
+        blob = self._stream(RubyObject("PokemonBox", {"@name": b"Box 1", "@pokemon": [None, 5]}))
+        self.assertEqual(marshal_stream_end(blob + b"\x99" * 7, 0), len(blob))
+
+    def test_payload_containing_the_header_bytes_does_not_split_a_stream(self):
+        # 0x01020408 serialises as "i" \x04 \x08 \x02 \x01 - a literal 04 08 pair
+        # inside the data, exactly like a Pokemon's @personalID can produce.
+        payload = RubyObject("PokeBattle_Pokemon", {"@personalID": 0x01020408})
+        storage = RubyObject("PokemonStorage", {"@boxes": [payload]})
+        blob = self._stream(storage)
+        self.assertIn(b"\x04\x08", blob[2:])
+
+        raw = self._stream(RubyObject("PokeBattle_Trainer", {"@money": 1})) + blob
+        positions = split_streams(raw)
+
+        self.assertEqual(len(positions), 2)
+        self.assertEqual(positions[1], len(raw) - len(blob))
+        reloaded = loads(raw[positions[1]:])
+        self.assertEqual(reloaded.ruby_class_name, "PokemonStorage")
+        self.assertEqual(reloaded.attributes["@boxes"][0].attributes["@personalID"], 0x01020408)
+
+    def test_every_stream_start_is_reported_in_order(self):
+        parts = [
+            self._stream(RubyObject("PokeBattle_Trainer", {"@money": 3})),
+            self._stream(7),
+            self._stream([1, b"two", 3.5, {b"k": True}, None, False]),
+            self._stream(RubyObject("PokemonBag", {"@pockets": [[], [[1, 2]]]})),
+        ]
+        raw = b"".join(parts)
+
+        positions = split_streams(raw)
+
+        expected, offset = [], 0
+        for part in parts:
+            expected.append(offset)
+            offset += len(part)
+        self.assertEqual(positions, expected)
+
+    def test_unreadable_data_falls_back_to_the_header_scan(self):
+        raw = b"\x04\x08\xff\xff\xff"
+        self.assertEqual(split_streams(raw), [0])
+
+
+class RealSaveFileTests(unittest.TestCase):
+    """Opt-in checks against real save files, when any are available locally."""
+
+    @staticmethod
+    def _save_files():
+        base = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
+        if not os.path.isdir(base):
+            return []
+        return [os.path.join(base, f) for f in sorted(os.listdir(base))
+                if f.lower().endswith(".rxdata")]
+
+    def test_pc_storage_is_readable_in_every_local_save(self):
+        files = self._save_files()
+        if not files:
+            self.skipTest("no local .rxdata save files")
+        for path in files:
+            with self.subTest(save=os.path.basename(path)):
+                with open(path, "rb") as fd:
+                    raw = fd.read()
+                positions = split_streams(raw)
+                self.assertEqual(positions[-1] + len(raw[positions[-1]:]), len(raw))
+                found = None
+                for idx, start in enumerate(positions):
+                    end = positions[idx + 1] if idx + 1 < len(positions) else len(raw)
+                    try:
+                        obj = loads(raw[start:end])
+                    except Exception:
+                        continue
+                    if getattr(obj, "ruby_class_name", None) == "PokemonStorage":
+                        found = obj
+                self.assertIsNotNone(found, "PokemonStorage stream did not parse")
+                self.assertTrue(any(isinstance(b, RubyObject)
+                                    for b in found.attributes.get("@boxes", [])))
 
 
 if __name__ == "__main__":

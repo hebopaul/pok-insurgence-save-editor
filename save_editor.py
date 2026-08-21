@@ -628,8 +628,139 @@ def ds(s):
     if isinstance(s, (bytes, bytearray)): return s.decode("utf-8", "replace")
     return str(s) if s is not None else ""
 
+MARSHAL_HEADER = b"\x04\x08"
+
+
+class _MarshalScanner:
+    """Walk one Marshal 4.8 stream and report where it ends.
+
+    Only byte lengths matter here, so unlike a real reader this never builds
+    objects and never resolves symlinks/links.  That makes it immune to the
+    rubymarshal limitations (object cycles, unsupported classes) that stop
+    ``loads()`` on streams such as ``Game_Map``.
+    """
+
+    def __init__(self, raw: bytes, offset: int):
+        self.raw = raw
+        self.pos = offset
+
+    def _byte(self) -> int:
+        if self.pos >= len(self.raw):
+            raise ValueError("truncated Marshal stream")
+        value = self.raw[self.pos]
+        self.pos += 1
+        return value
+
+    def _skip(self, count: int):
+        if count < 0 or self.pos + count > len(self.raw):
+            raise ValueError("truncated Marshal stream")
+        self.pos += count
+
+    def _long(self) -> int:
+        """Ruby's packed integer encoding (same rules as Reader.read_long)."""
+        length = self._byte()
+        if length > 127:
+            length -= 256
+        if length == 0:
+            return 0
+        if 5 < length < 128:
+            return length - 5
+        if -129 < length < -5:
+            return length + 5
+        result, factor = 0, 1
+        for _ in range(abs(length)):
+            result += self._byte() * factor
+            factor *= 256
+        return result - factor if length < 0 else result
+
+    def _blob(self):
+        self._skip(self._long())
+
+    def _pairs(self, count: int):
+        for _ in range(count):
+            self._value()
+            self._value()
+
+    def _attributes(self):
+        self._pairs(self._long())
+
+    def _value(self):
+        token = bytes([self._byte()])
+        if token in (b"0", b"T", b"F"):
+            return
+        if token == b"i":
+            self._long()
+        elif token in (b":", b'"', b"f", b"c", b"m", b"M"):
+            self._blob()
+        elif token in (b";", b"@"):
+            self._long()
+        elif token == b"l":
+            self._skip(1)                 # sign
+            self._skip(2 * self._long())  # 16-bit words
+        elif token == b"/":
+            self._blob()
+            self._skip(1)                 # regexp options
+        elif token == b"[":
+            for _ in range(self._long()):
+                self._value()
+        elif token == b"{":
+            self._pairs(self._long())
+        elif token == b"}":
+            self._pairs(self._long())
+            self._value()                 # default value
+        elif token == b"I":
+            self._value()
+            self._attributes()
+        elif token == b"o":
+            self._value()                 # class symbol
+            self._attributes()
+        elif token == b"S":
+            self._value()                 # class symbol
+            self._pairs(self._long())
+        elif token == b"u":
+            self._value()                 # class symbol
+            self._blob()
+        elif token in (b"U", b"e", b"C", b"d"):
+            self._value()                 # class symbol
+            self._value()
+        else:
+            raise ValueError("unknown Marshal token %r" % token)
+
+
+def marshal_stream_end(raw: bytes, offset: int) -> int:
+    """Byte offset just past the Marshal stream starting at ``offset``."""
+    if raw[offset:offset + 2] != MARSHAL_HEADER:
+        raise ValueError("no Marshal 4.8 header at offset %d" % offset)
+    scanner = _MarshalScanner(raw, offset + 2)
+    scanner._value()
+    return scanner.pos
+
+
 def split_streams(raw: bytes):
-    return [i for i in range(len(raw) - 1) if raw[i] == 0x04 and raw[i+1] == 0x08]
+    """Start offsets of every top-level Marshal stream in a save file.
+
+    A save is a plain concatenation of Marshal streams, so each stream's real
+    length has to be measured.  Scanning for the 0x04 0x08 header alone is
+    not enough: that byte pair also shows up *inside* stream data (any 4-byte
+    Fixnum or Bignum whose next byte is 0x08 produces it), which used to split a
+    stream in half.  The half-stream then failed to parse - most visibly the PC
+    storage, which is the last stream, leaving the PC Boxes tab empty - and made
+    the save-time byte ranges wrong.
+    """
+    positions, offset = [], 0
+    while offset < len(raw):
+        try:
+            end = marshal_stream_end(raw, offset)
+        except (ValueError, IndexError):
+            break
+        if end <= offset:
+            break
+        positions.append(offset)
+        offset = end
+    if positions and offset == len(raw):
+        return positions
+    # Unrecognised layout: fall back to the header scan rather than dropping data.
+    return [i for i in range(len(raw) - 1) if raw[i] == 0x04 and raw[i + 1] == 0x08]
 
 def find_pid(nature_i, shiny, trainer_id, secret_id):
     if shiny:
@@ -1296,6 +1427,7 @@ class Editor(tk.Tk):
         self.bag_idx      = None
         self.storage      = None
         self.storage_idx  = None
+        self.storage_error = ""
         self.game_system  = None
         self.game_player  = None
         self.global_meta  = None
@@ -3182,15 +3314,34 @@ class Editor(tk.Tk):
         if hasattr(self, "tab_boxes") and self.nb.select() == str(self.tab_boxes):
             self._render_selected_box_tab()
 
+    def _show_boxes_message(self, message: str):
+        """Replace the box tabs with one explaining why there is nothing to show.
+
+        Without this the tab is simply empty, which looks like a broken build
+        rather than a save the editor could not read.
+        """
+        holder = ttk.Frame(self.boxes_nb, padding=24)
+        self.boxes_nb.add(holder, text=" PC Storage ")
+        ttk.Label(holder, text=message, justify="left", wraplength=760).pack(anchor="w")
+
     def _populate_boxes(self):
         for tab in self.boxes_nb.tabs():
             self.boxes_nb.forget(tab)
         self.box_vars = {}
         self._box_tab_meta = {}
 
-        if not isinstance(self.storage, RubyObject): return
+        if not isinstance(self.storage, RubyObject):
+            reason = getattr(self, "storage_error", "") or "the PokemonStorage stream was not found"
+            self._show_boxes_message(
+                "The PC storage in this save could not be read, so there are no boxes to edit.\n\n"
+                f"Reason: {reason}\n\n"
+                "Everything else in the save (Trainer, Party, Bag) is still editable, and saving "
+                "leaves the PC storage bytes untouched.")
+            return
         boxes = self.storage.attributes.get("@boxes", [])
-        if not isinstance(boxes, list): return
+        if not isinstance(boxes, list) or not any(isinstance(b, RubyObject) for b in boxes):
+            self._show_boxes_message("This save has no PC boxes yet.")
+            return
 
         for bi, box in enumerate(boxes):
             if not isinstance(box, RubyObject): continue
@@ -4609,11 +4760,16 @@ class Editor(tk.Tk):
         trainer = bag = storage = game_system = game_player = global_meta = None
         bag_idx = storage_idx = None
         play_time_frames = None
+        stream_errors = []
         for idx, start in enumerate(positions):
             end = positions[idx+1] if idx+1 < len(positions) else len(raw)
             try:
                 obj = loads(raw[start:end])
-            except Exception:
+            except Exception as e:
+                # Game_Map never reads back (rubymarshal cannot resolve its object
+                # cycles); keep the reason so a missing PokemonStorage can be
+                # explained instead of showing an empty PC Boxes tab.
+                stream_errors.append(f"stream {idx} @ {start}: {type(e).__name__}: {e}")
                 continue
             if isinstance(obj, int) and play_time_frames is None:
                 play_time_frames = obj
@@ -4641,6 +4797,8 @@ class Editor(tk.Tk):
         self.trainer     = trainer
         self.bag         = bag;     self.bag_idx     = bag_idx
         self.storage     = storage; self.storage_idx = storage_idx
+        self.storage_error = "" if storage is not None else (
+            "; ".join(stream_errors) if stream_errors else "no PokemonStorage stream in this file")
         self.game_system = game_system
         self.game_player = game_player
         self.global_meta = global_meta
