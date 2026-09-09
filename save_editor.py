@@ -600,7 +600,28 @@ def _load_shadow_move_data():
     return data
 
 MOVE_DATA        = _load_move_data()
+def _load_teachable_data():
+    """Species -> moves learnable only by TM, HM or tutor (from Data/tm.dat)."""
+    path = resource_path("teachable_data.txt")
+    data = {}
+    if not os.path.exists(path):
+        return data
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("|", 1)
+            if len(parts) < 2:
+                continue
+            try:
+                data[int(parts[0].strip())] = {int(tok) for tok in parts[1].split()}
+            except (ValueError, IndexError):
+                pass
+    return data
+
 LEARNSET_DATA    = _load_learnset_data()
+TEACHABLE_DATA   = _load_teachable_data()
 SHADOW_MOVE_DATA = _load_shadow_move_data()
 
 def species_id_from_text(value) -> int:
@@ -888,6 +909,23 @@ def required_form_moves(species_id: int, form_id: int) -> set:
         return {SECRET_SWORD_MOVE_ID}
     return set()
 
+
+# Move legality colours: green for what the species learns itself, light blue for
+# what it can be taught, dark red for everything else.  Each filter toggle is
+# tinted with the very same colour as the rows it controls.
+MOVE_KIND_COLOURS = {
+    "levelup": "#3fb950",
+    "teachable": "#7cc4ff",
+    "illegal": "#c0392b",
+}
+MOVE_KIND_LABELS = {
+    "levelup": "Level-up",
+    "teachable": "Teachable",
+    "illegal": "Illegal",
+}
+def pokemon_teachable(species_id: int) -> set:
+    """Move IDs a species can be taught but never learns by levelling up."""
+    return set(TEACHABLE_DATA.get(int(species_id), ()))
 
 def recommended_creation_move_ids(learnset: list, level: int,
                                    move_data: dict = None) -> list:
@@ -3745,6 +3783,11 @@ class Editor(tk.Tk):
         editor = tk.Text(raw_outer, wrap="word", height=10, undo=True)
         raw_scroll = ttk.Scrollbar(raw_outer, orient="vertical", command=editor.yview)
         editor.configure(yscrollcommand=raw_scroll.set)
+        # The hint belongs with the editor it describes, not under the table.  It
+        # is packed first so its strip is reserved before the text box expands.
+        ttk.Label(raw_outer, foreground="gray", wraplength=340, justify="left",
+                  text="Edit freely, then Apply to Current or import. Separate several "
+                       "builds with a line containing ---.").pack(side="bottom", fill="x", pady=(4, 2))
         editor.pack(side="left", fill="both", expand=True); raw_scroll.pack(side="right", fill="y")
 
         # Entry 0 is the unsaved Pokemon, when there is one; the rest mirror the
@@ -3827,8 +3870,6 @@ class Editor(tk.Tk):
         tabs.bind("<<NotebookTabChanged>>", lambda _e: refresh_info())
         refresh_library()
 
-        ttk.Label(body, text="Edit the raw block freely. Separate pasted builds with a line containing ---.",
-                  foreground="gray").grid(row=3, column=0, columnspan=2, sticky="w")
         row = ttk.Frame(win, padding=10); row.pack(fill="x")
         def safe(action):
             try: action()
@@ -5666,20 +5707,50 @@ class Editor(tk.Tk):
         self._open_move_browser(sid, lambda mid: self._update_move_vars(v, move_idx, mid), self._selected_form_id(v))
 
     def _open_move_browser(self, species_id: int, callback, form_id: int = 0):
-        """Browse moves. Bundled legality is authoritative only for level-up moves."""
-        learnset_ids = {mid for _, mid in pokemon_learnset(species_id, form_id)}
-        known_legal_ids = set(learnset_ids)
-        win = self._make_popup("Move Browser", "760x520", resizable=(True, True))
+        """Browse moves, coloured by how the species can actually get them.
 
-        frow = ttk.Frame(win, padding=(10, 8, 10, 4)); frow.pack(fill="x")
+        Level-up legality comes from learnset_data.txt; TM, HM and tutor
+        legality from teachable_data.txt, generated from the game's own
+        Data/tm.dat.  Anything in neither is illegal, and still selectable -
+        the editor advises, it does not block.
+        """
+        learnset_ids = {mid for _, mid in pokemon_learnset(species_id, form_id)}
+        teachable_ids = pokemon_teachable(species_id) - learnset_ids
+
+        def kind_of(move_id):
+            if move_id in learnset_ids:
+                return "levelup"
+            if move_id in teachable_ids:
+                return "teachable"
+            return "illegal"
+
+        win = self._make_popup("Move Browser", "790x560", resizable=(True, True))
+
+        frow = ttk.Frame(win, padding=(10, 8, 10, 0)); frow.pack(fill="x")
         search_var = tk.StringVar()
-        level_only = tk.BooleanVar(value=False)
-        legal_only = tk.BooleanVar(value=False)
         ttk.Label(frow, text="Search:").pack(side="left")
-        entry = ttk.Entry(frow, textvariable=search_var, width=24)
+        entry = ttk.Entry(frow, textvariable=search_var, width=28)
         entry.pack(side="left", padx=(2, 12))
-        ttk.Checkbutton(frow, text="Level-up moves only", variable=level_only).pack(side="left", padx=6)
-        ttk.Checkbutton(frow, text="Known legal only (advisory)", variable=legal_only).pack(side="left", padx=6)
+
+        # Filter toggles sit on their own row under the search box, each label
+        # tinted like the rows it controls.
+        trow = ttk.Frame(win, padding=(10, 4, 10, 4)); trow.pack(fill="x")
+        ttk.Label(trow, text="Toggle move filters:").pack(side="left", padx=(0, 8))
+        show_levelup = tk.BooleanVar(value=True)
+        show_teachable = tk.BooleanVar(value=True)
+        show_illegal = tk.BooleanVar(value=True)
+        for kind, text, var in (
+            ("levelup", "Level-up", show_levelup),
+            ("teachable", "Teachable", show_teachable),
+            ("illegal", "Illegal", show_illegal),
+        ):
+            holder = ttk.Frame(trow); holder.pack(side="left", padx=(0, 14))
+            # takefocus=False keeps ttk from painting its focus ring on click.
+            check = ttk.Checkbutton(holder, variable=var, takefocus=False)
+            check.pack(side="left")
+            tk.Label(holder, text=text, fg=MOVE_KIND_COLOURS[kind], bd=0, padx=0,
+                     highlightthickness=0,
+                     bg=self._palette["bg"] if self._palette else None).pack(side="left")
 
         tv_frame = ttk.Frame(win, padding=(10, 0, 10, 4)); tv_frame.pack(fill="both", expand=True)
         cols = ("name", "type", "cat", "pwr", "acc", "pp", "compat")
@@ -5688,27 +5759,26 @@ class Editor(tk.Tk):
             "name": (145, "w", "Name"), "type": (78, "center", "Type"),
             "cat": (72, "center", "Category"), "pwr": (48, "center", "Power"),
             "acc": (52, "center", "Accuracy"), "pp": (36, "center", "PP"),
-            "compat": (120, "center", "Bundled data"),
+            "compat": (120, "center", "Legality"),
         }
         for col, (width, anchor, _label) in column_info.items():
             tree.column(col, width=width, anchor=anchor, stretch=False)
         vsb = ttk.Scrollbar(tv_frame, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=vsb.set)
         tree.pack(side="left", fill="both", expand=True); vsb.pack(side="left", fill="y")
-        tree.tag_configure("unknown", foreground="gray")
+        for kind, colour in MOVE_KIND_COLOURS.items():
+            tree.tag_configure(kind, foreground=colour)
 
         desc_frame = ttk.LabelFrame(win, text="Description", padding=(6, 2)); desc_frame.pack(fill="x", padx=10, pady=(0, 4))
-        desc_lbl = ttk.Label(desc_frame, text="", wraplength=740, justify="left"); desc_lbl.pack(fill="x")
-        ttk.Label(
-            win,
-            text="Known-legal data currently contains level-up moves only. TM, tutor, egg, event, and inherited moves may be legal but cannot be verified from the bundled files.",
-            foreground="gray", wraplength=740,
-        ).pack(fill="x", padx=10, pady=(0, 4))
-
+        desc_lbl = ttk.Label(desc_frame, text="", wraplength=760, justify="left"); desc_lbl.pack(fill="x")
         btn_row = ttk.Frame(win, padding=(10, 0, 10, 8)); btn_row.pack(fill="x")
         ttk.Button(btn_row, text="Select", command=lambda: confirm()).pack(side="right", padx=4)
         ttk.Button(btn_row, text="Cancel", command=win.destroy).pack(side="right")
+        count_var = tk.StringVar()
+        ttk.Label(btn_row, textvariable=count_var, foreground="gray").pack(side="left")
         sort_state = {"col": "name", "reverse": False}
+
+        _KIND_ORDER = {"levelup": 0, "teachable": 1, "illegal": 2}
 
         def sort_value(entry_pair, col):
             mid, move = entry_pair
@@ -5716,7 +5786,7 @@ class Editor(tk.Tk):
                 "name": move.get("name", "").casefold(), "type": move.get("type", "").casefold(),
                 "cat": move.get("category", "").casefold(), "pwr": move.get("power", 0),
                 "acc": move.get("accuracy", 0), "pp": move.get("pp", 0),
-                "compat": 0 if mid in learnset_ids else 1,
+                "compat": _KIND_ORDER[kind_of(mid)],
             }
             return (values[col], move.get("name", "").casefold())
 
@@ -5732,22 +5802,27 @@ class Editor(tk.Tk):
 
         def refresh(*_):
             query = search_var.get().strip().casefold()
+            wanted = {
+                "levelup": show_levelup.get(),
+                "teachable": show_teachable.get(),
+                "illegal": show_illegal.get(),
+            }
             entries = [
                 (mid, move) for mid, move in MOVE_DATA.items()
                 if (not query or query in move.get("name", "").casefold() or query == str(mid))
-                and (not level_only.get() or mid in learnset_ids)
-                and (not legal_only.get() or mid in known_legal_ids)
+                and wanted[kind_of(mid)]
             ]
             entries.sort(key=lambda pair: sort_value(pair, sort_state["col"]), reverse=sort_state["reverse"])
             tree.delete(*tree.get_children()); apply_headings()
             for mid, move in entries:
-                known = mid in known_legal_ids
+                kind = kind_of(mid)
                 power, accuracy = move.get("power", 0), move.get("accuracy", 0)
                 tree.insert("", "end", iid=str(mid), values=(
                     move.get("name", f"#{mid}"), move.get("type", ""), move.get("category", ""),
                     power if power > 0 else "—", accuracy if accuracy > 0 else "—", move.get("pp", 0),
-                    "Level-up" if mid in learnset_ids else "Other / unknown",
-                ), tags=(() if known else ("unknown",)))
+                    MOVE_KIND_LABELS[kind],
+                ), tags=(kind,))
+            count_var.set(f"{len(entries)} of {len(MOVE_DATA)} moves")
 
         def on_select(_event=None):
             selection = tree.selection()
@@ -5758,7 +5833,8 @@ class Editor(tk.Tk):
             if not selection: return
             move_id = int(selection[0]); win.destroy(); callback(move_id)
 
-        search_var.trace_add("write", refresh); level_only.trace_add("write", refresh); legal_only.trace_add("write", refresh)
+        for filter_var in (search_var, show_levelup, show_teachable, show_illegal):
+            filter_var.trace_add("write", refresh)
         tree.bind("<<TreeviewSelect>>", on_select); tree.bind("<Double-1>", lambda _event: confirm())
         refresh(); entry.focus_set()
     def _add_to_party_slot(self, slot: int):

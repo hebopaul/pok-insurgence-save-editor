@@ -18,7 +18,12 @@ from save_editor import (
     BUILD_LIBRARY,
     BUILD_STYLES,
     BUILD_TIERS,
+    MOVE_KIND_COLOURS,
+    MOVE_KIND_LABELS,
     MOVE_UTILITY_VALUE,
+    PKMN_DATA,
+    TEACHABLE_DATA,
+    pokemon_teachable,
     _build_fields,
     _build_move_ids,
     EV_PRESETS,
@@ -1256,6 +1261,45 @@ class BuildExportTests(unittest.TestCase):
         app, _slot = self._loaded_slot()
         with self.assertRaises(ValueError):
             app._build_text_from_slot({})
+
+
+class MoveLegalityTests(unittest.TestCase):
+    """Level-up and TM/tutor legality come from two different game tables."""
+
+    def test_teachable_data_loaded_for_most_species(self):
+        self.assertGreater(len(TEACHABLE_DATA), 800)
+
+    def test_teachable_moves_are_real_moves_for_real_species(self):
+        for species_id, moves in list(TEACHABLE_DATA.items())[:60]:
+            self.assertIn(species_id, PKMN_DATA)
+            for move_id in moves:
+                self.assertIn(move_id, MOVE_DATA)
+
+    def test_egg_moves_count_as_teachable(self):
+        # eggEmerald.dat is the second source: Charmander inherits these, it
+        # never levels into them and no TM teaches them.
+        teachable = pokemon_teachable(4)
+        levelup = {mid for _lvl, mid in pokemon_learnset(4, 0)}
+        names = {MOVE_DATA[m]["name"] for m in teachable - levelup}
+        for move in ("Belly Drum", "Dragon Dance", "Crunch"):
+            self.assertIn(move, names)
+
+    def test_charizard_can_be_taught_moves_it_never_levels_into(self):
+        teachable = pokemon_teachable(6)
+        levelup = {mid for _lvl, mid in pokemon_learnset(6, 0)}
+        names = {MOVE_DATA[m]["name"] for m in teachable - levelup}
+        # Classic TM/tutor coverage that no learnset provides.
+        self.assertIn("Outrage", names)
+        self.assertIn("Focus Blast", names)
+        self.assertTrue(teachable - levelup)
+
+    def test_an_unknown_species_has_no_teachable_moves(self):
+        self.assertEqual(set(), pokemon_teachable(999999))
+
+    def test_the_three_legality_kinds_are_distinctly_coloured(self):
+        self.assertEqual({"levelup", "teachable", "illegal"}, set(MOVE_KIND_COLOURS))
+        self.assertEqual({"levelup", "teachable", "illegal"}, set(MOVE_KIND_LABELS))
+        self.assertEqual(3, len(set(MOVE_KIND_COLOURS.values())))
 
 
 if __name__ == "__main__":
