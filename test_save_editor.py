@@ -16,7 +16,11 @@ from save_editor import (
     BALL_NAMES,
     BALL_ITEM_IDS,
     BUILD_LIBRARY,
+    BUILD_STYLES,
     BUILD_TIERS,
+    MOVE_UTILITY_VALUE,
+    _build_fields,
+    _build_move_ids,
     EV_PRESETS,
     COMPUTED_FORM_SPECIES,
     FORM_OVERRIDE_DATA,
@@ -38,8 +42,12 @@ from save_editor import (
     _sanitize_evs,
     split_streams,
     ability_choices_for_species,
+    build_score,
+    build_style,
+    build_summary,
     build_tier,
-    build_tier_for_species,
+    build_title,
+    possessive,
     species_id_from_text,
     ability_slot_from_value,
     apply_pokemon_form,
@@ -1034,20 +1042,37 @@ class SaveRoundTripTests(unittest.TestCase):
         self.skipTest("no local save contains a party Pokemon")
 
 
+ARCEUS_BUILD = """Trainer: Wild
+Species: Arceus
+Description: Life Orb Calm Mind set
+Level: 100
+Nature: Timid
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Judgment
+- Earth Power
+- Calm Mind
+- Recover
+Item: Life Orb
+Happiness: 255"""
+
+
 class BuildLibraryTests(unittest.TestCase):
-    """Tiers are derived from base stat totals, never stored in the library."""
+    """Tier and Style are computed; only Tier may be overridden in the file."""
 
-    def test_tier_follows_the_base_stat_total(self):
-        self.assertEqual("S", build_tier_for_species(493))        # Arceus, 720
-        self.assertEqual("C", build_tier_for_species(184))        # Azumarill, 420
+    def test_tier_follows_the_score_not_the_species_alone(self):
+        self.assertIn(build_tier(ARCEUS_BUILD), BUILD_TIERS)
+        # A bare species line is not a build, so it must not reach the top tier.
+        self.assertNotEqual("S", build_tier("Species: Arceus\nLevel: 100"))
 
-    def test_tier_is_read_from_the_species_line_by_name_or_id(self):
-        self.assertEqual("S", build_tier("Species: Arceus\nLevel: 100"))
-        self.assertEqual("S", build_tier("Species: 493\nLevel: 100"))
+    def test_a_stored_tier_line_wins_over_the_calculation(self):
+        self.assertEqual("C", build_tier(ARCEUS_BUILD + "\nTier: C"))
 
     def test_an_unresolvable_species_does_not_raise(self):
         self.assertEqual("?", build_tier("Species: Nonexistent\nLevel: 100"))
         self.assertEqual("?", build_tier("Level: 100"))
+        self.assertEqual(0, build_score("Species: Nonexistent"))
 
     def test_species_resolves_from_id_name_or_label(self):
         self.assertEqual(493, species_id_from_text("493"))
@@ -1055,15 +1080,182 @@ class BuildLibraryTests(unittest.TestCase):
         self.assertEqual(493, species_id_from_text("493 - Arceus"))
         self.assertEqual(0, species_id_from_text("nope"))
 
-    def test_the_bundled_library_carries_no_stored_tiers(self):
-        self.assertTrue(BUILD_LIBRARY, "bundled build library failed to load")
-        for header, _text in BUILD_LIBRARY:
-            self.assertFalse(header.startswith("["), f"stored tier left in {header!r}")
+    def test_investment_and_power_raise_the_score(self):
+        bare = "Species: Arceus\nLevel: 100\nIVs: 0/0/0/0/0/0\nEVs: 0 HP"
+        self.assertGreater(build_score(ARCEUS_BUILD), build_score(bare))
 
-    def test_every_bundled_build_resolves_to_a_known_tier(self):
-        for header, text in BUILD_LIBRARY:
-            with self.subTest(build=header):
-                self.assertIn(build_tier(text), BUILD_TIERS)
+    def test_utility_moves_are_all_real_insurgence_moves(self):
+        names = {data.get("name") for data in MOVE_DATA.values()}
+        for move_name in MOVE_UTILITY_VALUE:
+            self.assertIn(move_name, names, f"{move_name} is not an Insurgence move")
+
+    def test_style_reads_the_final_stats(self):
+        # 252 SpA / 252 Spe on a frail special attacker is a special sweeper.
+        self.assertEqual("Special Sweeper", build_style(ARCEUS_BUILD))
+        wall = ARCEUS_BUILD.replace("EVs: 6 HP / 252 SpA / 252 Spe",
+                                    "EVs: 252 HP / 252 Def / 6 SpD")
+        self.assertNotIn("Sweeper", build_style(wall))
+
+    def test_every_style_returned_is_a_known_tag(self):
+        for text in self._bundled_builds():
+            with self.subTest(build=build_title(text)):
+                self.assertIn(build_style(text), BUILD_STYLES)
+
+    def test_possessive_titles_follow_the_apostrophe_rule(self):
+        self.assertEqual("Ash's", possessive("Ash"))
+        self.assertEqual("Jesus'", possessive("Jesus"))
+        self.assertEqual("Brock's", possessive("Brock"))
+        self.assertEqual("Misty's Starmie",
+                         build_title("Trainer: Misty\nSpecies: Starmie"))
+        # A wild build is titled by species alone.
+        self.assertEqual("Arceus", build_title(ARCEUS_BUILD))
+
+    def test_summary_exposes_every_library_column(self):
+        summary = build_summary(ARCEUS_BUILD)
+        self.assertEqual("Wild", summary["trainer"])
+        self.assertEqual("Arceus", summary["species_name"])
+        self.assertEqual("Life Orb Calm Mind set", summary["description"])
+        self.assertIn(summary["tier"], BUILD_TIERS)
+        self.assertIn(summary["style"], BUILD_STYLES)
+
+    @staticmethod
+    def _bundled_builds():
+        # Only the shipped file: the user's own saved builds are their data, and
+        # must not be able to fail the suite.
+        return save_editor._read_build_blocks(resource_path("pokemon_builds.txt"))
+
+    def test_the_bundled_library_is_field_only_and_fully_resolvable(self):
+        self.assertTrue(self._bundled_builds(), "bundled build library failed to load")
+        for text in self._bundled_builds():
+            with self.subTest(build=text.splitlines()[0]):
+                self.assertFalse(text.startswith("["), "stored tier prefix left behind")
+                summary = build_summary(text)
+                self.assertTrue(summary["species_id"], "species did not resolve")
+                self.assertTrue(summary["trainer"])
+                self.assertTrue(summary["description"])
+                self.assertIn(summary["tier"], BUILD_TIERS)
+
+    def test_every_bundled_build_lists_moves_the_game_knows(self):
+        for text in self._bundled_builds():
+            with self.subTest(build=build_title(text)):
+                move_ids = _build_move_ids(text)
+                self.assertGreaterEqual(len(move_ids), 3)
+                for move_id in move_ids:
+                    self.assertIn(move_id, MOVE_DATA)
+
+    def test_a_legacy_display_header_is_ignored_by_the_field_parser(self):
+        fields = _build_fields("Giratina - Bulky Special\nSpecies: Giratina")
+        self.assertEqual("Giratina", fields.get("species"))
+
+class UserBuildLibraryTests(unittest.TestCase):
+    """Builds saved from the editor go to a writable file, not the bundle."""
+
+    def test_saved_builds_land_outside_the_read_only_bundle(self):
+        # The bundled file lives inside the PyInstaller archive at runtime, so
+        # the user's own library must never resolve to the same path.
+        self.assertNotEqual(os.path.abspath(save_editor.resource_path("pokemon_builds.txt")),
+                            os.path.abspath(save_editor.user_builds_path()))
+
+    def test_appending_a_build_makes_it_visible_to_the_library(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = os.path.join(tmp, "nested", "pokemon_builds.user.txt")
+            # Restoring the real library must happen after the patch is lifted,
+            # or the reload would just re-read the temporary file again.
+            self.addCleanup(save_editor.reload_build_library)
+            with mock.patch.object(save_editor, "user_builds_path", lambda: target):
+                # Baseline is taken under the patch, so whatever the user has
+                # saved in their own library cannot affect the counts.
+                baseline = len(save_editor.reload_build_library())
+
+                save_editor.append_user_build(ARCEUS_BUILD)
+                self.assertTrue(os.path.exists(target))
+                self.assertEqual(baseline + 1, len(save_editor.BUILD_LIBRARY))
+
+                save_editor.append_user_build(
+                    "Trainer: Misty\nSpecies: Starmie\nLevel: 50\n"
+                    "IVs: 31/31/31/31/31/31\nEVs: 252 SpA / 252 Spe\n"
+                    "Moves:\n- Hydro Pump\n- Ice Beam")
+                self.assertEqual(baseline + 2, len(save_editor.BUILD_LIBRARY))
+                titles = [build_title(text) for text in save_editor.BUILD_LIBRARY]
+                self.assertIn("Misty's Starmie", titles)
+
+
+class BuildExportTests(unittest.TestCase):
+    """A slot serialises to a block that applies back onto the same slot."""
+
+    _app = None
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._app is not None:
+            cls._app.destroy()
+            cls._app = None
+
+    @staticmethod
+    def _save_files():
+        base = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
+        if not os.path.isdir(base):
+            return []
+        return [os.path.join(base, f) for f in sorted(os.listdir(base))
+                if f.lower().endswith(".rxdata")]
+
+    def _loaded_slot(self):
+        files = self._save_files()
+        if not files:
+            self.skipTest("no local .rxdata save files")
+        if type(self)._app is None:
+            try:
+                app = Editor()
+            except tk.TclError as exc:
+                self.skipTest(f"Tk is unavailable: {exc}")
+            app.withdraw()
+            type(self)._app = app
+        app = type(self)._app
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        copy = os.path.join(tmp, os.path.basename(files[0]))
+        shutil.copy2(files[0], copy)
+        with mock.patch.object(save_editor, "messagebox"):
+            app._do_load(copy)
+            app.update()
+        slot = next((s for s in app.pkmn_vars
+                     if isinstance(s.get("_pkmn_obj"), RubyObject)), None)
+        if slot is None:
+            self.skipTest("no party Pokemon in the local save")
+        return app, slot
+
+    def test_an_exported_slot_reapplies_to_the_same_values(self):
+        app, slot = self._loaded_slot()
+        text = app._build_text_from_slot(slot, "Ash", "Exported set")
+        before = [slot[key].get() for key in
+                  ("species_id", "level", "nature_idx", "iv_hp", "ev_spa", "happiness")]
+        with mock.patch.object(save_editor, "messagebox"):
+            app._apply_build_text(slot, text)
+            app.update()
+        after = [slot[key].get() for key in
+                 ("species_id", "level", "nature_idx", "iv_hp", "ev_spa", "happiness")]
+        self.assertEqual(before, after)
+
+    def test_an_exported_slot_carries_its_trainer_and_description(self):
+        app, slot = self._loaded_slot()
+        text = app._build_text_from_slot(slot, "Ash", "Exported set")
+        summary = build_summary(text)
+        self.assertEqual("Ash", summary["trainer"])
+        self.assertEqual("Exported set", summary["description"])
+        self.assertTrue(summary["species_id"])
+        self.assertIn(summary["style"], BUILD_STYLES)
+        self.assertTrue(build_title(text).startswith("Ash's "))
+
+    def test_a_wild_export_omits_the_trainer_line(self):
+        app, slot = self._loaded_slot()
+        text = app._build_text_from_slot(slot)
+        self.assertNotIn("Trainer:", text)
+        self.assertEqual("Wild", build_summary(text)["trainer"])
+
+    def test_an_empty_slot_cannot_be_exported(self):
+        app, _slot = self._loaded_slot()
+        with self.assertRaises(ValueError):
+            app._build_text_from_slot({})
 
 
 if __name__ == "__main__":

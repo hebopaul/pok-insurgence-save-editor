@@ -1,86 +1,1770 @@
 # Pokemon Insurgence Save Editor Build Library
 # Builds are advisory and editable. Legality uses bundled Insurgence data.
-# Blocks are separated by ---. Header format: Species — Set name
-# Tiers are not stored: they are derived from the species' base stat total.
+# Blocks are separated by ---. Every line is a Key: value field.
+# Trainer/Description are shown in the library; Tier and Style are computed
+# unless a block carries its own Tier: line.
+# Trainer teams, levels, moves, items, natures and IVs come from the game's
+# own trainers.dat; EV spreads are synthesised from each species' strengths.
 
-Giratina — Bulky Special
-Species: Giratina
-Level: 120
-Nature: Modest
-Ability: Pressure
+Trainer: Adam
+Species: Greninja
+Description: Focus Sash Toxic Spikes set
+Level: 80
+Nature: Hardy
+Ability: Protean
+IVs: 10/10/10/10/10/10
+EVs: 252 HP / 6 Def / 252 SpD
+Moves:
+- Toxic Spikes
+- Spikes
+- Taunt
+- Shadow Sneak
+Item: Focus Sash
+Happiness: 255
+---
+Trainer: Anastasia
+Species: Klefki
+Description: Leftovers Substitute set
+Level: 56
+Nature: Hardy
+Ability: Prankster
+IVs: 10/10/10/10/10/10
+EVs: 252 HP / 252 Def / 6 SpD
+Moves:
+- Substitute
+- Swagger
+- Thunder Wave
+- Foul Play
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Audrey
+Species: Lanturn
+Description: Leftovers Toxic set
+Level: 55
+Nature: Hardy
+Ability: Volt Absorb
+IVs: 10/10/10/10/10/10
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Scald
+- Volt Switch
+- Toxic
+- Thunder Wave
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Blaine
+Species: Charizard
+Description: Charizardite Y Solar Beam attacker
+Level: 50
+Nature: Timid
+Ability: Solar Power
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Fire Blast
+- Solar Beam
+- Air Slash
+- Focus Blast
+Item: Charizardite Y
+Happiness: 255
+---
+Trainer: Brock
+Species: Rhyperior
+Description: Choice Band Megahorn attacker
+Level: 50
+Nature: Adamant
+Ability: Lightning Rod
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Earthquake
+- Stone Edge
+- Megahorn
+- Ice Punch
+Item: Choice Band
+Happiness: 255
+---
+Trainer: Cynthia
+Species: Lucario
+Description: Life Orb Swords Dance set
+Level: 89
+Nature: Hardy
+Ability: Inner Focus
+IVs: 10/10/10/10/10/10
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Swords Dance
+- Close Combat
+- Bullet Punch
+- Iron Tail
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Damian
+Species: Charmander
+Description: Twister attacker
+Level: 5
+Nature: Hardy
+Ability: Spirit Call
+IVs: 10/10/10/10/10/10
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Scratch
+- Growl
+- Twister
+Happiness: 255
+---
+Trainer: Eduard
+Species: Hippowdon
+Description: Leftovers Stealth Rock set
+Level: 102
+Nature: Hardy
+Ability: Sand Stream
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Def / 6 SpD
+Moves:
+- Earthquake
+- Stealth Rock
+- Slack Off
+- Whirlwind
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Erika
+Species: Vileplume
+Description: Heat Rock Synthesis set
+Level: 50
+Nature: Bold
+Ability: Effect Spore
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpD
+Moves:
+- Worry Seed
+- Sunny Day
+- Synthesis
+- Giga Drain
+Item: Heat Rock
+Happiness: 255
+---
+Trainer: Giovanni
+Species: Nidoking
+Description: Life Orb Fire Blast attacker
+Level: 50
+Nature: Timid
+Ability: Sheer Force
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Sludge Wave
+- Earth Power
+- Fire Blast
+- Thunderbolt
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Harmony
+Species: Crustle
+Description: White Herb Shell Smash set
+Level: 50
+Nature: Adamant
+Ability: Simple
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Shell Smash
+- Play Rough
+- Superpower
+- Frustration
+Item: White Herb
+Happiness: 255
+---
+Trainer: Jaern
+Species: Aegislash
+Description: Weakness Policy Sacred Sword attacker
+Level: 80
+Nature: Hardy
+Ability: Stance Change
+IVs: 10/10/10/10/10/10
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- King's Shield
+- Shadow Ball
+- Iron Head
+- Sacred Sword
+Item: Weakness Policy
+Happiness: 255
+---
+Trainer: Janine
+Species: Crobat
+Description: Black Sludge Roost set
+Level: 50
+Nature: Jolly
+Ability: Infiltrator
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Brave Bird
+- Cross Poison
+- Roost
+- Hypnosis
+Item: Black Sludge
+Happiness: 255
+---
+Trainer: Kayla
+Species: Smeargle
+Description: Focus Sash Quiver Dance set
+Level: 102
+Nature: Hardy
+Ability: Moody
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpD
+Moves:
+- Ingrain
+- Quiver Dance
+- Spore
+- Baton Pass
+Item: Focus Sash
+Happiness: 255
+---
+Trainer: London
+Species: Reuniclus
+Description: Reuniclite Calm Mind set
+Level: 104
+Nature: Hardy
+Ability: Overcoat
 IVs: 31/31/31/31/31/31
 EVs: 252 HP / 6 Def / 252 SpA
 Moves:
+- Psyshock
 - Shadow Ball
-- Aura Sphere
-- Earth Power
+- Focus Blast
 - Calm Mind
-Item: Griseous Orb
+Item: Reuniclite
 Happiness: 255
 ---
-Arceus — Calm Mind
-Species: Arceus
-Level: 120
-Nature: Timid
-Ability: Multitype
+Trainer: Misty
+Species: Quagsire
+Description: Leftovers Recover set
+Level: 50
+Nature: Relaxed
+Ability: Unaware
 IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
+EVs: 252 HP / 252 Atk / 6 Def
 Moves:
-- Judgment
-- Earth Power
-- Calm Mind
 - Recover
-Item: Life Orb
+- Scald
+- Earthquake
+- Toxic
+Item: Leftovers
 Happiness: 255
 ---
-Rayquaza — Mixed Breaker
-Species: Rayquaza
-Level: 120
-Nature: Naive
-Ability: Air Lock
-IVs: 31/31/31/31/31/31
-EVs: 252 Atk / 6 SpA / 252 Spe
-Moves:
-- Dragon Ascent
-- Draco Meteor
-- V-create
-- Extreme Speed
-Item: Life Orb
-Happiness: 255
----
-Mewtwo — Special Sweeper
-Species: Mewtwo
-Level: 120
+Trainer: Nora
+Species: Leavanny
+Description: Leavanny Armor Sticky Web set
+Level: 64
 Nature: Timid
-Ability: Pressure
+Ability: Swarm
 IVs: 31/31/31/31/31/31
 EVs: 6 HP / 252 SpA / 252 Spe
 Moves:
-- Psystrike
-- Aura Sphere
+- Sticky Web
+- Grass Whistle
+- Giga Drain
+- Struggle Bug
+Item: Leavanny Armor
+Happiness: 255
+---
+Trainer: Norman
+Species: Slaking
+Description: Choice Band Giga Impact attacker
+Level: 50
+Nature: Adamant
+Ability: Truant
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Counter
+- Earthquake
+- Knock Off
+- Giga Impact
+Item: Choice Band
+Happiness: 255
+---
+Trainer: Nyx
+Species: Aurorus
+Description: Leftovers Blizzard attacker
+Level: 82
+Nature: Hardy
+Ability: Snow Warning
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Thunderbolt
+- Earth Power
+- Blizzard
+- Hyper Voice
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Orion
+Species: Aggron
+Description: Choice Band Flare Blitz attacker
+Level: 50
+Nature: Adamant
+Ability: Drought
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Heavy Slam
+- Flare Blitz
+- Earthquake
+- Draco Jet
+Item: Choice Band
+Happiness: 255
+---
+Trainer: Persephone
+Species: Zoroark
+Description: Zoronite Focus Blast attacker
+Level: 62
+Nature: Hardy
+Ability: Illusion
+IVs: 10/10/10/10/10/10
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Night Daze
+- Focus Blast
+- Flamethrower
+- Grass Knot
+Item: Zoronite
+Happiness: 255
+---
+Trainer: Reukra
+Species: Tyranitar
+Description: Tyranitar Armor Dragon Dance set
+Level: 101
+Nature: Hardy
+Ability: Sand Stream
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Stone Edge
+- Earthquake
+- Crunch
+- Dragon Dance
+Item: Tyranitar Armor
+Happiness: 255
+---
+Trainer: Sabrina
+Species: Metagross
+Description: Weakness Policy Explosion attacker
+Level: 50
+Nature: Jolly
+Ability: Clear Body
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Thunder Punch
+- Bullet Punch
+- Explosion
+- Earthquake
+Item: Weakness Policy
+Happiness: 255
+---
+Trainer: Steven
+Species: Skarmory
+Description: Rocky Helmet Spikes set
+Level: 88
+Nature: Hardy
+Ability: Sturdy
+IVs: 10/10/10/10/10/10
+EVs: 252 HP / 252 Def / 6 SpD
+Moves:
+- Spikes
+- Brave Bird
+- Whirlwind
+- Taunt
+Item: Rocky Helmet
+Happiness: 255
+---
+Trainer: Sylvan
+Species: Jolteon
+Description: Electric Gem Thunder attacker
+Level: 88
+Nature: Hardy
+Ability: Volt Absorb
+IVs: 10/10/10/10/10/10
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Volt Switch
+- Thunder
+- Shadow Ball
+- Sand Attack
+Item: Electric Gem
+Happiness: 255
+---
+Trainer: Taen
+Species: Grumpig
+Description: Thunder Wave set
+Level: 56
+Nature: Hardy
+Ability: Thick Fat
+IVs: 10/10/10/10/10/10
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Psychic
+- Focus Blast
+- Thunder Wave
+- Taunt
+Happiness: 255
+---
+Trainer: Xavier
+Species: Metagross
+Description: Mental Herb Sticky Web set
+Level: 50
+Nature: Adamant
+Ability: Poison Heal
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Sticky Web
+- Stealth Rock
+- Earthquake
+- X-Scissor
+Item: Mental Herb
+Happiness: 255
+---
+Trainer: Yuki
+Species: Cryogonal
+Description: Cryogonite Recover set
+Level: 104
+Nature: Hardy
+Ability: Levitate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Freeze Dry
+- Blizzard
+- Recover
+- Hidden Power
+Item: Cryogonite
+Happiness: 255
+---
+Trainer: Zenith
+Species: Blaziken
+Description: Blazikenite Swords Dance set
+Level: 78
+Nature: Hardy
+Ability: Speed Boost
+IVs: 10/10/10/10/10/10
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Flare Blitz
+- Low Kick
+- Swords Dance
+- Protect
+Item: Blazikenite
+Happiness: 255
+---
+Trainer: Adam
+Species: Bisharp
+Description: Black Glasses Swords Dance set
+Level: 80
+Nature: Hardy
+Ability: Defiant
+IVs: 10/10/10/10/10/10
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Knock Off
+- Swords Dance
+- Iron Head
+- Sucker Punch
+Item: Black Glasses
+Happiness: 255
+---
+Trainer: Anastasia
+Species: Rotom
+Description: Leftovers Will-O-Wisp set
+Level: 57
+Nature: Hardy
+Ability: Levitate
+IVs: 10/10/10/10/10/10
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Hydro Pump
+- Volt Switch
+- Will-O-Wisp
+- Hidden Power
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Audrey
+Species: Ludicolo
+Description: Life Orb Hydro Pump attacker
+Level: 55
+Nature: Hardy
+Ability: Swift Swim
+IVs: 10/10/10/10/10/10
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Rain Dance
+- Hydro Pump
+- Giga Drain
 - Ice Beam
-- Calm Mind
 Item: Life Orb
 Happiness: 255
 ---
-Garchomp — Swords Dance
-Species: Garchomp
-Level: 120
-Nature: Jolly
-Ability: Rough Skin
+Trainer: Blaine
+Species: Magmortar
+Description: Assault Vest Focus Blast attacker
+Level: 50
+Nature: Modest
+Ability: Vital Spirit
 IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Fire Blast
+- Thunderbolt
+- Hidden Power
+- Focus Blast
+Item: Assault Vest
+Happiness: 255
+---
+Trainer: Brock
+Species: Steelix
+Description: Steelixite (Steel) Stone Edge attacker
+Level: 50
+Nature: Brave
+Ability: Sturdy
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Stone Edge
+- Earthquake
+- Gyro Ball
+- Dragon Tail
+Item: Steelixite (Steel)
+Happiness: 255
+---
+Trainer: Cynthia
+Species: Garchomp
+Description: Salac Berry Swords Dance set
+Level: 89
+Nature: Hardy
+Ability: Rough Skin
+IVs: 10/10/10/10/10/10
 EVs: 6 HP / 252 Atk / 252 Spe
 Moves:
 - Swords Dance
 - Earthquake
 - Dragon Claw
+- Substitute
+Item: Salac Berry
+Happiness: 255
+---
+Trainer: Damian
+Species: Squirtle
+Description: Tackle attacker
+Level: 5
+Nature: Hardy
+Ability: Shadow Call
+IVs: 10/10/10/10/10/10
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Pursuit
+- Tackle
+- Tail Whip
+Happiness: 255
+---
+Trainer: Eduard
+Species: Hydreigon
+Description: Choice Specs Fire Blast attacker
+Level: 50
+Nature: Modest
+Ability: Intoxicate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Hyper Voice
+- Fire Blast
+- Earth Power
+- Giga Drain
+Item: Choice Specs
+Happiness: 255
+---
+Trainer: Erika
+Species: Cradily
+Description: Leftovers Recover set
+Level: 50
+Nature: Sassy
+Ability: Storm Drain
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Recover
+- Rock Slide
+- Giga Drain
+- Toxic
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Giovanni
+Species: Rhyperior
+Description: Assault Vest Stone Edge attacker
+Level: 50
+Nature: Adamant
+Ability: Solid Rock
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Stone Edge
+- Earthquake
+- Horn Drill
+- Ice Punch
+Item: Assault Vest
+Happiness: 255
+---
+Trainer: Harmony
+Species: Gardevoir
+Description: Focus Sash Focus Blast attacker
+Level: 54
+Nature: Hardy
+Ability: Trace
+IVs: 10/10/10/10/10/10
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Psychic
+- Signal Beam
+- Focus Blast
+- Destiny Bond
+Item: Focus Sash
+Happiness: 255
+---
+Trainer: Jaern
+Species: Goodra
+Description: White Herb Draco Meteor attacker
+Level: 80
+Nature: Hardy
+Ability: Sap Sipper
+IVs: 10/10/10/10/10/10
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Draco Meteor
+- Thunder
+- Blizzard
+- Fire Blast
+Item: White Herb
+Happiness: 255
+---
+Trainer: Janine
+Species: Roserade
+Description: Life Orb Sleep Powder set
+Level: 50
+Nature: Timid
+Ability: Poison Point
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Giga Drain
+- Corrode
+- Sleep Powder
+- Dazzling Gleam
+Item: Life Orb
+Happiness: 255
+---
+Species: Mewtwo
+Description: Leftovers Recover set
+Level: 100
+Nature: Modest
+Ability: Pressure
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Future Sight
+- Psystrike
+- Psychic
+- Recover
+Item: Leftovers
+Happiness: 255
+---
+Species: Rayquaza
+Description: Leftovers Dragon Dance set
+Level: 100
+Nature: Modest
+Ability: Air Lock
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Hyper Beam
+- Outrage
+- Hyper Voice
+- Dragon Dance
+Item: Leftovers
+Happiness: 255
+---
+Species: Giratina
+Description: Leftovers Shadow Force attacker
+Level: 100
+Nature: Modest
+Ability: Pressure
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Shadow Force
+- Earth Power
+- Dragon Claw
+- Aura Sphere
+Item: Leftovers
+Happiness: 255
+---
+Species: Darkrai
+Description: Leftovers Nasty Plot set
+Level: 100
+Nature: Modest
+Ability: Bad Dreams
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Dream Eater
+- Dark Pulse
+- Ominous Wind
+- Nasty Plot
+Item: Leftovers
+Happiness: 255
+---
+Species: Arceus
+Description: Leftovers Recover set
+Level: 100
+Nature: Modest
+Ability: Multitype
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Hyper Beam
+- Future Sight
+- Judgment
+- Recover
+Item: Leftovers
+Happiness: 255
+---
+Species: Kyogre
+Description: Leftovers Calm Mind set
+Level: 100
+Nature: Modest
+Ability: Drizzle
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Water Spout
+- Thunder
+- Origin Pulse
+- Calm Mind
+Item: Leftovers
+Happiness: 255
+---
+Species: Groudon
+Description: Leftovers Bulk Up set
+Level: 100
+Nature: Modest
+Ability: Drought
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Eruption
+- Solar Beam
+- Precipice Blades
+- Bulk Up
+Item: Leftovers
+Happiness: 255
+---
+Species: Xerneas
+Description: Leftovers Geomancy set
+Level: 100
+Nature: Modest
+Ability: Fairy Aura
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Giga Impact
+- Megahorn
+- Outrage
+- Geomancy
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Brock
+Species: Onix
+Description: Gen I Kanto Gym - Iron Tail attacker
+Level: 14
+Nature: Adamant
+Ability: Rock Head
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Rock Slide
+- Earthquake
+- Iron Tail
+- Screech
+Happiness: 255
+---
+Trainer: Lt. Surge
+Species: Raichu
+Description: Gen I Kanto Gym - Thunder Wave set
+Level: 24
+Nature: Jolly
+Ability: Static
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Thunderbolt
+- Quick Attack
+- Brick Break
+- Thunder Wave
+Happiness: 255
+---
+Trainer: Koga
+Species: Weezing
+Description: Gen I Kanto Gym - Black Sludge Will-O-Wisp set
+Level: 43
+Nature: Bold
+Ability: Levitate
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Sludge Bomb
+- Will-O-Wisp
+- Thunderbolt
+- Explosion
+Item: Black Sludge
+Happiness: 255
+---
+Trainer: Sabrina
+Species: Alakazam
+Description: Gen I Kanto Gym - Life Orb Calm Mind set
+Level: 43
+Nature: Timid
+Ability: Synchronize
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Psychic
+- Shadow Ball
+- Focus Blast
+- Calm Mind
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Blaine
+Species: Arcanine
+Description: Gen I Kanto Gym - Life Orb Morning Sun set
+Level: 47
+Nature: Adamant
+Ability: Intimidate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Flare Blitz
+- Extreme Speed
+- Wild Charge
+- Morning Sun
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Lorelei
+Species: Lapras
+Description: Gen I Elite Four - Leftovers Rest set
+Level: 54
+Nature: Modest
+Ability: Water Absorb
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Surf
+- Ice Beam
+- Thunderbolt
+- Rest
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Bruno
+Species: Machamp
+Description: Gen I Elite Four - Leftovers Bulk Up set
+Level: 53
+Nature: Adamant
+Ability: Guts
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Dynamic Punch
+- Rock Slide
+- Earthquake
+- Bulk Up
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Agatha
+Species: Gengar
+Description: Gen I Elite Four - Life Orb Substitute set
+Level: 56
+Nature: Timid
+Ability: Levitate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Shadow Ball
+- Sludge Bomb
+- Thunderbolt
+- Substitute
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Lance
+Species: Dragonite
+Description: Gen I Champion - Leftovers Dragon Dance set
+Level: 62
+Nature: Adamant
+Ability: Inner Focus
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Outrage
+- Earthquake
+- Extreme Speed
+- Dragon Dance
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Blue
+Species: Blastoise
+Description: Gen I Champion - Leftovers Rapid Spin set
+Level: 63
+Nature: Bold
+Ability: Torrent
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Surf
+- Ice Beam
+- Rapid Spin
+- Toxic
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Red
+Species: Pikachu
+Description: Gen II Mt. Silver - Light Ball Volt Tackle attacker
+Level: 88
+Nature: Timid
+Ability: Static
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Thunderbolt
+- Volt Tackle
+- Iron Tail
+- Quick Attack
+Item: Light Ball
+Happiness: 255
+---
+Trainer: Red
+Species: Charizard
+Description: Gen II Mt. Silver - Charizardite Y Solar Beam attacker
+Level: 84
+Nature: Timid
+Ability: Blaze
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Flamethrower
+- Air Slash
+- Solar Beam
+- Dragon Pulse
+Item: Charizardite Y
+Happiness: 255
+---
+Trainer: Red
+Species: Venusaur
+Description: Gen II Mt. Silver - Venusaurite Sleep Powder set
+Level: 84
+Nature: Bold
+Ability: Overgrow
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Giga Drain
+- Sludge Bomb
+- Sleep Powder
+- Synthesis
+Item: Venusaurite
+Happiness: 255
+---
+Trainer: Falkner
+Species: Pidgeot
+Description: Gen II Johto Gym - Roost set
+Level: 13
+Nature: Jolly
+Ability: Keen Eye
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Brave Bird
+- Return
+- Roost
+- Tailwind
+Happiness: 255
+---
+Trainer: Bugsy
+Species: Scyther
+Description: Gen II Johto Gym - Swords Dance set
+Level: 16
+Nature: Adamant
+Ability: Swarm
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- X-Scissor
+- Aerial Ace
+- Swords Dance
+- Quick Attack
+Happiness: 255
+---
+Trainer: Whitney
+Species: Miltank
+Description: Gen II Johto Gym - Leftovers Body Slam attacker
+Level: 20
+Nature: Impish
+Ability: Thick Fat
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Body Slam
+- Milk Drink
+- Stomp
+- Attract
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Morty
+Species: Gengar
+Description: Gen II Johto Gym - Black Sludge Substitute set
+Level: 25
+Nature: Timid
+Ability: Levitate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Shadow Ball
+- Hypnosis
+- Dream Eater
+- Substitute
+Item: Black Sludge
+Happiness: 255
+---
+Trainer: Chuck
+Species: Poliwrath
+Description: Gen II Johto Gym - Leftovers Bulk Up set
+Level: 30
+Nature: Adamant
+Ability: Water Absorb
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Waterfall
+- Dynamic Punch
+- Bulk Up
+- Rest
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Jasmine
+Species: Steelix
+Description: Gen II Johto Gym - Leftovers Stealth Rock set
+Level: 35
+Nature: Impish
+Ability: Rock Head
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Iron Tail
+- Earthquake
+- Rock Slide
+- Stealth Rock
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Pryce
+Species: Piloswine
+Description: Gen II Johto Gym - Stealth Rock set
+Level: 34
+Nature: Adamant
+Ability: Oblivious
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Icicle Crash
+- Earthquake
+- Ice Shard
+- Stealth Rock
+Happiness: 255
+---
+Trainer: Clair
+Species: Kingdra
+Description: Gen II Johto Gym - Leftovers Rest set
+Level: 40
+Nature: Modest
+Ability: Swift Swim
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Draco Meteor
+- Surf
+- Ice Beam
+- Rest
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Will
+Species: Xatu
+Description: Gen II Elite Four - Leftovers Roost set
+Level: 40
+Nature: Timid
+Ability: Synchronize
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Psychic
+- Air Slash
+- Roost
+- Calm Mind
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Karen
+Species: Umbreon
+Description: Gen II Elite Four - Leftovers Toxic set
+Level: 42
+Nature: Careful
+Ability: Synchronize
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpD
+Moves:
+- Foul Play
+- Toxic
+- Moonlight
+- Taunt
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Karen
+Species: Houndoom
+Description: Gen II Elite Four - Life Orb Nasty Plot set
+Level: 40
+Nature: Timid
+Ability: Early Bird
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Dark Pulse
+- Flamethrower
+- Sludge Bomb
+- Nasty Plot
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Roxanne
+Species: Nosepass
+Description: Gen III Hoenn Gym - Thunder Wave set
+Level: 15
+Nature: Impish
+Ability: Sturdy
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Def / 6 SpD
+Moves:
+- Rock Slide
+- Thunder Wave
+- Stealth Rock
+- Rest
+Happiness: 255
+---
+Trainer: Brawly
+Species: Hariyama
+Description: Gen III Hoenn Gym - Leftovers Bulk Up set
+Level: 18
+Nature: Adamant
+Ability: Thick Fat
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Cross Chop
+- Knock Off
+- Bulk Up
+- Rest
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Wattson
+Species: Manectric
+Description: Gen III Hoenn Gym - Life Orb Thunder Wave set
+Level: 24
+Nature: Timid
+Ability: Static
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Thunderbolt
+- Flamethrower
+- Volt Switch
+- Thunder Wave
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Flannery
+Species: Torkoal
+Description: Gen III Hoenn Gym - Leftovers Stealth Rock set
+Level: 29
+Nature: Bold
+Ability: White Smoke
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Lava Plume
+- Stealth Rock
+- Rapid Spin
+- Protect
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Winona
+Species: Altaria
+Description: Gen III Hoenn Gym - Leftovers Roost set
+Level: 33
+Nature: Impish
+Ability: Natural Cure
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Dragon Claw
+- Roost
+- Dragon Dance
+- Earthquake
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Wallace
+Species: Milotic
+Description: Gen III Hoenn Champion - Leftovers Recover set
+Level: 43
+Nature: Bold
+Ability: Marvel Scale
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Scald
+- Recover
+- Toxic
+- Ice Beam
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Sidney
+Species: Absol
+Description: Gen III Elite Four - Life Orb Swords Dance set
+Level: 49
+Nature: Adamant
+Ability: Pressure
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Night Slash
+- Sucker Punch
+- Swords Dance
+- Psycho Cut
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Phoebe
+Species: Dusclops
+Description: Gen III Elite Four - Leftovers Will-O-Wisp set
+Level: 49
+Nature: Impish
+Ability: Pressure
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Def / 6 SpD
+Moves:
+- Shadow Punch
+- Will-O-Wisp
+- Rest
+- Toxic
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Glacia
+Species: Walrein
+Description: Gen III Elite Four - Leftovers Protect set
+Level: 50
+Nature: Bold
+Ability: Thick Fat
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Surf
+- Ice Beam
+- Protect
+- Toxic
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Drake
+Species: Salamence
+Description: Gen III Elite Four - Life Orb Dragon Dance set
+Level: 55
+Nature: Naive
+Ability: Intimidate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Draco Meteor
+- Earthquake
+- Fire Blast
+- Dragon Dance
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Archie
+Species: Sharpedo
+Description: Gen III Team Aqua - Life Orb Protect set
+Level: 43
+Nature: Adamant
+Ability: Rough Skin
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Waterfall
+- Crunch
+- Ice Fang
+- Protect
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Maxie
+Species: Camerupt
+Description: Gen III Team Magma - Leftovers Rest set
+Level: 45
+Nature: Modest
+Ability: Magma Armor
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Eruption
+- Earth Power
+- Lava Plume
+- Rest
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Roark
+Species: Cranidos
+Description: Gen IV Sinnoh Gym - Head Smash attacker
+Level: 14
+Nature: Adamant
+Ability: Mold Breaker
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Head Smash
+- Take Down
+- Screech
+- Rock Slide
+Happiness: 255
+---
+Trainer: Gardenia
+Species: Roserade
+Description: Gen IV Sinnoh Gym - Life Orb Sleep Powder set
+Level: 22
+Nature: Timid
+Ability: Natural Cure
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Giga Drain
+- Sludge Bomb
+- Sleep Powder
+- Toxic Spikes
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Maylene
+Species: Lucario
+Description: Gen IV Sinnoh Gym - Life Orb Swords Dance set
+Level: 32
+Nature: Adamant
+Ability: Steadfast
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Close Combat
+- Bullet Punch
+- Swords Dance
+- Extreme Speed
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Crasher Wake
+Species: Floatzel
+Description: Gen IV Sinnoh Gym - Life Orb Bulk Up set
+Level: 33
+Nature: Jolly
+Ability: Swift Swim
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Waterfall
+- Ice Punch
+- Crunch
+- Bulk Up
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Fantina
+Species: Mismagius
+Description: Gen IV Sinnoh Gym - Life Orb Nasty Plot set
+Level: 26
+Nature: Timid
+Ability: Levitate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Shadow Ball
+- Thunderbolt
+- Nasty Plot
+- Substitute
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Byron
+Species: Bastiodon
+Description: Gen IV Sinnoh Gym - Leftovers Stealth Rock set
+Level: 41
+Nature: Impish
+Ability: Sturdy
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Iron Head
+- Stealth Rock
+- Rock Slide
+- Protect
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Candice
+Species: Froslass
+Description: Gen IV Sinnoh Gym - Focus Sash Spikes set
+Level: 42
+Nature: Timid
+Ability: Snow Cloak
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Ice Beam
+- Shadow Ball
+- Spikes
+- Taunt
+Item: Focus Sash
+Happiness: 255
+---
+Trainer: Volkner
+Species: Electivire
+Description: Gen IV Sinnoh Gym - Life Orb Earthquake attacker
+Level: 50
+Nature: Adamant
+Ability: Motor Drive
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Wild Charge
+- Ice Punch
+- Earthquake
+- Cross Chop
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Aaron
+Species: Drapion
+Description: Gen IV Elite Four - Leftovers Swords Dance set
+Level: 53
+Nature: Jolly
+Ability: Battle Armor
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Cross Poison
+- Earthquake
+- Swords Dance
+- Knock Off
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Bertha
+Species: Hippowdon
+Description: Gen IV Elite Four - Leftovers Slack Off set
+Level: 55
+Nature: Impish
+Ability: Sand Stream
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Def / 6 SpD
+Moves:
+- Earthquake
+- Slack Off
+- Stealth Rock
+- Roar
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Flint
+Species: Infernape
+Description: Gen IV Elite Four - Life Orb Flare Blitz attacker
+Level: 55
+Nature: Naive
+Ability: Blaze
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Flare Blitz
+- Close Combat
+- Mach Punch
 - Stone Edge
 Item: Life Orb
 Happiness: 255
 ---
-Volcarona — Quiver Dance
+Trainer: Lucian
+Species: Bronzong
+Description: Gen IV Elite Four - Leftovers Stealth Rock set
+Level: 56
+Nature: Sassy
+Ability: Levitate
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Gyro Ball
+- Earthquake
+- Stealth Rock
+- Toxic
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Cynthia
+Species: Spiritomb
+Description: Gen IV Sinnoh Champion - Leftovers Will-O-Wisp set
+Level: 61
+Nature: Careful
+Ability: Pressure
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Shadow Ball
+- Will-O-Wisp
+- Rest
+- Sucker Punch
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Cynthia
+Species: Togekiss
+Description: Gen IV Sinnoh Champion - Leftovers Roost set
+Level: 60
+Nature: Timid
+Ability: Hustle
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Air Slash
+- Aura Sphere
+- Roost
+- Thunder Wave
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Cyrus
+Species: Weavile
+Description: Gen IV Team Galactic - Life Orb Swords Dance set
+Level: 48
+Nature: Jolly
+Ability: Pressure
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Night Slash
+- Ice Punch
+- Swords Dance
+- Brick Break
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Lenora
+Species: Watchog
+Description: Gen V Unova Gym - Crunch attacker
+Level: 20
+Nature: Adamant
+Ability: Illuminate
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Retaliate
+- Crunch
+- Hypnosis
+- Super Fang
+Happiness: 255
+---
+Trainer: Burgh
+Species: Leavanny
+Description: Gen V Unova Gym - Life Orb Swords Dance set
+Level: 23
+Nature: Adamant
+Ability: Swarm
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- X-Scissor
+- Leaf Blade
+- Swords Dance
+- Substitute
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Elesa
+Species: Zebstrika
+Description: Gen V Unova Gym - Life Orb Overheat attacker
+Level: 27
+Nature: Jolly
+Ability: Lightning Rod
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Wild Charge
+- Flame Charge
+- Volt Switch
+- Overheat
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Clay
+Species: Excadrill
+Description: Gen V Unova Gym - Leftovers Rapid Spin set
+Level: 31
+Nature: Jolly
+Ability: Sand Rush
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Earthquake
+- Iron Head
+- Rapid Spin
+- Swords Dance
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Skyla
+Species: Swanna
+Description: Gen V Unova Gym - Life Orb Roost set
+Level: 33
+Nature: Timid
+Ability: Keen Eye
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Hurricane
+- Surf
+- Ice Beam
+- Roost
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Drayden
+Species: Haxorus
+Description: Gen V Unova Gym - Life Orb Dragon Dance set
+Level: 46
+Nature: Jolly
+Ability: Rivalry
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Outrage
+- Earthquake
+- Dragon Dance
+- Poison Jab
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Grimsley
+Species: Bisharp
+Description: Gen V Elite Four - Life Orb Swords Dance set
+Level: 48
+Nature: Adamant
+Ability: Defiant
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Iron Head
+- Sucker Punch
+- Swords Dance
+- Brick Break
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Caitlin
+Species: Reuniclus
+Description: Gen V Elite Four - Leftovers Calm Mind set
+Level: 48
+Nature: Bold
+Ability: Overcoat
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Psychic
+- Focus Blast
+- Calm Mind
+- Recover
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Shauntal
+Species: Chandelure
+Description: Gen V Elite Four - Choice Scarf Trick set
+Level: 48
+Nature: Timid
+Ability: Flash Fire
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Shadow Ball
+- Fire Blast
+- Energy Ball
+- Trick
+Item: Choice Scarf
+Happiness: 255
+---
+Trainer: Marshal
+Species: Conkeldurr
+Description: Gen V Elite Four - Leftovers Bulk Up set
+Level: 48
+Nature: Adamant
+Ability: Guts
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Drain Punch
+- Mach Punch
+- Bulk Up
+- Stone Edge
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Alder
 Species: Volcarona
-Level: 120
+Description: Gen V Unova Champion - Life Orb Quiver Dance set
+Level: 77
 Nature: Timid
 Ability: Flame Body
 IVs: 31/31/31/31/31/31
@@ -90,1100 +1774,468 @@ Moves:
 - Fiery Dance
 - Bug Buzz
 - Giga Drain
-Item: Lum Berry
+Item: Life Orb
 Happiness: 255
 ---
-Ferrothorn — Defensive Utility
-Species: Ferrothorn
-Level: 120
-Nature: Relaxed
-Ability: Iron Barbs
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 88 Def / 168 SpD
-Moves:
-- Stealth Rock
-- Leech Seed
-- Power Whip
-- Gyro Ball
-Item: Leftovers
-Happiness: 255
----
-Excadrill — Offensive Utility
-Species: Excadrill
-Level: 120
+Trainer: Iris
+Species: Haxorus
+Description: Gen V Unova Champion - Life Orb Dragon Dance set
+Level: 57
 Nature: Jolly
-Ability: Mold Breaker
+Ability: Rivalry
 IVs: 31/31/31/31/31/31
 EVs: 6 HP / 252 Atk / 252 Spe
 Moves:
-- Earthquake
-- Iron Head
-- Rapid Spin
-- Swords Dance
-Item: Focus Sash
-Happiness: 255
----
-Dragonite — Dragon Dance
-Species: Dragonite
-Level: 120
-Nature: Adamant
-Ability: Multiscale
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Dragon Dance
 - Outrage
-- Extreme Speed
-- Fire Punch
-Item: Lum Berry
+- Earthquake
+- Dragon Dance
+- X-Scissor
+Item: Life Orb
 Happiness: 255
 ---
-Scizor — Bulky Priority
-Species: Scizor
-Level: 120
-Nature: Adamant
-Ability: Technician
-IVs: 31/31/31/31/31/31
-EVs: 248 HP / 252 Atk / 8 SpD
-Moves:
-- Bullet Punch
-- U-turn
-- Roost
-- Swords Dance
-Item: Choice Band
-Happiness: 255
----
-Gengar — Fast Special
-Species: Gengar
-Level: 120
-Nature: Timid
+Trainer: Ghetsis
+Species: Hydreigon
+Description: Gen V Team Plasma - Life Orb Draco Meteor attacker
+Level: 54
+Nature: Modest
 Ability: Levitate
 IVs: 31/31/31/31/31/31
 EVs: 6 HP / 252 SpA / 252 Spe
 Moves:
-- Shadow Ball
-- Sludge Wave
-- Focus Blast
-- Nasty Plot
-Item: Focus Sash
-Happiness: 255
----
-Togekiss — Para Flinch
-Species: Togekiss
-Level: 120
-Nature: Timid
-Ability: Serene Grace
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 6 SpA / 252 Spe
-Moves:
-- Air Slash
-- Thunder Wave
-- Roost
-- Aura Sphere
-Item: Leftovers
-Happiness: 255
----
-Blissey — Special Wall
-Species: Blissey
-Level: 120
-Nature: Calm
-Ability: Natural Cure
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 252 Def / 6 SpD
-Moves:
-- Soft-Boiled
-- Seismic Toss
-- Thunder Wave
-- Flamethrower
-Item: Leftovers
-Happiness: 255
----
-Skarmory — Physical Wall
-Species: Skarmory
-Level: 120
-Nature: Impish
-Ability: Sturdy
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 252 Def / 6 SpD
-Moves:
-- Roost
-- Stealth Rock
-- Whirlwind
-- Iron Head
-Item: Rocky Helmet
-Happiness: 255
----
-Greninja — Fast Special
-Species: Greninja
-Level: 120
-Nature: Timid
-Ability: Protean
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Water Shuriken
-- Dark Pulse
-- Ice Beam
-- Giga Drain
-Item: Life Orb
-Happiness: 255
----
-Breloom — Spore Offense
-Species: Breloom
-Level: 120
-Nature: Adamant
-Ability: Technician
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Spore
-- Mach Punch
-- Swords Dance
-- Rock Tomb
-Item: Focus Sash
-Happiness: 255
----
-Kyogre — Calm Mind Rain
-Species: Kyogre
-Level: 120
-Nature: Modest
-Ability: Drizzle
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Origin Pulse
-- Ice Beam
-- Thunder
-- Calm Mind
-Item: Leftovers
-Happiness: 255
----
-Groudon — Rock Polish
-Species: Groudon
-Level: 120
-Nature: Adamant
-Ability: Drought
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Earthquake
-- Stone Edge
-- Fire Punch
-- Swords Dance
-Item: Life Orb
-Happiness: 255
----
-Lugia — Defensive Roost
-Species: Lugia
-Level: 120
-Nature: Bold
-Ability: Multiscale
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 252 Def / 6 SpD
-Moves:
-- Roost
-- Aeroblast
-- Ice Beam
-- Whirlwind
-Item: Leftovers
-Happiness: 255
----
-Ho-Oh — Defensive Band
-Species: Ho-Oh
-Level: 120
-Nature: Careful
-Ability: Regenerator
-IVs: 31/31/31/31/31/31
-EVs: 248 HP / 8 Atk / 252 SpD
-Moves:
-- Sacred Fire
-- Brave Bird
-- Roost
-- Whirlwind
-Item: Leftovers
-Happiness: 255
----
-Darkrai — Nasty Plot
-Species: Darkrai
-Level: 120
-Nature: Timid
-Ability: Bad Dreams
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Dark Pulse
-- Sludge Bomb
-- Focus Blast
-- Nasty Plot
-Item: Focus Sash
-Happiness: 255
----
-Deoxys-A — Glass Cannon
-Species: Deoxys
-Level: 120
-Nature: Naive
-Ability: Pressure
-IVs: 31/31/31/31/31/31
-EVs: 252 Atk / 6 SpA / 252 Spe
-Moves:
-- Psycho Boost
-- Superpower
-- Ice Beam
-- Extreme Speed
-Item: Focus Sash
-Happiness: 255
----
-Xerneas — Geomancy
-Species: Xerneas
-Level: 120
-Nature: Modest
-Ability: Fairy Aura
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Moonblast
-- Thunder
-- Focus Blast
-- Calm Mind
-Item: Power Herb
-Happiness: 255
----
-Tyranitar — Stealth Rock
-Species: Tyranitar
-Level: 120
-Nature: Careful
-Ability: Sand Stream
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 6 Atk / 252 SpD
-Moves:
-- Stealth Rock
-- Stone Edge
-- Crunch
-- Thunder Wave
-Item: Leftovers
-Happiness: 255
----
-Salamence — Dragon Dance
-Species: Salamence
-Level: 120
-Nature: Jolly
-Ability: Intimidate
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Dragon Dance
-- Outrage
-- Earthquake
-- Roost
-Item: Lum Berry
-Happiness: 255
----
-Metagross — Agility Sweeper
-Species: Metagross
-Level: 120
-Nature: Adamant
-Ability: Clear Body
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Meteor Mash
-- Zen Headbutt
-- Earthquake
-- Agility
-Item: Life Orb
-Happiness: 255
----
-Lucario — Nasty Plot
-Species: Lucario
-Level: 120
-Nature: Timid
-Ability: Inner Focus
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Aura Sphere
-- Flash Cannon
-- Vacuum Wave
-- Nasty Plot
-Item: Life Orb
-Happiness: 255
----
-Kingdra — Rain Sweeper
-Species: Kingdra
-Level: 120
-Nature: Modest
-Ability: Swift Swim
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Hydro Pump
 - Draco Meteor
-- Ice Beam
-- Rain Dance
+- Dark Pulse
+- Flamethrower
+- Focus Blast
 Item: Life Orb
 Happiness: 255
 ---
-Mienshao — Regenerator Pivot
-Species: Mienshao
-Level: 120
-Nature: Jolly
-Ability: Regenerator
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- High Jump Kick
-- U-turn
-- Stone Edge
-- Fake Out
-Item: Life Orb
-Happiness: 255
----
-Krookodile — Choice Scarf
-Species: Krookodile
-Level: 120
-Nature: Jolly
-Ability: Intimidate
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Earthquake
-- Knock Off
-- Stone Edge
-- Pursuit
-Item: Choice Scarf
-Happiness: 255
----
-Chandelure — Choice Specs
-Species: Chandelure
-Level: 120
+Trainer: N
+Species: Zoroark
+Description: Gen V Team Plasma - Life Orb Nasty Plot set
+Level: 50
 Nature: Timid
-Ability: Flash Fire
+Ability: Illusion
 IVs: 31/31/31/31/31/31
 EVs: 6 HP / 252 SpA / 252 Spe
 Moves:
-- Shadow Ball
+- Night Daze
 - Flamethrower
-- Energy Ball
-- Trick
-Item: Choice Specs
+- Focus Blast
+- Nasty Plot
+Item: Life Orb
 Happiness: 255
 ---
-Heracross — Guts Orb
-Species: Heracross
-Level: 120
+Trainer: Korrina
+Species: Lucario
+Description: Gen VI Kalos Gym - Lucarionite Swords Dance set
+Level: 32
 Nature: Jolly
-Ability: Guts
+Ability: Steadfast
 IVs: 31/31/31/31/31/31
 EVs: 6 HP / 252 Atk / 252 Spe
 Moves:
 - Close Combat
-- Megahorn
-- Facade
+- Bullet Punch
 - Swords Dance
-Item: Flame Orb
+- Extreme Speed
+Item: Lucarionite
 Happiness: 255
 ---
-Suicune — Calm Mind
-Species: Suicune
-Level: 120
+Trainer: Clemont
+Species: Heliolisk
+Description: Gen VI Kalos Gym - Life Orb Thunder Wave set
+Level: 35
 Nature: Timid
-Ability: Pressure
+Ability: Dry Skin
 IVs: 31/31/31/31/31/31
 EVs: 6 HP / 252 SpA / 252 Spe
 Moves:
-- Scald
-- Ice Beam
+- Thunderbolt
+- Hyper Voice
+- Surf
+- Thunder Wave
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Valerie
+Species: Sylveon
+Description: Gen VI Kalos Gym - Leftovers Wish set
+Level: 42
+Nature: Calm
+Ability: Cute Charm
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Moonblast
+- Hyper Voice
+- Wish
 - Calm Mind
-- Rest
 Item: Leftovers
 Happiness: 255
 ---
-Haxorus — Dragon Dance
-Species: Haxorus
-Level: 120
-Nature: Jolly
-Ability: Mold Breaker
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Dragon Dance
-- Outrage
-- Earthquake
-- Poison Jab
-Item: Lum Berry
-Happiness: 255
----
-Darmanitan — Choice Scarf
-Species: Darmanitan
-Level: 120
-Nature: Jolly
-Ability: Sheer Force
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Flare Blitz
-- U-turn
-- Rock Slide
-- Earthquake
-Item: Choice Scarf
-Happiness: 255
----
-Nidoking — Special Wallbreaker
-Species: Nidoking
-Level: 120
+Trainer: Olympia
+Species: Meowstic
+Description: Gen VI Kalos Gym - Leftovers Thunder Wave set
+Level: 48
 Nature: Timid
-Ability: Sheer Force
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Earth Power
-- Sludge Wave
-- Ice Beam
-- Flamethrower
-Item: Life Orb
-Happiness: 255
----
-Azumarill — Belly Drum
-Species: Azumarill
-Level: 120
-Nature: Adamant
-Ability: Huge Power
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 252 Atk / 6 Def
-Moves:
-- Belly Drum
-- Aqua Jet
-- Play Rough
-- Knock Off
-Item: Sitrus Berry
-Happiness: 255
----
-Weavile — Fast Attacker
-Species: Weavile
-Level: 120
-Nature: Jolly
-Ability: Pressure
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Icicle Crash
-- Knock Off
-- Ice Shard
-- Swords Dance
-Item: Life Orb
-Happiness: 255
----
-Alakazam — Focus Sash
-Species: Alakazam
-Level: 120
-Nature: Timid
-Ability: Magic Guard
+Ability: Keen Eye
 IVs: 31/31/31/31/31/31
 EVs: 6 HP / 252 SpA / 252 Spe
 Moves:
 - Psychic
-- Focus Blast
-- Shadow Ball
-- Nasty Plot
-Item: Focus Sash
-Happiness: 255
----
-Lanturn — Volt Switch
-Species: Lanturn
-Level: 120
-Nature: Calm
-Ability: Volt Absorb
-IVs: 31/31/31/31/31/31
-EVs: 40 HP / 216 SpD / 252 SpA
-Moves:
-- Scald
-- Volt Switch
-- Ice Beam
 - Thunder Wave
+- Light Screen
+- Shadow Ball
 Item: Leftovers
 Happiness: 255
 ---
-Drapion — Toxic Spikes
-Species: Drapion
-Level: 120
-Nature: Jolly
-Ability: Battle Armor
+Trainer: Wulfric
+Species: Avalugg
+Description: Gen VI Kalos Gym - Leftovers Recover set
+Level: 59
+Nature: Impish
+Ability: Own Tempo
 IVs: 31/31/31/31/31/31
-EVs: 252 Atk / 6 Def / 252 Spe
+EVs: 252 HP / 252 Atk / 6 Def
 Moves:
-- Knock Off
-- Poison Jab
-- Toxic Spikes
-- Swords Dance
-Item: Black Sludge
+- Avalanche
+- Recover
+- Rapid Spin
+- Earthquake
+Item: Leftovers
 Happiness: 255
 ---
-Galvantula — Sticky Web
-Species: Galvantula
-Level: 120
-Nature: Timid
-Ability: Compound Eyes
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Sticky Web
-- Thunder
-- Bug Buzz
-- Volt Switch
-Item: Focus Sash
-Happiness: 255
----
-Aggron — Rock Polish
-Species: Aggron
-Level: 120
+Trainer: Malva
+Species: Talonflame
+Description: Gen VI Elite Four - Life Orb Swords Dance set
+Level: 63
 Nature: Adamant
-Ability: Rock Head
+Ability: Flame Body
 IVs: 31/31/31/31/31/31
 EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Head Smash
-- Heavy Slam
-- Earthquake
-- Rock Polish
-Item: Life Orb
-Happiness: 255
----
-Milotic — Defensive
-Species: Milotic
-Level: 120
-Nature: Bold
-Ability: Marvel Scale
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 252 Def / 6 SpD
-Moves:
-- Scald
-- Recover
-- Ice Beam
-- Haze
-Item: Leftovers
-Happiness: 255
----
-Delta Charizard — Ghost Dragon
-Species: 730
-Level: 120
-Nature: Timid
-Ability: Spirit Call
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Shadow Ball
-- Dragon Pulse
-- Flamethrower
-- Nasty Plot
-Item: Life Orb
-Happiness: 255
----
-Delta Noivern — Grass Steel
-Species: 765
-Level: 120
-Nature: Timid
-Ability: Chlorophyll
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Air Slash
-- Flash Cannon
-- Roost
-- U-turn
-Item: Life Orb
-Happiness: 255
----
-Delta Shuckle — No Guard Support
-Species: 832
-Level: 120
-Nature: Careful
-Ability: Sturdy
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 128 Def / 128 SpD
-Moves:
-- Stealth Rock
-- Sticky Web
-- Toxic
-- Knock Off
-Item: Leftovers
-Happiness: 255
----
-Heatran — Rocks
-Species: Heatran
-Level: 120
-Nature: Calm
-Ability: Flash Fire
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 6 SpA / 252 SpD
-Moves:
-- Magma Storm
-- Earth Power
-- Stealth Rock
-- Taunt
-Item: Leftovers
-Happiness: 255
----
-Rotom — Defensive Pivot
-Species: Rotom
-Level: 120
-Nature: Bold
-Ability: Levitate
-IVs: 31/31/31/31/31/31
-EVs: 248 HP / 252 Def / 8 Spe
-Moves:
-- Volt Switch
-- Will-O-Wisp
-- Pain Split
-- Thunderbolt
-Item: Leftovers
-Happiness: 255
----
-Gliscor — Poison Heal
-Species: Gliscor
-Level: 120
-Nature: Impish
-Ability: Poison Heal
-IVs: 31/31/31/31/31/31
-EVs: 244 HP / 184 Def / 80 Spe
-Moves:
-- Earthquake
-- Roost
-- Protect
-- Toxic
-Item: Toxic Orb
-Happiness: 255
----
-Clefable — Calm Mind
-Species: Clefable
-Level: 120
-Nature: Bold
-Ability: Magic Guard
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 252 Def / 6 SpA
-Moves:
-- Moonblast
-- Soft-Boiled
-- Calm Mind
-- Flamethrower
-Item: Leftovers
-Happiness: 255
----
-Magnezone — Trapper
-Species: Magnezone
-Level: 120
-Nature: Modest
-Ability: Magnet Pull
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Thunderbolt
-- Flash Cannon
-- Volt Switch
-- Substitute
-Item: Choice Specs
-Happiness: 255
----
-Conkeldurr — Guts Attacker
-Species: Conkeldurr
-Level: 120
-Nature: Adamant
-Ability: Guts
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 252 Atk / 6 SpD
-Moves:
-- Drain Punch
-- Mach Punch
-- Knock Off
-- Bulk Up
-Item: Flame Orb
-Happiness: 255
----
-Latios — Choice Specs
-Species: Latios
-Level: 120
-Nature: Timid
-Ability: Levitate
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Draco Meteor
-- Psyshock
-- Surf
-- Trick
-Item: Choice Specs
-Happiness: 255
----
-Latias — Calm Mind
-Species: Latias
-Level: 120
-Nature: Timid
-Ability: Levitate
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 6 SpA / 252 Spe
-Moves:
-- Calm Mind
-- Recover
-- Draco Meteor
-- Psyshock
-Item: Leftovers
-Happiness: 255
----
-Keldeo — Calm Mind
-Species: Keldeo
-Level: 120
-Nature: Timid
-Ability: Justified
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Hydro Pump
-- Secret Sword
-- Calm Mind
-- Scald
-Item: Choice Specs
-Happiness: 255
----
-Crobat — Fast Utility
-Species: Crobat
-Level: 120
-Nature: Jolly
-Ability: Infiltrator
-IVs: 31/31/31/31/31/31
-EVs: 252 Atk / 6 Def / 252 Spe
 Moves:
 - Brave Bird
-- U-turn
-- Roost
-- Defog
-Item: Black Sludge
-Happiness: 255
----
-Empoleon — Defog Support
-Species: Empoleon
-Level: 120
-Nature: Calm
-Ability: Torrent
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 6 SpA / 252 SpD
-Moves:
-- Scald
-- Flash Cannon
-- Defog
-- Stealth Rock
-Item: Leftovers
-Happiness: 255
----
-Mamoswine — Ice Shard
-Species: Mamoswine
-Level: 120
-Nature: Jolly
-Ability: Thick Fat
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Earthquake
-- Icicle Crash
-- Ice Shard
-- Stealth Rock
-Item: Life Orb
-Happiness: 255
----
-Victini — V-create Pivot
-Species: Victini
-Level: 120
-Nature: Jolly
-Ability: Victory Star
-IVs: 31/31/31/31/31/31
-EVs: 252 Atk / 6 SpD / 252 Spe
-Moves:
-- V-create
-- Bolt Strike
-- U-turn
-- Zen Headbutt
-Item: Choice Scarf
-Happiness: 255
----
-Cobalion — Stealth Rock
-Species: Cobalion
-Level: 120
-Nature: Jolly
-Ability: Justified
-IVs: 31/31/31/31/31/31
-EVs: 252 Atk / 6 Def / 252 Spe
-Moves:
-- Close Combat
-- Iron Head
-- Stealth Rock
-- Volt Switch
-Item: Leftovers
-Happiness: 255
----
-Ninetales — Sun Support
-Species: Ninetales
-Level: 120
-Nature: Timid
-Ability: Drought
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Flamethrower
-- Solar Beam
-- Nasty Plot
-- Will-O-Wisp
-Item: Heat Rock
-Happiness: 255
----
-Roserade — Spikes
-Species: Roserade
-Level: 120
-Nature: Timid
-Ability: Natural Cure
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Giga Drain
-- Sludge Bomb
-- Spikes
-- Sleep Powder
-Item: Black Sludge
-Happiness: 255
----
-Flygon — Scarf Pivot
-Species: Flygon
-Level: 120
-Nature: Jolly
-Ability: Levitate
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Earthquake
-- Outrage
-- U-turn
-- Stone Edge
-Item: Choice Scarf
-Happiness: 255
----
-Cloyster — Shell Smash
-Species: Cloyster
-Level: 120
-Nature: Jolly
-Ability: Skill Link
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Shell Smash
-- Icicle Spear
-- Rock Blast
-- Ice Shard
-Item: White Herb
-Happiness: 255
----
-Sharpedo — Speed Boost
-Species: Sharpedo
-Level: 120
-Nature: Adamant
-Ability: Speed Boost
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
-- Protect
-- Crunch
-- Waterfall
-- Ice Fang
-Item: Life Orb
-Happiness: 255
----
-Froslass — Spikes Lead
-Species: Froslass
-Level: 120
-Nature: Timid
-Ability: Cursed Body
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Spikes
-- Taunt
-- Shadow Ball
-- Ice Beam
-Item: Focus Sash
-Happiness: 255
----
-Porygon-Z — Adaptability
-Species: Porygon-Z
-Level: 120
-Nature: Timid
-Ability: Adaptability
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
-Moves:
-- Tri Attack
-- Shadow Ball
-- Ice Beam
-- Nasty Plot
-Item: Life Orb
-Happiness: 255
----
-Rhyperior — Rock Polish
-Species: Rhyperior
-Level: 120
-Nature: Adamant
-Ability: Solid Rock
-IVs: 31/31/31/31/31/31
-EVs: 252 HP / 252 Atk / 6 SpD
-Moves:
-- Earthquake
-- Stone Edge
-- Rock Polish
-- Stealth Rock
-Item: Life Orb
-Happiness: 255
----
-Gallade — Swords Dance
-Species: Gallade
-Level: 120
-Nature: Jolly
-Ability: Justified
-IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
-Moves:
+- Flare Blitz
 - Swords Dance
-- Close Combat
-- Psycho Cut
-- Shadow Sneak
+- Roost
 Item: Life Orb
 Happiness: 255
 ---
-Feraligatr — Sheer Force
-Species: Feraligatr
-Level: 120
-Nature: Adamant
-Ability: Sheer Force
+Trainer: Wikstrom
+Species: Aegislash
+Description: Gen VI Elite Four - Leftovers Substitute set
+Level: 65
+Nature: Quiet
+Ability: Stance Change
 IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 Atk / 252 Spe
+EVs: 252 HP / 6 Def / 252 SpA
 Moves:
-- Dragon Dance
-- Waterfall
-- Ice Punch
-- Crunch
+- Shadow Ball
+- Flash Cannon
+- Sacred Sword
+- Substitute
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Drasna
+Species: Noivern
+Description: Gen VI Elite Four - Life Orb Roost set
+Level: 63
+Nature: Timid
+Ability: Frisk
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Draco Meteor
+- Hurricane
+- Flamethrower
+- Roost
 Item: Life Orb
 Happiness: 255
 ---
-Malamar — Contrary
-Species: Malamar
-Level: 120
-Nature: Adamant
-Ability: Contrary
+Trainer: Diantha
+Species: Gardevoir
+Description: Gen VI Kalos Champion - Gardevoirite Calm Mind set
+Level: 68
+Nature: Timid
+Ability: Synchronize
 IVs: 31/31/31/31/31/31
-EVs: 252 HP / 252 Atk / 6 SpD
+EVs: 6 HP / 252 SpA / 252 Spe
 Moves:
-- Superpower
-- Knock Off
-- Psycho Cut
+- Moonblast
+- Psychic
+- Calm Mind
+- Shadow Ball
+Item: Gardevoirite
+Happiness: 255
+---
+Trainer: Diantha
+Species: Goodra
+Description: Gen VI Kalos Champion - Leftovers Rest set
+Level: 66
+Nature: Modest
+Ability: Sap Sipper
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Draco Meteor
+- Fire Blast
+- Sludge Bomb
 - Rest
 Item: Leftovers
 Happiness: 255
 ---
-Hitmontop — Technician Spinner
-Species: Hitmontop
-Level: 120
+Trainer: Lysandre
+Species: Gyarados
+Description: Gen VI Team Flare - Leftovers Dragon Dance set
+Level: 49
 Nature: Adamant
-Ability: Technician
+Ability: Intimidate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Waterfall
+- Earthquake
+- Dragon Dance
+- Ice Fang
+Item: Leftovers
+Happiness: 255
+---
+Trainer: Ash
+Species: Pikachu
+Description: Anime - Light Ball Volt Tackle attacker
+Level: 50
+Nature: Jolly
+Ability: Static
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Thunderbolt
+- Iron Tail
+- Quick Attack
+- Volt Tackle
+Item: Light Ball
+Happiness: 255
+---
+Trainer: Ash
+Species: Charizard
+Description: Anime - Charizardite X Dragon Dance set
+Level: 55
+Nature: Adamant
+Ability: Blaze
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Flare Blitz
+- Dragon Claw
+- Earthquake
+- Dragon Dance
+Item: Charizardite X
+Happiness: 255
+---
+Trainer: Ash
+Species: Sceptile
+Description: Anime - Life Orb Swords Dance set
+Level: 55
+Nature: Jolly
+Ability: Overgrow
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Leaf Blade
+- Dragon Claw
+- Swords Dance
+- Quick Attack
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Ash
+Species: Infernape
+Description: Anime - Life Orb Flare Blitz attacker
+Level: 55
+Nature: Naive
+Ability: Blaze
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Flare Blitz
+- Close Combat
+- Mach Punch
+- Thunder Punch
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Ash
+Species: Greninja
+Description: Anime - Life Orb Substitute set
+Level: 55
+Nature: Timid
+Ability: Torrent
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Water Shuriken
+- Night Slash
+- Aerial Ace
+- Substitute
+Item: Life Orb
+Happiness: 255
+---
+Trainer: Ash
+Species: Snorlax
+Description: Anime - Leftovers Rest set
+Level: 55
+Nature: Adamant
+Ability: Immunity
 IVs: 31/31/31/31/31/31
 EVs: 252 HP / 252 Atk / 6 Def
 Moves:
-- Rapid Spin
-- Mach Punch
-- Close Combat
-- Sucker Punch
+- Body Slam
+- Rest
+- Ice Punch
+- Earthquake
 Item: Leftovers
 Happiness: 255
 ---
-Spiritomb — Defensive Ghost
-Species: Spiritomb
-Level: 120
-Nature: Calm
-Ability: Pressure
+Trainer: Ash
+Species: Bulbasaur
+Description: Anime - Eviolite Sleep Powder set
+Level: 40
+Nature: Bold
+Ability: Overgrow
 IVs: 31/31/31/31/31/31
-EVs: 252 HP / 6 SpA / 252 SpD
+EVs: 252 HP / 252 Atk / 6 Def
 Moves:
-- Shadow Ball
-- Dark Pulse
-- Will-O-Wisp
-- Pain Split
-Item: Leftovers
+- Razor Leaf
+- Sleep Powder
+- Vine Whip
+- Synthesis
+Item: Eviolite
 Happiness: 255
 ---
-Qwilfish — Rain Spikes
-Species: Qwilfish
-Level: 120
+Trainer: Misty
+Species: Psyduck
+Description: Anime - Water Pulse attacker
+Level: 35
+Nature: Modest
+Ability: Damp
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Water Pulse
+- Confusion
+- Disable
+- Amnesia
+Happiness: 255
+---
+Trainer: Brock
+Species: Crobat
+Description: Anime - Black Sludge Toxic set
+Level: 48
 Nature: Jolly
-Ability: Intimidate
+Ability: Inner Focus
 IVs: 31/31/31/31/31/31
-EVs: 252 HP / 6 Atk / 252 Spe
+EVs: 6 HP / 252 Atk / 252 Spe
 Moves:
-- Spikes
-- Taunt
-- Waterfall
-- Thunder Wave
+- Cross Poison
+- Air Slash
+- Toxic
+- Roost
 Item: Black Sludge
 Happiness: 255
 ---
-Audino — Regenerator Wall
-Species: Audino
-Level: 120
-Nature: Calm
-Ability: Regenerator
+Trainer: Gary
+Species: Blastoise
+Description: Anime - Leftovers Rapid Spin set
+Level: 60
+Nature: Modest
+Ability: Torrent
 IVs: 31/31/31/31/31/31
-EVs: 252 HP / 6 Def / 252 SpD
+EVs: 252 HP / 6 Def / 252 SpA
 Moves:
-- Wish
-- Protect
-- Heal Bell
-- Dazzling Gleam
+- Hydro Pump
+- Ice Beam
+- Aura Sphere
+- Rapid Spin
 Item: Leftovers
 Happiness: 255
 ---
-Sceptile — Unburden
-Species: Sceptile
-Level: 120
-Nature: Timid
-Ability: Unburden
+Trainer: Gary
+Species: Umbreon
+Description: Anime - Leftovers Toxic set
+Level: 55
+Nature: Careful
+Ability: Synchronize
 IVs: 31/31/31/31/31/31
-EVs: 6 HP / 252 SpA / 252 Spe
+EVs: 252 HP / 6 Def / 252 SpD
 Moves:
-- Leaf Storm
-- Giga Drain
-- Focus Blast
-- Substitute
-Item: Sitrus Berry
+- Foul Play
+- Toxic
+- Moonlight
+- Taunt
+Item: Leftovers
 Happiness: 255
 ---
-Electivire — Motor Drive
+Trainer: Paul
 Species: Electivire
-Level: 120
-Nature: Jolly
+Description: Anime - Life Orb Earthquake attacker
+Level: 60
+Nature: Adamant
 Ability: Motor Drive
 IVs: 31/31/31/31/31/31
 EVs: 6 HP / 252 Atk / 252 Spe
 Moves:
 - Wild Charge
 - Ice Punch
+- Cross Chop
 - Earthquake
-- Volt Switch
-Item: Expert Belt
+Item: Life Orb
 Happiness: 255
 ---
-Eelektross — Levitate Pivot
-Species: Eelektross
-Level: 120
-Nature: Modest
+Trainer: Jessie
+Species: Arbok
+Description: Anime Team Rocket - Black Sludge Rest set
+Level: 40
+Nature: Adamant
+Ability: Intimidate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Gunk Shot
+- Earthquake
+- Glare
+- Rest
+Item: Black Sludge
+Happiness: 255
+---
+Trainer: James
+Species: Weezing
+Description: Anime Team Rocket - Black Sludge Will-O-Wisp set
+Level: 40
+Nature: Bold
 Ability: Levitate
 IVs: 31/31/31/31/31/31
-EVs: 252 HP / 252 SpA / 6 SpD
+EVs: 252 HP / 6 Def / 252 SpA
 Moves:
-- Volt Switch
-- Flamethrower
-- Giga Drain
-- Knock Off
-Item: Assault Vest
+- Sludge Bomb
+- Will-O-Wisp
+- Explosion
+- Thunderbolt
+Item: Black Sludge
+Happiness: 255
+---
+Trainer: Meowth
+Species: Persian
+Description: Anime Team Rocket - Life Orb Taunt set
+Level: 40
+Nature: Jolly
+Ability: Limber
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Feint Attack
+- Fake Out
+- Night Slash
+- Taunt
+Item: Life Orb
 Happiness: 255

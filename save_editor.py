@@ -613,28 +613,219 @@ def species_id_from_text(value) -> int:
     return next((sid for sid, data in PKMN_DATA.items()
                  if data.get("name", "").casefold() == folded), 0)
 
-# Build tiers are derived from the species' base stat total, so the library never
-# carries a hand-maintained ranking.  Insurgence has no official competitive
-# ladder, and a stored tier would only go stale as builds are edited.
+# Build tiers are scored, never hand-maintained: Insurgence has no competitive
+# ladder, and a tier written into the file would go stale the moment a build was
+# edited.  A build may still override the score by carrying its own Tier: line.
 BUILD_TIERS = ("S", "A+", "A", "B+", "B", "C")
-_BUILD_TIER_CUTS = ((640, "S"), (580, "A+"), (530, "A"), (490, "B+"), (450, "B"))
+_BUILD_TIER_CUTS = ((76, "S"), (68, "A+"), (60, "A"), (55, "B+"), (48, "B"))
 
-def build_tier_for_species(species_id: int, form_id: int = 0) -> str:
-    total = sum(pokemon_base_stats(int(species_id), int(form_id)))
+# Non-damaging moves that decide games.  Weights are relative worth, not power;
+# every key is checked against MOVE_DATA by the test suite, because Insurgence's
+# move names are the authority and a typo would silently score zero.
+MOVE_UTILITY_VALUE = {
+    # setup
+    "Geomancy": 10, "Shell Smash": 10, "Quiver Dance": 9, "Swords Dance": 8,
+    "Nasty Plot": 8, "Dragon Dance": 8, "Calm Mind": 7, "Bulk Up": 6, "Agility": 5,
+    # recovery
+    "Recover": 7, "Roost": 7, "Soft-Boiled": 7, "Slack Off": 7, "Wish": 6,
+    "Synthesis": 5, "Moonlight": 5, "Morning Sun": 5, "Rest": 4,
+    # hazards and control
+    "Stealth Rock": 8, "Spikes": 6, "Sticky Web": 6, "Toxic Spikes": 5,
+    "Defog": 5, "Rapid Spin": 4,
+    # status
+    "Spore": 9, "Sleep Powder": 7, "Toxic": 6, "Will-O-Wisp": 6, "Thunder Wave": 5,
+    # field and disruption
+    "Trick Room": 7, "Tailwind": 6, "Baton Pass": 6, "Taunt": 5, "Trick": 5,
+    "Substitute": 4, "Protect": 3,
+}
+
+def _tier_for_score(score) -> str:
     for cutoff, label in _BUILD_TIER_CUTS:
-        if total >= cutoff:
+        if score >= cutoff:
             return label
     return "C"
 
-def build_tier(build_text: str) -> str:
-    """Tier of a build block, from the species named in its Species: line."""
-    match = re.search(r"^Species:\s*(.+)$", str(build_text), re.M)
-    species_id = species_id_from_text(match.group(1)) if match else 0
-    return build_tier_for_species(species_id) if species_id else "?"
+def _bst_points(species_id: int, form_id: int = 0) -> float:
+    """0-50 points for the species' base stat total, over a 300-720 range."""
+    total = sum(pokemon_base_stats(int(species_id), int(form_id)))
+    return max(0.0, min(1.0, (total - 300) / 420.0)) * 50.0
 
-def _load_build_library():
-    path = resource_path("pokemon_builds.txt")
-    if not os.path.exists(path):
+def build_tier_for_species(species_id: int, form_id: int = 0) -> str:
+    """Tier from base stats alone, for a species with no build attached."""
+    return _tier_for_score(_bst_points(species_id, form_id) * 2)
+
+# -- build blocks -------------------------------------------------------------
+
+def _build_fields(build_text: str) -> dict:
+    """The block's Key: value lines, lower-cased keys.  Move bullets excluded."""
+    fields = {}
+    for line in str(build_text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or line[:1] in ("-", "*", "•"):
+            continue
+        if ":" in line:
+            key, _, value = line.partition(":")
+            fields[key.strip().casefold()] = value.strip()
+    return fields
+
+def _build_ivs_evs(fields: dict):
+    ivs = [int(x) for x in re.findall(r"\d+", fields.get("ivs", ""))][:6]
+    ivs = [min(31, max(0, v)) for v in ivs] + [31] * max(0, 6 - len(ivs))
+    ev_map = {stat: 0 for stat in STATS}
+    aliases = {"hp": "HP", "atk": "Atk", "def": "Def", "spa": "SpA", "spatk": "SpA",
+               "spd": "SpD", "spdef": "SpD", "spe": "Spe", "speed": "Spe"}
+    for amount, stat in re.findall(r"(\d+)\s*([A-Za-z]+)", fields.get("evs", "")):
+        key = aliases.get(stat.casefold())
+        if key:
+            ev_map[key] = min(252, max(0, int(amount)))
+    return ivs, [ev_map[stat] for stat in STATS]
+
+def _build_move_ids(build_text: str) -> list:
+    ids, in_moves = [], False
+    for line in str(build_text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.casefold().startswith("moves:"):
+            in_moves = True
+            continue
+        if not in_moves:
+            continue
+        if line[:1] in ("-", "*", "•"):
+            name = line[1:].strip()
+        elif ":" in line:
+            in_moves = False
+            continue
+        else:
+            name = line
+        match = re.match(r"^(\d+)", name)
+        move_id = int(match.group(1)) if match else next(
+            (mid for mid, data in MOVE_DATA.items()
+             if data.get("name", "").casefold() == name.casefold()), 0)
+        if move_id in MOVE_DATA:
+            ids.append(move_id)
+    return ids[:4]
+
+def build_score(build_text: str) -> int:
+    """Score a build 0-100: base stats first, then how well it is actually built."""
+    fields = _build_fields(build_text)
+    species_id = species_id_from_text(fields.get("species", ""))
+    if not species_id:
+        return 0
+    score = _bst_points(species_id)
+
+    ivs, evs = _build_ivs_evs(fields)
+    score += (sum(evs) / 510.0) * 9.0 + (sum(ivs) / 186.0) * 6.0
+
+    move_ids = _build_move_ids(build_text)
+    powers = [MOVE_DATA[m].get("power", 0) for m in move_ids
+              if MOVE_DATA.get(m, {}).get("power", 0) > 0]
+    if powers:
+        score += max(0.0, min(1.0, (sum(powers) / len(powers)) / 120.0)) * 20.0
+
+    utility = sum(MOVE_UTILITY_VALUE.get(MOVE_DATA.get(m, {}).get("name", ""), 0)
+                  for m in move_ids)
+    score += min(15.0, utility)
+    return int(round(max(0.0, min(100.0, score))))
+
+def build_tier(build_text: str) -> str:
+    """A build's own Tier: line wins; otherwise the tier follows its score."""
+    fields = _build_fields(build_text)
+    stored = fields.get("tier", "").strip()
+    if stored:
+        return stored
+    if not species_id_from_text(fields.get("species", "")):
+        return "?"
+    return _tier_for_score(build_score(build_text))
+
+# -- style --------------------------------------------------------------------
+
+BUILD_STYLES = ("Physical Sweeper", "Special Sweeper", "Mixed Sweeper",
+                "Bulky Physical", "Bulky Special", "Physical Wall", "Special Wall",
+                "Utility", "All-Rounder")
+
+def style_for_stats(stats) -> str:
+    """Name the role implied by final HP/Atk/Def/SpA/SpD/Spe values."""
+    hp, atk, defense, spatk, spdef, speed = (list(stats) + [0] * 6)[:6]
+    offence = max(atk, spatk)
+    bulk = (hp + defense + spdef) / 3.0
+    total = max(1.0, offence + bulk + speed)
+    off_share, bulk_share, speed_share = offence / total, bulk / total, speed / total
+
+    if atk >= spatk * 1.15:
+        side, bulky = "Physical", "Bulky Physical"
+    elif spatk >= atk * 1.15:
+        side, bulky = "Special", "Bulky Special"
+    else:
+        side, bulky = "Mixed", None
+
+    if off_share < 0.30:
+        if bulk_share > 0.40:
+            return "Special Wall" if spdef >= defense else "Physical Wall"
+        return "Utility"
+    if speed_share >= 0.30:
+        return side + " Sweeper"
+    if bulk_share >= 0.38:
+        return bulky or ("Bulky Special" if spatk >= atk else "Bulky Physical")
+    if off_share >= 0.36:
+        return side + " Sweeper"
+    return "All-Rounder"
+
+def build_style(build_text: str) -> str:
+    """Classify a build from its final stats: base, IVs, EVs and nature combined."""
+    fields = _build_fields(build_text)
+    species_id = species_id_from_text(fields.get("species", ""))
+    if not species_id:
+        return "?"
+    ivs, evs = _build_ivs_evs(fields)
+    digits = re.sub(r"\D", "", fields.get("level", "")) or "100"
+    level = min(MAX_LEVEL, max(1, int(digits)))
+    nature = next((i for i, name in enumerate(NATURES)
+                   if name.casefold() == fields.get("nature", "").casefold()), 0)
+    return style_for_stats(calculate_pokemon_stats(species_id, 0, level, nature, ivs, evs))
+
+# -- display ------------------------------------------------------------------
+
+def possessive(name: str) -> str:
+    """Ash -> Ash's, Jesus -> Jesus' - the English apostrophe rule."""
+    name = str(name or "").strip()
+    if not name:
+        return ""
+    return name + ("'" if name[-1:].casefold() == "s" else "'s")
+
+def build_summary(build_text: str) -> dict:
+    """Everything the library table and Info tab show, derived from one block."""
+    fields = _build_fields(build_text)
+    species_id = species_id_from_text(fields.get("species", ""))
+    return {
+        "trainer": fields.get("trainer", "").strip() or "Wild",
+        "species_id": species_id,
+        "species_name": PKMN_DATA.get(species_id, {}).get("name", "")
+                        or (fields.get("species", "").strip() or "Unknown"),
+        "description": fields.get("description", "").strip(),
+        "tier": build_tier(build_text),
+        "style": build_style(build_text),
+    }
+
+def build_title(build_text: str) -> str:
+    """Ash's Pikachu, or just Pikachu for a wild or unowned build."""
+    summary = build_summary(build_text)
+    trainer = summary["trainer"]
+    if trainer.casefold() in ("wild", "none", "-", ""):
+        return summary["species_name"]
+    return possessive(trainer) + " " + summary["species_name"]
+
+def user_builds_path() -> str:
+    """Where builds saved from the editor live.
+
+    The bundled pokemon_builds.txt sits inside the PyInstaller archive and is
+    read-only at runtime, so anything the user saves goes to their own file.
+    """
+    root = os.environ.get("APPDATA") or os.path.expanduser("~")
+    return os.path.join(root, "PokemonInsurgenceSaveEditor", "pokemon_builds.user.txt")
+
+def _read_build_blocks(path: str) -> list:
+    if not path or not os.path.exists(path):
         return []
     with open(path, encoding="utf-8") as stream:
         raw = stream.read()
@@ -644,12 +835,37 @@ def _load_build_library():
                  if line.strip() and not line.lstrip().startswith("#")]
         if not lines:
             continue
-        header = re.sub(r"^\[[^]]*\]\s*", "", lines[0].strip())   # legacy [Tier] prefix
-        if not header or ":" in header:      # a bare field block has no display name
-            continue
-        lines.pop(0)
-        builds.append((header, "\n".join(lines).strip()))
-    return builds
+        # A legacy block opens with a "[Tier] Species - Set" display line; the
+        # current format is fields only, so drop a leading non-field line.
+        if ":" not in lines[0]:
+            lines.pop(0)
+        if lines:
+            builds.append("\n".join(lines).strip())
+    return [text for text in builds if _build_fields(text).get("species")]
+
+def _load_build_library():
+    return (_read_build_blocks(resource_path("pokemon_builds.txt"))
+            + _read_build_blocks(user_builds_path()))
+
+def reload_build_library() -> list:
+    """Re-read both library files after the user saves a new build."""
+    global BUILD_LIBRARY
+    BUILD_LIBRARY = _load_build_library()
+    return BUILD_LIBRARY
+
+def append_user_build(build_text: str) -> str:
+    """Append one block to the user's library file and return its path."""
+    path = user_builds_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    existing = os.path.exists(path) and os.path.getsize(path) > 0
+    with open(path, "a", encoding="utf-8") as stream:
+        if not existing:
+            stream.write("# Builds saved from the Pokemon Insurgence Save Editor.\n\n")
+        else:
+            stream.write("\n---\n")
+        stream.write(build_text.strip() + "\n")
+    reload_build_library()
+    return path
 
 BUILD_LIBRARY = _load_build_library()
 
@@ -1945,14 +2161,20 @@ class Editor(tk.Tk):
     def _set_theme(self, mode: str):
         self._apply_theme(mode)
 
-    def _center_popup(self, win):
+    def _center_popup(self, win, size=None):
         win.update_idletasks()
-        w = win.winfo_width()
-        h = win.winfo_height()
-        if w <= 1:
-            w = win.winfo_reqwidth()
-        if h <= 1:
-            h = win.winfo_reqheight()
+        if size:
+            # An explicitly requested geometry wins: winfo_width() is still the
+            # content's requested size before the window is mapped, so reading it
+            # here would silently discard the caller's chosen dimensions.
+            w, h = size
+        else:
+            w = win.winfo_width()
+            h = win.winfo_height()
+            if w <= 1:
+                w = win.winfo_reqwidth()
+            if h <= 1:
+                h = win.winfo_reqheight()
         self.update_idletasks()
         x = self.winfo_rootx() + max(0, (self.winfo_width() - w) // 2)
         y = self.winfo_rooty() + max(0, (self.winfo_height() - h) // 2)
@@ -1968,11 +2190,15 @@ class Editor(tk.Tk):
         except Exception:
             pass
         win.transient(self)
+        requested = None
         if geometry:
             win.geometry(geometry)
+            match = re.match(r"^(\d+)x(\d+)", geometry)
+            if match:
+                requested = (int(match.group(1)), int(match.group(2)))
         if resizable is not None:
             win.resizable(*resizable)
-        self._center_popup(win)
+        self._center_popup(win, requested)
         if modal:
             win.grab_set()
         return win
@@ -2494,7 +2720,7 @@ class Editor(tk.Tk):
         top.pack(fill="x")
         ttk.Button(top, text="Load Save",          command=self._ask_load).pack(side="left", padx=4)
         ttk.Button(top, text="Save (auto-backup)", command=self._do_save).pack(side="left", padx=4)
-        ttk.Button(top, text="Build Library", command=lambda: self._open_build_dialog(None)).pack(side="left", padx=4)
+        ttk.Button(top, text="Pokemon Build Library", command=lambda: self._open_build_dialog(None)).pack(side="left", padx=4)
         self.status = ttk.Label(top, text="No file loaded", foreground="gray")
         self.status.pack(side="left", padx=10)
         ttk.Button(top, text="Dark", width=7, command=lambda: self._set_theme("dark")).pack(side="right", padx=4)
@@ -3016,113 +3242,503 @@ class Editor(tk.Tk):
         a["@hp"] = stats[0]
         return pkmn
 
-    def _import_builds_to_pc(self, build_texts):
-        if not isinstance(self.storage, RubyObject): raise ValueError("This save has no PC storage")
+    def _pc_box_options(self):
+        """(box index, box object, label) for every real PC box."""
+        boxes = self.storage.attributes.get("@boxes", []) if isinstance(self.storage, RubyObject) else []
+        options = []
+        for box_idx, box in enumerate(boxes if isinstance(boxes, list) else []):
+            if not isinstance(box, RubyObject):
+                continue
+            box_name = ds(box.attributes.get("@name", f"Box {box_idx + 1}"))
+            options.append((box_idx, box, f"Box {box_idx + 1}: {box_name}"))
+        return options
+
+    @staticmethod
+    def _empty_slots_in(box):
+        """(list, index) pairs for every free slot in one box, in order."""
+        pokemon = box.attributes.get("@pokemon", [])
+        if not isinstance(pokemon, list):
+            return []
+        return [(pokemon, index) for index, value in enumerate(pokemon)
+                if not isinstance(value, RubyObject)]
+
+    def _ask_target_box(self, options, remaining, parent=None):
+        """Ask which box to fill next.  Returns a box option, or None to cancel."""
+        dlg = self._make_popup(f"Import {remaining} build(s)", "430x170")
+        if parent is not None:
+            dlg.transient(parent)
+        ttk.Label(dlg, text=f"Which PC box should receive {remaining} Pokemon?",
+                  font=("", 10, "bold"), padding=(0, 10, 0, 6)).pack()
+        frame = ttk.Frame(dlg, padding=8); frame.pack(fill="x", padx=10)
+        labels = [label for _idx, _box, label in options]
+        free = {label: len(self._empty_slots_in(box)) for _idx, box, label in options}
+        current = self.storage.attributes.get("@currentBox", 0)
+        default = next((o for o in options if o[0] == current), options[0])
+        box_var = tk.StringVar(value=default[2])
+        ttk.Label(frame, text="Box:").pack(side="left")
+        ttk.Combobox(frame, textvariable=box_var, values=labels, width=26,
+                     state="readonly").pack(side="left", padx=(4, 8))
+        free_var = tk.StringVar()
+        ttk.Label(frame, textvariable=free_var, foreground="gray").pack(side="left")
+        def refresh(*_a):
+            free_var.set(f"{free.get(box_var.get(), 0)} free")
+        box_var.trace_add("write", refresh); refresh()
+
+        chosen = {}
+        buttons = ttk.Frame(dlg, padding=10); buttons.pack(fill="x", side="bottom")
+        def confirm():
+            chosen["option"] = next((o for o in options if o[2] == box_var.get()), None)
+            dlg.destroy()
+        ttk.Button(buttons, text="Cancel", command=dlg.destroy).pack(side="right")
+        ttk.Button(buttons, text="Use this box", command=confirm).pack(side="right", padx=4)
+        dlg.wait_window()
+        return chosen.get("option")
+
+    def _ask_overflow(self, box_label, fits, remaining, parent=None):
+        """Chosen box is too small: fill it, spread the rest automatically, or stop."""
+        dlg = self._make_popup("Not enough room", "470x190")
+        if parent is not None:
+            dlg.transient(parent)
+        ttk.Label(
+            dlg, padding=(12, 12, 12, 4), justify="left", wraplength=440,
+            text=(f"{box_label} has room for {fits} of {remaining} Pokemon.\n\n"
+                  "Fill it and choose another box for the rest, let the editor place "
+                  "them in the first free slots, or cancel the whole import."),
+        ).pack(fill="x")
+        answer = {}
+        buttons = ttk.Frame(dlg, padding=10); buttons.pack(fill="x", side="bottom")
+        def choose(value):
+            answer["value"] = value; dlg.destroy()
+        ttk.Button(buttons, text="Cancel", command=dlg.destroy).pack(side="right")
+        ttk.Button(buttons, text="Auto choose", command=lambda: choose("auto")).pack(side="right", padx=4)
+        ttk.Button(buttons, text="Fill this box", command=lambda: choose("fill")).pack(side="right")
+        dlg.wait_window()
+        return answer.get("value")
+
+    def _plan_build_placements(self, count, parent=None):
+        """Resolve where `count` Pokemon go before anything is written.
+
+        Returns a list of (list, index) slots, or None when the user cancels.
+        Nothing in the save is touched here, so cancelling costs nothing.
+        """
+        options = self._pc_box_options()
+        if not options:
+            raise ValueError("This save has no PC boxes")
+        taken, placements = set(), []
+        while len(placements) < count:
+            remaining = count - len(placements)
+            option = self._ask_target_box(options, remaining, parent=parent)
+            if option is None:
+                return None
+            _box_idx, box, label = option
+            free = [slot for slot in self._empty_slots_in(box)
+                    if (id(slot[0]), slot[1]) not in taken]
+            if len(free) >= remaining:
+                placements.extend(free[:remaining])
+                break
+            if not free:
+                messagebox.showwarning("Box is full", f"{label} has no free slots.", parent=parent)
+                continue
+            choice = self._ask_overflow(label, len(free), remaining, parent=parent)
+            if choice is None:
+                return None
+            placements.extend(free)
+            taken.update((id(slots), index) for slots, index in free)
+            if choice == "auto":
+                spare = []
+                for _idx, other, _label in options:
+                    for slot in self._empty_slots_in(other):
+                        if (id(slot[0]), slot[1]) not in taken:
+                            spare.append(slot)
+                needed = count - len(placements)
+                if len(spare) < needed:
+                    raise ValueError(
+                        f"Need {needed} more empty PC slots; only {len(spare)} are left")
+                placements.extend(spare[:needed])
+                break
+            taken.update((id(slots), index) for slots, index in placements)
+        return placements
+
+    def _import_builds_to_pc(self, build_texts, parent=None):
+        if not isinstance(self.storage, RubyObject):
+            raise ValueError("This save has no PC storage")
         self._apply_party(); self._apply_boxes()
-        boxes = self.storage.attributes.get("@boxes", [])
-        empty = []
-        for box in boxes if isinstance(boxes, list) else []:
-            if not isinstance(box, RubyObject): continue
-            pokemon = box.attributes.get("@pokemon", [])
-            if isinstance(pokemon, list):
-                empty.extend((pokemon, index) for index, value in enumerate(pokemon) if not isinstance(value, RubyObject))
-        if len(empty) < len(build_texts):
-            raise ValueError(f"Need {len(build_texts)} empty PC slots; only {len(empty)} are available")
+
+        total_free = sum(len(self._empty_slots_in(box))
+                         for _idx, box, _label in self._pc_box_options())
+        if total_free < len(build_texts):
+            raise ValueError(
+                f"Need {len(build_texts)} empty PC slots; only {total_free} are available")
+
+        # Build every Pokemon and resolve every destination before writing, so a
+        # cancel or a parse failure leaves the save exactly as it was.
         created = [self._pokemon_from_build(text) for text in build_texts]
-        for pkmn, (pokemon, index) in zip(created, empty): pokemon[index] = pkmn
+        placements = self._plan_build_placements(len(created), parent=parent)
+        if placements is None:
+            return 0
+
+        for pkmn, (slots, index) in zip(created, placements):
+            slots[index] = pkmn
         self._populate_boxes(); self._fill_trainer()
-        self.status.config(text=f"Imported {len(created)} builds into empty PC slots. Click Save to write.", foreground="blue")
+        self.status.config(
+            text=f"Imported {len(created)} builds into the PC. Click Save to write.",
+            foreground="blue")
         return len(created)
+    def _build_text_from_slot(self, v, trainer: str = "", description: str = "") -> str:
+        """Serialise the Pokemon currently in an editor slot into a build block.
+
+        The inverse of _apply_build_text, so a saved build round-trips back into
+        the same slot values.
+        """
+        if v is None or not isinstance(v.get("_pkmn_obj"), RubyObject):
+            raise ValueError("This slot has no Pokemon to save")
+        try:
+            species_id = int(v["species_id"].get())
+        except (KeyError, ValueError):
+            raise ValueError("This slot has no species set")
+        if species_id not in PKMN_DATA:
+            raise ValueError("This slot's species is not in the bundled data")
+
+        lines = [f"Trainer: {trainer.strip()}"] if trainer.strip() else []
+        lines.append(f"Species: {PKMN_DATA[species_id].get('name', species_id)}")
+        if description.strip():
+            lines.append(f"Description: {description.strip()}")
+        nickname = v["nickname"].get().strip() if "nickname" in v else ""
+        if nickname and nickname.casefold() != PKMN_DATA[species_id].get("name", "").casefold():
+            lines.append(f"Nickname: {nickname}")
+        lines.append(f"Level: {v['level'].get().strip() or '100'}")
+        lines.append(f"Nature: {v['nature_idx'].get().split(' (')[0].strip() or 'Hardy'}")
+        ability = v["ability_slot"].get().split(" (")[0].strip() if "ability_slot" in v else ""
+        if ability:
+            lines.append(f"Ability: {ability}")
+
+        ivs = [v["iv_" + stat.lower()].get().strip() or "0" for stat in STATS]
+        lines.append("IVs: " + "/".join(ivs))
+        evs = []
+        for stat in STATS:
+            value = int(v["ev_" + stat.lower()].get().strip() or 0)
+            if value:
+                evs.append(f"{value} {stat}")
+        lines.append("EVs: " + (" / ".join(evs) if evs else "0 HP"))
+
+        lines.append("Moves:")
+        for index in range(4):
+            try:
+                move_id = int(v[f"move{index}"].get() or 0)
+            except (KeyError, ValueError):
+                continue
+            if move_id in MOVE_DATA:
+                lines.append(f"- {MOVE_DATA[move_id]['name']}")
+
+        try:
+            item_id = item_picker_id(int(v["item"].get() or 0))
+        except (KeyError, ValueError):
+            item_id = 0
+        item_name = ITEM_DATA.get(item_id, {}).get("name", "")
+        if item_name:
+            lines.append(f"Item: {item_name}")
+        happiness = v["happiness"].get().strip() if "happiness" in v else ""
+        lines.append(f"Happiness: {happiness or '0'}")
+        return "\n".join(lines)
+
+    def _ask_build_details(self, default_trainer: str, parent=None):
+        """Ask for the Trainer and Description a saved build should carry."""
+        dlg = self._make_popup("Save build to library", "440x210")
+        if parent is not None:
+            dlg.transient(parent)
+        ttk.Label(dlg, text="Who owns this build, and how would you describe it?",
+                  padding=(12, 12, 12, 6), wraplength=410, justify="left").pack(fill="x")
+        form = ttk.Frame(dlg, padding=(12, 0)); form.pack(fill="x")
+        form.columnconfigure(1, weight=1)
+        trainer_var = tk.StringVar(value=default_trainer)
+        description_var = tk.StringVar()
+        ttk.Label(form, text="Trainer:", width=11, anchor="e").grid(row=0, column=0, sticky="e", pady=3)
+        ttk.Entry(form, textvariable=trainer_var).grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        ttk.Label(form, text="Description:", width=11, anchor="e").grid(row=1, column=0, sticky="e", pady=3)
+        ttk.Entry(form, textvariable=description_var).grid(row=1, column=1, sticky="ew", padx=(6, 0))
+        ttk.Label(dlg, text="Leave Trainer blank for a wild build.", foreground="gray",
+                  padding=(12, 6)).pack(anchor="w")
+
+        answer = {}
+        buttons = ttk.Frame(dlg, padding=10); buttons.pack(fill="x", side="bottom")
+        def confirm():
+            answer["trainer"] = trainer_var.get()
+            answer["description"] = description_var.get()
+            dlg.destroy()
+        ttk.Button(buttons, text="Cancel", command=dlg.destroy).pack(side="right")
+        ttk.Button(buttons, text="Save", command=confirm).pack(side="right", padx=4)
+        dlg.wait_window()
+        return (answer.get("trainer"), answer.get("description")) if answer else (None, None)
+
+    def _render_build_info(self, parent, build_text: str):
+        """Rebuild the read-only Info tab for one build block."""
+        for child in parent.winfo_children():
+            child.destroy()
+        summary = build_summary(build_text)
+        species_id = summary["species_id"]
+        if not species_id:
+            ttk.Label(parent, text="This block names no species the game knows.",
+                      foreground="gray").pack(anchor="w", padx=8, pady=8)
+            return
+
+        fields = _build_fields(build_text)
+        ttk.Label(parent, text=build_title(build_text), font=("", 12, "bold")).pack(
+            anchor="center", pady=(8, 2))
+        ttk.Label(parent, text=f"{summary['tier']}  ·  {summary['style']}",
+                  foreground="gray").pack(anchor="center")
+
+        sprite = self._load_pokemon_sprite(species_id, 0, max_size=96)
+        sprite_label = ttk.Label(parent, image=sprite if sprite else "",
+                                 text="" if sprite else "(no sprite)", anchor="center")
+        sprite_label.image = sprite
+        sprite_label.pack(anchor="center", pady=4)
+        if summary["description"]:
+            ttk.Label(parent, text=summary["description"], foreground="gray",
+                      wraplength=380, justify="center").pack(anchor="center", pady=(0, 6))
+
+        grid = ttk.Frame(parent, padding=(10, 0))
+        grid.pack(fill="x")
+        grid.columnconfigure(1, weight=1)
+        row = 0
+        for label, value in (
+            ("Level", fields.get("level", "-")),
+            ("Nature", fields.get("nature", "-")),
+            ("Ability", fields.get("ability", "-")),
+            ("Item", fields.get("item", "-")),
+            ("Happiness", fields.get("happiness", "-")),
+        ):
+            ttk.Label(grid, text=f"{label}:", width=11, anchor="e").grid(row=row, column=0, sticky="e")
+            ttk.Label(grid, text=value or "-", anchor="w").grid(row=row, column=1, sticky="w", padx=(6, 0))
+            row += 1
+
+        ivs, evs = _build_ivs_evs(fields)
+        digits = re.sub(r"\D", "", fields.get("level", "")) or "100"
+        level = min(MAX_LEVEL, max(1, int(digits)))
+        nature_index = next((i for i, name in enumerate(NATURES)
+                             if name.casefold() == fields.get("nature", "").casefold()), 0)
+        stats = calculate_pokemon_stats(species_id, 0, level, nature_index, ivs, evs)
+
+        table = ttk.Frame(parent, padding=(10, 8))
+        table.pack(fill="x")
+        for column, heading in enumerate(("", *STATS)):
+            ttk.Label(table, text=heading, width=6, anchor="center",
+                      font=("", 8, "bold")).grid(row=0, column=column)
+        for line, values in (("IVs", ivs), ("EVs", evs), ("Stats", stats)):
+            record = 1 + ("IVs", "EVs", "Stats").index(line)
+            ttk.Label(table, text=line, width=6, anchor="e").grid(row=record, column=0, sticky="e")
+            for column, value in enumerate(values, start=1):
+                ttk.Label(table, text=str(value), width=6, anchor="center").grid(row=record, column=column)
+
+        moves = ttk.LabelFrame(parent, text="Moves", padding=6)
+        moves.pack(fill="both", expand=True, padx=10, pady=(4, 10))
+        move_ids = _build_move_ids(build_text)
+        if not move_ids:
+            ttk.Label(moves, text="No moves listed.", foreground="gray").pack(anchor="w")
+        for move_id in move_ids:
+            data = MOVE_DATA.get(move_id, {})
+            power = data.get("power", 0)
+            detail = f"{data.get('type', '?')} · {data.get('category', '?')}"
+            detail += f" · {power} pow" if power else " · status"
+            if data.get("name") in MOVE_UTILITY_VALUE:
+                detail += " · utility"
+            line = ttk.Frame(moves)
+            line.pack(fill="x")
+            ttk.Label(line, text=data.get("name", f"#{move_id}"), width=18, anchor="w").pack(side="left")
+            ttk.Label(line, text=detail, foreground="gray", anchor="w").pack(side="left")
 
     def _open_build_dialog(self, v=None):
-        win = self._make_popup("Pokémon Build Library", "920x640", resizable=(True, True))
+        win = self._make_popup("Pokemon Build Library", "1120x680", resizable=(True, True))
         body = ttk.Frame(win, padding=10); body.pack(fill="both", expand=True)
-        body.columnconfigure(0, weight=1, uniform="build_panes"); body.columnconfigure(1, weight=1, uniform="build_panes"); body.rowconfigure(2, weight=1)
+        body.columnconfigure(0, weight=3, minsize=560); body.columnconfigure(1, weight=2, minsize=380)
+        body.rowconfigure(2, weight=1)
+
+        # Opened from a Pokemon's own button: offer that Pokemon as an unsaved
+        # build sitting at the top of the list until it is added to the library.
+        pending = {"text": None}
+        if v is not None and isinstance(v.get("_pkmn_obj"), RubyObject):
+            try:
+                pending["text"] = self._build_text_from_slot(v)
+            except ValueError:
+                pending["text"] = None
+
         filters = ttk.Frame(body); filters.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
         ttk.Label(filters, text="Tier:").pack(side="left")
         tier_var = tk.StringVar(value="All")
-        ttk.Combobox(filters, textvariable=tier_var, values=["All", *BUILD_TIERS], width=10, state="readonly").pack(side="left", padx=(4, 14))
+        ttk.Combobox(filters, textvariable=tier_var, values=["All", *BUILD_TIERS], width=8,
+                     state="readonly").pack(side="left", padx=(4, 14))
         ttk.Label(filters, text="Search:").pack(side="left")
         search_var = tk.StringVar(); ttk.Entry(filters, textvariable=search_var, width=30).pack(side="left", padx=4)
         count_var = tk.StringVar(); ttk.Label(filters, textvariable=count_var, foreground="gray").pack(side="left", padx=8)
         ttk.Label(body, text="Builds (Ctrl/Shift selects several for PC import):").grid(row=1, column=0, sticky="w")
-        ttk.Label(body, text="Editable set text:").grid(row=1, column=1, sticky="w", padx=(8, 0))
 
-        list_frame = ttk.Frame(body); list_frame.grid(row=2, column=0, sticky="nsew", padx=(0, 4), pady=4)
+        list_frame = ttk.Frame(body); list_frame.grid(row=2, column=0, sticky="nsew", padx=(0, 6), pady=4)
         list_frame.rowconfigure(0, weight=1); list_frame.columnconfigure(0, weight=1)
-        library = ttk.Treeview(list_frame, columns=("tier", "species", "set"), show="headings", selectmode="extended")
-        library.column("tier", width=55, minwidth=45, stretch=False, anchor="center")
-        library.column("species", width=150, minwidth=100, stretch=True, anchor="w")
-        library.column("set", width=170, minwidth=100, stretch=True, anchor="w")
-        list_scroll = ttk.Scrollbar(list_frame, orient="vertical", command=library.yview); library.configure(yscrollcommand=list_scroll.set)
+        columns = ("tier", "trainer", "species", "style", "description")
+        library = ttk.Treeview(list_frame, columns=columns, show="headings", selectmode="extended")
+        for name, width, anchor, stretch in (
+            ("tier", 38, "center", False), ("trainer", 76, "w", False),
+            ("species", 88, "w", True), ("style", 116, "w", False),
+            ("description", 150, "w", True),
+        ):
+            library.column(name, width=width, minwidth=34, anchor=anchor, stretch=stretch)
+        list_scroll = ttk.Scrollbar(list_frame, orient="vertical", command=library.yview)
+        library.configure(yscrollcommand=list_scroll.set)
         library.grid(row=0, column=0, sticky="nsew"); list_scroll.grid(row=0, column=1, sticky="ns")
 
-        edit_frame = ttk.Frame(body); edit_frame.grid(row=2, column=1, sticky="nsew", padx=(4, 0), pady=4)
-        edit_frame.rowconfigure(0, weight=1); edit_frame.columnconfigure(0, weight=1)
-        editor = tk.Text(edit_frame, width=46, height=26, wrap="word")
-        edit_scroll = ttk.Scrollbar(edit_frame, orient="vertical", command=editor.yview); editor.configure(yscrollcommand=edit_scroll.set)
-        editor.grid(row=0, column=0, sticky="nsew"); edit_scroll.grid(row=0, column=1, sticky="ns")
+        # Right pane: Info first, the raw block behind it.
+        tabs = ttk.Notebook(body); tabs.grid(row=2, column=1, sticky="nsew", pady=4)
+        info_outer = ttk.Frame(tabs); raw_outer = ttk.Frame(tabs)
+        tabs.add(info_outer, text=" Info "); tabs.add(raw_outer, text=" Raw text ")
 
-        def header_parts(header):
-            species, _, set_name = header.partition(" — ")
-            return species.strip(), set_name.strip()
-        # BUILD_LIBRARY is static, so derive each tier once rather than per redraw.
-        tiers = [build_tier(text) for _header, text in BUILD_LIBRARY]
+        info_canvas = tk.Canvas(info_outer, highlightthickness=0, borderwidth=0, width=380)
+        info_scroll = ttk.Scrollbar(info_outer, orient="vertical", command=info_canvas.yview)
+        info_frame = ttk.Frame(info_canvas)
+        info_frame.bind("<Configure>", lambda _e: info_canvas.configure(scrollregion=info_canvas.bbox("all")))
+        info_window = info_canvas.create_window((0, 0), window=info_frame, anchor="nw")
+        info_canvas.bind("<Configure>", lambda e: info_canvas.itemconfigure(info_window, width=e.width))
+        info_canvas.configure(yscrollcommand=info_scroll.set)
+        info_canvas.pack(side="left", fill="both", expand=True); info_scroll.pack(side="right", fill="y")
+
+        editor = tk.Text(raw_outer, wrap="word", height=10, undo=True)
+        raw_scroll = ttk.Scrollbar(raw_outer, orient="vertical", command=editor.yview)
+        editor.configure(yscrollcommand=raw_scroll.set)
+        editor.pack(side="left", fill="both", expand=True); raw_scroll.pack(side="right", fill="y")
+
+        # Entry 0 is the unsaved Pokemon, when there is one; the rest mirror the
+        # library.  Summaries are derived once per rebuild, not per redraw.
+        entries, summaries = [], []
+        def rebuild_entries():
+            entries[:] = ([pending["text"]] if pending["text"] else []) + list(BUILD_LIBRARY)
+            summaries[:] = [build_summary(text) for text in entries]
+            if pending["text"]:
+                summaries[0] = dict(summaries[0], description="(unregistered - not in library)")
+        rebuild_entries()
+
+        def current_text():
+            return editor.get("1.0", "end").strip()
+
+        def refresh_info(*_args):
+            self._render_build_info(info_frame, current_text())
+
         def show_selected(_event=None):
             selected = library.selection()
-            if selected: editor.delete("1.0", "end"); editor.insert("1.0", BUILD_LIBRARY[int(selected[0])][1])
+            if selected:
+                editor.delete("1.0", "end")
+                editor.insert("1.0", entries[int(selected[0])])
+            refresh_info()
+
         tier_rank = {name: index for index, name in enumerate(BUILD_TIERS)}
         sort_state = {"col": "tier", "reverse": False}
         def set_sort(col):
             if sort_state["col"] == col: sort_state["reverse"] = not sort_state["reverse"]
             else: sort_state.update(col=col, reverse=False)
             refresh_library()
+
         def refresh_library(*_args):
-            query, tier = search_var.get().casefold().strip(), tier_var.get(); previous = set(library.selection()); rows = []
-            for index, (header, build_text) in enumerate(BUILD_LIBRARY):
-                row_tier = tiers[index]
-                species, set_name = header_parts(header)
-                if tier != "All" and row_tier != tier: continue
-                if query and query not in (header + " " + build_text).casefold(): continue
-                rows.append((index, row_tier, species, set_name))
+            query, tier = search_var.get().casefold().strip(), tier_var.get()
+            previous = set(library.selection()); rows = []
+            for index, summary in enumerate(summaries):
+                if tier != "All" and summary["tier"] != tier: continue
+                haystack = " ".join((summary["trainer"], summary["species_name"],
+                                     summary["style"], summary["description"],
+                                     entries[index])).casefold()
+                if query and query not in haystack: continue
+                rows.append((index, summary))
             col = sort_state["col"]
             def key(row):
-                if col == "tier": return (tier_rank.get(row[1], 99), row[2].casefold(), row[3].casefold())
-                if col == "species": return (row[2].casefold(), row[3].casefold())
-                return (row[3].casefold(), row[2].casefold())
+                summary = row[1]
+                if col == "tier":
+                    return (tier_rank.get(summary["tier"], 99),
+                            summary["species_name"].casefold())
+                return (str(summary[{"trainer": "trainer", "species": "species_name",
+                                     "style": "style", "description": "description"}[col]]).casefold(),
+                        summary["species_name"].casefold())
             rows.sort(key=key, reverse=sort_state["reverse"])
+            if pending["text"]:
+                rows.sort(key=lambda row: row[0] != 0)
             library.delete(*library.get_children())
-            for heading, label in (("tier", "Tier"), ("species", "Species"), ("set", "Set")):
+            for heading, label in (("tier", "Tier"), ("trainer", "Trainer"),
+                                   ("species", "Species"), ("style", "Style"),
+                                   ("description", "Description")):
                 indicator = (" ▼" if sort_state["reverse"] else " ▲") if heading == col else ""
-                library.heading(heading, text=label + indicator, command=lambda c=heading: set_sort(c))
-            for index, row_tier, species, set_name in rows: library.insert("", "end", iid=str(index), values=(row_tier, species, set_name))
-            count_var.set(f"{len(rows)} of {len(BUILD_LIBRARY)} builds")
+                library.heading(heading, text=label + indicator,
+                                command=lambda c=heading: set_sort(c))
+            for index, summary in rows:
+                library.insert("", "end", iid=str(index),
+                               values=(summary["tier"], summary["trainer"],
+                                       summary["species_name"], summary["style"],
+                                       summary["description"]))
+            count_var.set(f"{len(rows)} of {len(entries)} builds")
             restored = [iid for iid in previous if library.exists(iid)]
-            if restored: library.selection_set(restored); library.see(restored[0]); show_selected()
-            elif library.get_children(): first=library.get_children()[0]; library.selection_set(first); library.see(first); show_selected()
-            else: editor.delete("1.0", "end")
-        library.bind("<<TreeviewSelect>>", show_selected); tier_var.trace_add("write", refresh_library); search_var.trace_add("write", refresh_library); refresh_library()
-        ttk.Label(body, text="Edit freely. Separate pasted builds with a line containing ---.", foreground="gray").grid(row=3, column=0, columnspan=2, sticky="w")
+            if restored:
+                library.selection_set(restored); library.see(restored[0]); show_selected()
+            elif library.get_children():
+                first = library.get_children()[0]
+                library.selection_set(first); library.see(first); show_selected()
+            else:
+                editor.delete("1.0", "end"); refresh_info()
+
+        library.bind("<<TreeviewSelect>>", show_selected)
+        tier_var.trace_add("write", refresh_library); search_var.trace_add("write", refresh_library)
+        # Editing the raw block is the source of truth; Info re-renders from it.
+        tabs.bind("<<NotebookTabChanged>>", lambda _e: refresh_info())
+        refresh_library()
+
+        ttk.Label(body, text="Edit the raw block freely. Separate pasted builds with a line containing ---.",
+                  foreground="gray").grid(row=3, column=0, columnspan=2, sticky="w")
         row = ttk.Frame(win, padding=10); row.pack(fill="x")
         def safe(action):
             try: action()
             except Exception as exc: messagebox.showerror("Build error", str(exc), parent=win)
-        def apply_current(): self._apply_build_text(v, editor.get("1.0", "end")); win.destroy()
+        def apply_current(): self._apply_build_text(v, current_text()); win.destroy()
         def import_selected():
-            texts = [BUILD_LIBRARY[int(iid)][1] for iid in library.selection()]
+            texts = [entries[int(iid)] for iid in library.selection()]
             if not texts: raise ValueError("Select one or more library builds")
-            if not messagebox.askyesno("Import builds", f"Create {len(texts)} Pokémon in the first empty PC slots?", parent=win): return
-            count=self._import_builds_to_pc(texts); messagebox.showinfo("Builds imported", f"Created {count} Pokémon. Click Save to write the save file.", parent=win)
+            count = self._import_builds_to_pc(texts, parent=win)
+            if count:
+                messagebox.showinfo("Builds imported",
+                                    f"Created {count} Pokemon. Click Save to write the save file.",
+                                    parent=win)
         def import_text():
-            blocks=[block.strip() for block in re.split(r"^---\s*$", editor.get("1.0", "end"), flags=re.MULTILINE) if block.strip()]
-            if not messagebox.askyesno("Import builds", f"Create {len(blocks)} Pokémon in the first empty PC slots?", parent=win): return
-            count=self._import_builds_to_pc(blocks); messagebox.showinfo("Builds imported", f"Created {count} Pokémon. Click Save to write the save file.", parent=win)
+            blocks = [block.strip() for block in re.split(r"^---\s*$", current_text(), flags=re.MULTILINE)
+                      if block.strip()]
+            if not blocks: raise ValueError("There is no build text to import")
+            count = self._import_builds_to_pc(blocks, parent=win)
+            if count:
+                messagebox.showinfo("Builds imported",
+                                    f"Created {count} Pokemon. Click Save to write the save file.",
+                                    parent=win)
+        def save_to_library():
+            text = current_text()
+            if not build_summary(text)["species_id"]:
+                raise ValueError("This block names no species the game knows")
+            default_trainer = ds(self.trainer.attributes.get("@name", b"")) if self.trainer else ""
+            trainer, description = self._ask_build_details(default_trainer, parent=win)
+            if trainer is None:
+                return
+            fields = _build_fields(text)
+            kept = [line for line in text.splitlines()
+                    if line.split(":")[0].strip().casefold() not in ("trainer", "description")]
+            block = []
+            if trainer.strip():
+                block.append(f"Trainer: {trainer.strip()}")
+            block.append(f"Species: {fields.get('species', '')}")
+            if description.strip():
+                block.append(f"Description: {description.strip()}")
+            block += [line for line in kept
+                      if line.split(":")[0].strip().casefold() != "species"]
+            path = append_user_build("\n".join(block))
+            pending["text"] = None
+            rebuild_entries(); refresh_library()
+            messagebox.showinfo("Saved to library",
+                                f"Build added to your library.\n{path}", parent=win)
+
         ttk.Button(row, text="Close", command=win.destroy).pack(side="right")
         if v is not None: ttk.Button(row, text="Apply to Current", command=lambda: safe(apply_current)).pack(side="right", padx=4)
+        if pending["text"]:
+            ttk.Button(row, text="Save to Library", command=lambda: safe(save_to_library)).pack(side="left", padx=(0, 4))
         ttk.Button(row, text="Import Text Blocks to PC", command=lambda: safe(import_text)).pack(side="left", padx=4)
         ttk.Button(row, text="Import Selected Builds to PC", command=lambda: safe(import_selected)).pack(side="left", padx=4)
-    # ── shadow Pokemon ────────────────────────────────────────────────────────
-
     def _sync_slot_vars_from_obj(self, v):
         """Re-read the fields the shadow dialog can rewrite behind the UI's back.
 
