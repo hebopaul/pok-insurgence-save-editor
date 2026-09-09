@@ -4,7 +4,8 @@ Pokemon Insurgence Save Editor
 """
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import os, shutil, re, sys, time, copy
+import os, shutil, re, sys, time, copy, tempfile
+from datetime import datetime
 
 from rubymarshal.reader import loads
 from rubymarshal.writer import writes
@@ -64,6 +65,7 @@ def get_latest_save_file() -> str:
 DEFAULT_SAVE_DIR = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
 
 STATS   = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]
+MAX_LEVEL = 120
 # The editor displays stats in the conventional order above, but Essentials'
 # saved @iv/@ev arrays follow the dex/base-stat order:
 # HP, Attack, Defense, Speed, Special Attack, Special Defense.
@@ -124,12 +126,34 @@ FROZEN_STATUS_ID = 5
 EV_PRESETS = {
     "Fresh / zero EVs": [0, 0, 0, 0, 0, 0],
     "Balanced": [85, 85, 85, 85, 85, 85],
-    "Physical attacker": [4, 252, 0, 0, 0, 252],
-    "Special attacker": [4, 0, 0, 252, 0, 252],
-    "Bulky physical": [252, 252, 4, 0, 0, 0],
-    "Bulky special": [252, 0, 0, 252, 4, 0],
+    "Physical attacker": [6, 252, 0, 0, 0, 252],
+    "Special attacker": [6, 0, 0, 252, 0, 252],
+    "Bulky physical": [252, 252, 6, 0, 0, 0],
+    "Bulky special": [252, 0, 0, 252, 6, 0],
     "Custom": [0, 0, 0, 0, 0, 0],
 }
+# Ball indices come from $BallTypes in the game's PokemonBalls script; Insurgence
+# both reorders the vanilla list (2/3/4 are Safari/Ultra/Master, not Ultra/Master/
+# Safari) and appends its own balls.  Icons reuse the bundled item graphics via
+# BALL_ITEM_IDS, so no separate ball sprites are needed.
+BALL_NAMES = {
+    0: "Poké Ball", 1: "Great Ball", 2: "Safari Ball", 3: "Ultra Ball",
+    4: "Master Ball", 5: "Net Ball", 6: "Dive Ball", 7: "Nest Ball",
+    8: "Repeat Ball", 9: "Timer Ball", 10: "Luxury Ball", 11: "Premier Ball",
+    12: "Dusk Ball", 13: "Heal Ball", 14: "Quick Ball", 15: "Cherish Ball",
+    16: "Fast Ball", 17: "Level Ball", 18: "Lure Ball", 19: "Heavy Ball",
+    20: "Love Ball", 21: "Friend Ball", 22: "Moon Ball", 23: "Sport Ball",
+    24: "Nuzlocke Ball", 25: "Ancient Ball", 26: "Delta Ball", 27: "Snore Ball",
+    28: "Shiny Ball", 29: "Sync Ball", 30: "Master Ball (alt)",
+}
+# Ball index -> the item's raw save ID, for the icon only.  29 has no item.
+BALL_ITEM_IDS = {
+    0: 535, 1: 533, 2: 537, 3: 531, 4: 529, 5: 541, 6: 543, 7: 545,
+    8: 547, 9: 549, 10: 551, 11: 553, 12: 555, 13: 557, 14: 559, 15: 561,
+    16: 563, 17: 565, 18: 567, 19: 569, 20: 571, 21: 573, 22: 575, 23: 539,
+    24: 1105, 25: 1639, 26: 1641, 27: 1635, 28: 1643, 30: 1715,
+}
+BALL_CHOICES = [f"{ball_id} — {name}" for ball_id, name in BALL_NAMES.items()]
 EV_TRAINING_LEVELS = {
     "Adapted": None,  # selected level / 100
     "Weak": 0.10,
@@ -145,11 +169,11 @@ POKEMON_TYPES = [
 PKMN_STAGE_LIST  = ["All", "Baby", "1", "2", "3"]
 PKMN_RARITY_LIST = ["All", "Common", "Legendary", "Mythical"]
 def _exp_for_level(growth: str, level: int) -> int:
-    n = level
+    n = min(MAX_LEVEL, max(1, int(level)))
     if growth == "fast":
         return 4 * n**3 // 5
     elif growth == "medium-slow":
-        return max(0, int(6 * n**3 / 5 - 15 * n**2 / 4 + 100 * n / 3 - 140))
+        return max(0, int(6 * n**3 / 5 - 15 * n**2 + 100 * n - 140))
     elif growth == "slow":
         return 5 * n**3 // 4
     elif growth == "erratic":
@@ -163,6 +187,69 @@ def _exp_for_level(growth: str, level: int) -> int:
         else:         return n**3 * (n // 2 + 32) // 50
     else:  # medium-fast (default)
         return n**3
+
+def _level_for_exp(growth: str, exp: int) -> int:
+    """Return the greatest supported level whose threshold does not exceed EXP."""
+    try:
+        value = max(0, int(exp))
+    except (TypeError, ValueError):
+        value = 0
+    lo, hi = 1, MAX_LEVEL
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if _exp_for_level(growth, mid) <= value:
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+_NATURE_STATS = ["Atk", "Def", "Spe", "SpA", "SpD"]
+
+def nature_display_name(index: int) -> str:
+    index = max(0, min(24, int(index)))
+    name = NATURES[index]
+    raised, lowered = index // 5, index % 5
+    if raised == lowered:
+        return f"{name} (neutral)"
+    return f"{name} (+{_NATURE_STATS[raised]}, -{_NATURE_STATS[lowered]})"
+
+NATURE_CHOICES = [nature_display_name(i) for i in range(len(NATURES))]
+
+def nature_index_from_value(value, default: int = 0) -> int:
+    text = str(value or "").strip()
+    for index, label in enumerate(NATURE_CHOICES):
+        if text == label or text == NATURES[index]:
+            return index
+    try:
+        return max(0, min(24, int(text)))
+    except ValueError:
+        return max(0, min(24, int(default)))
+
+def calculate_pokemon_stats(species_id: int, form_id: int, level: int,
+                            nature_index: int, display_ivs, display_evs) -> list:
+    """Calculate HP, Atk, Def, SpA, SpD and Spe using Essentials' formulas."""
+    level = min(MAX_LEVEL, max(1, int(level)))
+    base = pokemon_base_stats(int(species_id), int(form_id))
+    ivs = [min(31, max(0, int(v))) for v in list(display_ivs)[:6]]
+    evs = [min(252, max(0, int(v))) for v in list(display_evs)[:6]]
+    ivs += [0] * (6 - len(ivs)); evs += [0] * (6 - len(evs))
+    hp = (2 * base[0] + ivs[0] + evs[0] // 4) * level // 100 + level + 10
+    result = [hp]
+    nature_indices = [0, 1, 3, 4, 2]
+    for i, game_index in zip(range(1, 6), nature_indices):
+        raw = (2 * base[i] + ivs[i] + evs[i] // 4) * level // 100 + 5
+        result.append(raw * _nature_stat_multiplier(nature_index, game_index) // 100)
+    return result
+
+def move_max_pp(move_id: int, pp_ups: int = 0) -> int:
+    """Return the game's maximum PP for 0–3 applied PP Ups."""
+    base = max(0, int(MOVE_DATA.get(int(move_id), {}).get("pp", 0)))
+    ups = min(3, max(0, int(pp_ups)))
+    return base * (5 + ups) // 5
+
+def timestamped_backup_path(path: str, now=None) -> str:
+    stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S-%f")
+    return f"{path}.{stamp}.bak"
 
 def _default_level(stage: str, rarity: str) -> int:
     if rarity in ("Legendary", "Mythical"):
@@ -516,6 +603,56 @@ MOVE_DATA        = _load_move_data()
 LEARNSET_DATA    = _load_learnset_data()
 SHADOW_MOVE_DATA = _load_shadow_move_data()
 
+def species_id_from_text(value) -> int:
+    """Resolve "25", "Pikachu" or "25 - Pikachu" to a species ID, else 0."""
+    text = str(value or "").strip()
+    match = re.match(r"^(\d+)", text)
+    if match and int(match.group(1)) in PKMN_DATA:
+        return int(match.group(1))
+    folded = text.casefold()
+    return next((sid for sid, data in PKMN_DATA.items()
+                 if data.get("name", "").casefold() == folded), 0)
+
+# Build tiers are derived from the species' base stat total, so the library never
+# carries a hand-maintained ranking.  Insurgence has no official competitive
+# ladder, and a stored tier would only go stale as builds are edited.
+BUILD_TIERS = ("S", "A+", "A", "B+", "B", "C")
+_BUILD_TIER_CUTS = ((640, "S"), (580, "A+"), (530, "A"), (490, "B+"), (450, "B"))
+
+def build_tier_for_species(species_id: int, form_id: int = 0) -> str:
+    total = sum(pokemon_base_stats(int(species_id), int(form_id)))
+    for cutoff, label in _BUILD_TIER_CUTS:
+        if total >= cutoff:
+            return label
+    return "C"
+
+def build_tier(build_text: str) -> str:
+    """Tier of a build block, from the species named in its Species: line."""
+    match = re.search(r"^Species:\s*(.+)$", str(build_text), re.M)
+    species_id = species_id_from_text(match.group(1)) if match else 0
+    return build_tier_for_species(species_id) if species_id else "?"
+
+def _load_build_library():
+    path = resource_path("pokemon_builds.txt")
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as stream:
+        raw = stream.read()
+    builds = []
+    for block in re.split(r"^---\s*$", raw, flags=re.MULTILINE):
+        lines = [line.rstrip() for line in block.splitlines()
+                 if line.strip() and not line.lstrip().startswith("#")]
+        if not lines:
+            continue
+        header = re.sub(r"^\[[^]]*\]\s*", "", lines[0].strip())   # legacy [Tier] prefix
+        if not header or ":" in header:      # a bare field block has no display name
+            continue
+        lines.pop(0)
+        builds.append((header, "\n".join(lines).strip()))
+    return builds
+
+BUILD_LIBRARY = _load_build_library()
+
 def pokemon_base_stats(species_id: int, form_id: int = 0) -> list:
     """Return HP/Atk/Def/SpA/SpD/Spe, honoring form script overrides."""
     override = FORM_OVERRIDE_DATA.get((species_id, form_id), {}).get("stats")
@@ -545,7 +682,7 @@ def recommended_creation_move_ids(learnset: list, level: int,
     remaining Status move. A slot is omitted when it has no valid candidate.
     """
     data = MOVE_DATA if move_data is None else move_data
-    level = max(1, min(100, int(level)))
+    level = max(1, min(MAX_LEVEL, int(level)))
 
     # Keep the latest eligible occurrence of a move. The source position makes
     # same-level support-move ties deterministic and follows learnset order.
@@ -1464,10 +1601,14 @@ class Editor(tk.Tk):
         self.bag_rows   = []
         self.box_vars   = {}
         self._box_tab_meta = {}
+        self._box_render_order = []
         self._suspend_box_render = False
         self._scroll_canvases: set = set()
         self._pokemon_sprite_cache = {}
+        self._species_choices = tuple(self._species_label(sid) for sid in sorted(PKMN_DATA))
+        self._move_choices = tuple(f"{mid} — {data.get('name', 'Unknown')}" for mid, data in sorted(MOVE_DATA.items()))
         self._item_icon_cache = {}
+        self._ball_icon_cache = {}
         self._info_buttons = []
         self._theme = "dark"
         self._palette = {}
@@ -1478,6 +1619,130 @@ class Editor(tk.Tk):
         self.bind_all("<Shift-MouseWheel>", lambda e: self._on_mousewheel(e, horizontal=True))
         if os.path.exists(self.save_path):
             self._do_load(self.save_path)
+
+    def _make_search_combo(self, parent, variable, choices, on_select, width=28):
+        """Editable ttk combo with case-insensitive name/ID filtering."""
+        combo = ttk.Combobox(parent, textvariable=variable, values=(), width=width)
+        combo._all_choices = tuple(choices)
+        def filter_values(_event=None):
+            query = variable.get().strip().casefold()
+            combo.configure(values=[c for c in combo._all_choices if query in c.casefold()][:250] or combo._all_choices)
+        def commit(_event=None):
+            on_select(variable.get())
+        combo.bind('<KeyRelease>', filter_values)
+        combo.bind('<Button-1>', filter_values)
+        combo.bind('<<ComboboxSelected>>', commit)
+        combo.bind('<Return>', commit)
+        combo.bind('<FocusOut>', commit)
+        return combo
+
+    def _species_label(self, species_id: int) -> str:
+        return f"{species_id} — {PKMN_DATA.get(species_id, {}).get('name', 'Unknown')}"
+
+    def _species_from_text(self, value) -> int:
+        return species_id_from_text(value)
+
+    def _manual_species_changed(self, v):
+        if v.get("_syncing"): return
+        try: species_id = int(v["species_id"].get())
+        except (ValueError, KeyError): return
+        if species_id not in PKMN_DATA: return
+        if "species_search" in v: v["species_search"].set(self._species_label(species_id))
+        self._refresh_form_options(v)
+        self._set_ability_value(v)
+        self._schedule_recalculate(v, full_heal=True)
+
+    def _select_species(self, v, value):
+        species_id = self._species_from_text(value)
+        if not species_id:
+            return
+        v['_syncing'] = True
+        try:
+            v['species_id'].set(str(species_id))
+            v['species_search'].set(self._species_label(species_id))
+        finally:
+            v['_syncing'] = False
+        self._refresh_form_options(v)
+        self._set_ability_value(v)
+        self._schedule_recalculate(v, full_heal=True)
+
+    def _select_move_text(self, v, index: int, value):
+        text = str(value or "").strip()
+        match = re.match(r"^(\d+)", text)
+        move_id = int(match.group(1)) if match else 0
+        if not move_id:
+            folded = text.casefold()
+            move_id = next((mid for mid, data in MOVE_DATA.items()
+                            if data.get("name", "").casefold() == folded), 0)
+        if move_id in MOVE_DATA:
+            self._update_move_vars(v, index, move_id)
+            v[f"move{index}_search"].set(f"{move_id} — {MOVE_DATA[move_id].get('name', 'Unknown')}")
+
+    def _schedule_recalculate(self, v, full_heal=False):
+        if v.get('_syncing'):
+            return
+        v['_pending_full_heal'] = v.get('_pending_full_heal', False) or full_heal
+        pending = v.pop('_recalc_after', None)
+        if pending:
+            try: self.after_cancel(pending)
+            except tk.TclError: pass
+        v['_recalc_after'] = self.after_idle(lambda vv=v: self._recalculate_stats(vv, vv.pop('_pending_full_heal', False)))
+
+    def _sync_level_from_exp(self, v):
+        if v.get('_syncing'): return
+        try:
+            species_id = int(v['species_id'].get() or 0)
+            growth = PKMN_DATA.get(species_id, {}).get('growth', 'medium-fast')
+            level = _level_for_exp(growth, int(v['exp'].get() or 0))
+        except ValueError:
+            return
+        v['_syncing'] = True
+        try: v['level'].set(str(level))
+        finally: v['_syncing'] = False
+        self._schedule_recalculate(v)
+
+    def _sync_exp_from_level(self, v):
+        if v.get('_syncing'): return
+        try:
+            species_id = int(v['species_id'].get() or 0)
+            level = min(MAX_LEVEL, max(1, int(v['level'].get())))
+            growth = PKMN_DATA.get(species_id, {}).get('growth', 'medium-fast')
+        except ValueError:
+            return
+        v['_syncing'] = True
+        try:
+            v['level'].set(str(level))
+            v['exp'].set(str(_exp_for_level(growth, level)))
+        finally: v['_syncing'] = False
+        self._schedule_recalculate(v, full_heal=True)
+
+    def _recalculate_stats(self, v, full_heal=True):
+        v.pop('_recalc_after', None)
+        if v.get('_syncing'): return
+        try:
+            species_id = int(v['species_id'].get())
+            level = int(v['level'].get())
+            form_id = self._selected_form_id(v)
+            nature = nature_index_from_value(v['nature_idx'].get())
+            ivs = [int(v['iv_' + s.lower()].get() or 0) for s in STATS]
+            evs = [int(v['ev_' + s.lower()].get() or 0) for s in STATS]
+            stats = calculate_pokemon_stats(species_id, form_id, level, nature, ivs, evs)
+        except (ValueError, KeyError):
+            return
+        old_max = int(v['totalhp'].get() or 0) if str(v['totalhp'].get() or '').isdigit() else 0
+        old_hp = int(v['hp'].get() or 0) if str(v['hp'].get() or '').isdigit() else 0
+        v['_syncing'] = True
+        try:
+            for key, value in zip(('totalhp','attack','defense','spatk','spdef','speed'), stats):
+                v[key].set(str(value))
+            if full_heal or old_hp >= old_max:
+                v['hp'].set(str(stats[0]))
+            else:
+                v['hp'].set(str(min(stats[0], max(0, old_hp))))
+            if 'ev_total' in v:
+                total = sum(max(0, int(x)) for x in evs)
+                v['ev_total'].set(f"Total: {total} / 510" + ('  ⚠ over limit' if total > 510 else ''))
+        finally: v['_syncing'] = False
 
     def _clear_pokemon_editor_vars(self, v):
         # Clearing species_id triggers the form/gender/ability refresh traces,
@@ -2067,6 +2332,46 @@ class Editor(tk.Tk):
         v["item"].trace_add("write", lambda *_args, vv=v: self._refresh_held_item_display(vv))
         self._refresh_held_item_display(v)
 
+    def _load_ball_icon(self, ball_id: int, max_size: int = 24):
+        """Balls are items, so reuse the item icons already bundled with us."""
+        item_id = BALL_ITEM_IDS.get(int(ball_id))
+        return self._load_item_icon(item_id, max_size) if item_id else None
+
+    def _make_ball_control(self, parent, v: dict, row: int,
+                           label_width: int = 14, compact: bool = False):
+        """Named/icon selector backed by the save's unchanged numeric @ballused value."""
+        ttk.Label(parent, text="Ball:", width=label_width, anchor="e").grid(
+            row=row, column=0, sticky="e", pady=1 if compact else 2
+        )
+        v["ball_choice"] = tk.StringVar()
+        v["ball_icon_size"] = 20 if compact else 24
+        v["ball_icon"] = ttk.Label(parent, width=3, anchor="center")
+        v["ball_icon"].grid(row=row, column=1, sticky="w", padx=(2, 0),
+                            pady=1 if compact else 2)
+        combo = ttk.Combobox(
+            parent, textvariable=v["ball_choice"], values=BALL_CHOICES,
+            width=18 if compact else 20, state="readonly",
+        )
+        combo.grid(row=row, column=2, sticky="w", padx=(2, 0),
+                   pady=1 if compact else 2)
+        def refresh(*_args):
+            try:
+                ball_id = int(v["ball"].get() or 0)
+            except (KeyError, ValueError):
+                ball_id = 0
+            v["ball_choice"].set(f"{ball_id} — {BALL_NAMES.get(ball_id, 'Unknown ball')}")
+            label = v.get("ball_icon")
+            if label is not None:
+                image = self._load_ball_icon(ball_id, v["ball_icon_size"])
+                label.configure(image=image if image else "", text="" if image else "—")
+                label.image = image
+        def select(_event=None):
+            match = re.match(r"^(\d+)", v["ball_choice"].get())
+            if match:
+                v["ball"].set(match.group(1))
+        combo.bind("<<ComboboxSelected>>", select)
+        v["ball"].trace_add("write", refresh)
+        refresh()
     def _show_item_info(self, item_id: int):
         data = ITEM_DATA.get(item_id, {"name": item_display_name(item_id), "description": ""})
         win = self._make_popup(data.get("name", f"Item #{item_id}"), "460x330")
@@ -2189,6 +2494,7 @@ class Editor(tk.Tk):
         top.pack(fill="x")
         ttk.Button(top, text="Load Save",          command=self._ask_load).pack(side="left", padx=4)
         ttk.Button(top, text="Save (auto-backup)", command=self._do_save).pack(side="left", padx=4)
+        ttk.Button(top, text="Build Library", command=lambda: self._open_build_dialog(None)).pack(side="left", padx=4)
         self.status = ttk.Label(top, text="No file loaded", foreground="gray")
         self.status.pack(side="left", padx=10)
         ttk.Button(top, text="Dark", width=7, command=lambda: self._set_theme("dark")).pack(side="right", padx=4)
@@ -2369,9 +2675,23 @@ class Editor(tk.Tk):
         self.party_nb.pack(fill="both", expand=True)
         self.pkmn_vars = []
         for slot in range(6):
-            frame = ttk.Frame(self.party_nb, padding=8)
+            frame = ttk.Frame(self.party_nb)
             self.party_nb.add(frame, text=f" Slot {slot+1} ")
-            self.pkmn_vars.append(self._build_pkmn_slot(frame, slot))
+            frame.rowconfigure(0, weight=1); frame.columnconfigure(0, weight=1)
+            canvas = tk.Canvas(frame, highlightthickness=0)
+            yscroll = ttk.Scrollbar(frame, orient="vertical", command=canvas.yview)
+            xscroll = ttk.Scrollbar(frame, orient="horizontal", command=canvas.xview)
+            canvas.configure(yscrollcommand=yscroll.set, xscrollcommand=xscroll.set)
+            canvas.grid(row=0, column=0, sticky="nsew")
+            yscroll.grid(row=0, column=1, sticky="ns")
+            xscroll.grid(row=1, column=0, sticky="ew")
+            inner = ttk.Frame(canvas, padding=8)
+            window = canvas.create_window((0, 0), window=inner, anchor="nw")
+            inner.bind("<Configure>", lambda _e, c=canvas: c.configure(scrollregion=c.bbox("all")))
+            canvas.bind("<Configure>", lambda e, c=canvas, w=window, f=inner:
+                        c.itemconfigure(w, width=max(e.width, f.winfo_reqwidth())))
+            self._make_scrollable(canvas)
+            self.pkmn_vars.append(self._build_pkmn_slot(inner, slot))
 
     def _build_pkmn_slot(self, parent, slot: int = 0):
         v = {}
@@ -2384,19 +2704,26 @@ class Editor(tk.Tk):
             ("species_id","Species ID"),("form","Form ID"),("nickname","Nickname"),
             ("hp","Current HP"),("totalhp","Max HP"),("attack","Attack"),
             ("defense","Defense"),("spatk","Sp.Atk"),("spdef","Sp.Def"),
-            ("speed","Speed"),("exp","Experience"),
+            ("speed","Speed"),("level","Level (1–120)"),("exp","Experience"),
         ]):
             v[key] = tk.StringVar()
             ttk.Label(lf, text=lbl+":", width=14, anchor="e").grid(row=i, column=0, sticky="e", pady=2)
-            if key == "form":
+            if key == "species_id":
+                species_choices = self._species_choices
+                v["species_search"] = tk.StringVar()
+                combo = self._make_search_combo(lf, v["species_search"], species_choices,
+                                                lambda value, vv=v: self._select_species(vv, value), 24)
+                combo.grid(row=i, column=1, sticky="ew", pady=2, padx=3)
+                ttk.Entry(lf, textvariable=v[key], width=7).grid(row=i, column=2, sticky="w", pady=2, padx=3)
+            elif key == "form":
                 v["form_combo"] = ttk.Combobox(
                     lf, textvariable=v[key], values=["0 - Default"], width=18, state="readonly"
                 )
                 v["form_combo"].grid(row=i, column=1, sticky="w", pady=2, padx=3)
-                v["form_combo"].bind("<<ComboboxSelected>>", lambda _event, vv=v: self._refresh_form_options(vv))
+                v["form_combo"].bind("<<ComboboxSelected>>", lambda _event, vv=v: self._schedule_recalculate(vv, True))
             else:
                 ttk.Entry(lf, textvariable=v[key], width=10).grid(row=i, column=1, sticky="w", pady=2, padx=3)
-        v["species_id"].trace_add("write", lambda *_args, vv=v: self._refresh_form_options(vv))
+        v["species_id"].trace_add("write", lambda *_args, vv=v: self._manual_species_changed(vv))
 
         rf = ttk.LabelFrame(e, text="Extra", padding=6)
         rf.grid(row=0, column=1, sticky="nsew", padx=4, pady=4)
@@ -2404,16 +2731,20 @@ class Editor(tk.Tk):
         self._make_held_item_control(rf, v, row=0)
         for i, (key, lbl) in enumerate([
             ("happiness","Happiness"), ("status","Status (0=OK)"),
-            ("ball","Ball Used ID"), ("obtain_lv","Obtained Lv"),
         ], start=1):
             v[key] = tk.StringVar()
             ttk.Label(rf, text=lbl+":", width=14, anchor="e").grid(row=i, column=0, sticky="e", pady=2)
             ttk.Entry(rf, textvariable=v[key], width=10).grid(row=i, column=1, sticky="w", pady=2, padx=3)
+        v["ball"] = tk.StringVar()
+        self._make_ball_control(rf, v, row=3)
+        v["obtain_lv"] = tk.StringVar()
+        ttk.Label(rf, text="Obtained Lv:", width=14, anchor="e").grid(row=4, column=0, sticky="e", pady=2)
+        ttk.Entry(rf, textvariable=v["obtain_lv"], width=10).grid(row=4, column=1, sticky="w", pady=2, padx=3)
 
         r = 5
         v["nature_idx"] = tk.StringVar()
         ttk.Label(rf, text="Nature:", width=14, anchor="e").grid(row=r, column=0, sticky="e", pady=2)
-        ttk.Combobox(rf, textvariable=v["nature_idx"], values=NATURES, width=10, state="readonly").grid(
+        ttk.Combobox(rf, textvariable=v["nature_idx"], values=NATURE_CHOICES, width=24, state="readonly").grid(
             row=r, column=1, sticky="w", padx=3, pady=2); r += 1
 
         v["gender"] = tk.StringVar()
@@ -2437,9 +2768,11 @@ class Editor(tk.Tk):
         bf = ttk.LabelFrame(e, text="Quick Actions", padding=6)
         bf.grid(row=0, column=2, sticky="n", padx=4, pady=4)
         ttk.Button(bf, text="Heal",       width=12, command=lambda vv=v: self._heal_slot(vv)).pack(pady=2)
-        ttk.Button(bf, text="Max IVs",    width=12, command=lambda vv=v: self._max_ivs(vv)).pack(pady=2)
+        ttk.Button(bf, text="31 All IVs", width=12, command=lambda vv=v: self._max_ivs(vv)).pack(pady=2)
+        ttk.Button(bf, text="Recalculate Stats", width=16, command=lambda vv=v: self._recalculate_stats(vv, True)).pack(pady=2)
         ttk.Button(bf, text="Zero EVs",   width=12, command=lambda vv=v: self._zero_evs(vv)).pack(pady=2)
         ttk.Button(bf, text="Restore PP", width=12, command=lambda vv=v: self._restore_pp(vv)).pack(pady=2)
+        ttk.Button(bf, text="Build Library", width=12, command=lambda vv=v: self._open_build_dialog(vv)).pack(pady=2)
         ttk.Separator(bf, orient="horizontal").pack(fill="x", pady=4)
         v["shadow_status"] = tk.StringVar(value="Not Shadow")
         ttk.Button(bf, text="Shadow…", width=12,
@@ -2488,12 +2821,14 @@ class Editor(tk.Tk):
             ttk.Label(ivf, text=stat, width=5).grid(row=0, column=i)
             ttk.Entry(ivf, textvariable=v["iv_"+stat.lower()], width=4).grid(row=1, column=i)
 
-        evf = ttk.LabelFrame(e, text="EVs  (0–252, total ≤510)", padding=6)
+        evf = ttk.LabelFrame(e, text="EVs  (0–252 each)", padding=6)
         evf.grid(row=1, column=1, sticky="ew", padx=4, pady=4)
         for i, stat in enumerate(STATS):
             v["ev_"+stat.lower()] = tk.StringVar()
             ttk.Label(evf, text=stat, width=5).grid(row=0, column=i)
             ttk.Entry(evf, textvariable=v["ev_"+stat.lower()], width=4).grid(row=1, column=i)
+        v["ev_total"] = tk.StringVar(value="Total: 0 / 510")
+        ttk.Label(evf, textvariable=v["ev_total"]).grid(row=2, column=0, columnspan=6, sticky="w", pady=(4, 0))
 
         mf = ttk.LabelFrame(e, text="Moves", padding=6)
         mf.grid(row=2, column=0, columnspan=3, sticky="ew", padx=4, pady=4)
@@ -2501,25 +2836,41 @@ class Editor(tk.Tk):
             v[f"move{i}"]       = tk.StringVar(value="0")
             v[f"move{i}_name"]  = tk.StringVar(value="—")
             v[f"movepp{i}"]     = tk.StringVar(value="0")
+            v[f"moveppup{i}"]   = tk.StringVar(value="0")
             v[f"move{i}_maxpp"] = tk.StringVar(value="/0")
             ttk.Label(mf, text=f"Move {i+1}:", anchor="e", width=8).grid(row=i, column=0, sticky="e", padx=(2,0), pady=2)
-            ttk.Label(mf, textvariable=v[f"move{i}_name"], width=20, anchor="w",
-                      relief="sunken").grid(row=i, column=1, sticky="ew", padx=2, pady=2)
-            ttk.Button(mf, text="Change", width=7,
+            v[f"move{i}_search"] = tk.StringVar(value="0 — None")
+            ttk.Label(mf, textvariable=v[f"move{i}_search"], width=26,
+                      anchor="w", relief="sunken").grid(row=i, column=1, sticky="ew", padx=2, pady=2)
+            ttk.Button(mf, text="Search…", width=8,
                        command=lambda vv=v, ii=i: self._change_move(vv, ii)
                        ).grid(row=i, column=2, padx=(4,2), pady=2)
             ttk.Label(mf, text="PP:", anchor="e").grid(row=i, column=3, sticky="e", padx=(8,0))
             ttk.Entry(mf, textvariable=v[f"movepp{i}"], width=4).grid(row=i, column=4, padx=2)
             ttk.Label(mf, textvariable=v[f"move{i}_maxpp"], anchor="w", width=4).grid(row=i, column=5, sticky="w")
+            ttk.Label(mf, text="PP Ups:").grid(row=i, column=6, padx=(6, 1))
+            ttk.Spinbox(mf, from_=0, to=3, textvariable=v[f"moveppup{i}"], width=3).grid(row=i, column=7)
+            v[f"moveppup{i}"].trace_add("write", lambda *_args, vv=v, ii=i: self._refresh_move_pp_display(vv, ii))
+        ttk.Button(mf, text="Max all PP Ups", command=lambda vv=v: self._max_pp_ups(vv)).grid(row=4, column=1, sticky="w", padx=2, pady=(5, 1))
+        ttk.Label(mf, text="Current PP / maximum PP; each move stores 0–3 PP Ups.", foreground="gray").grid(row=4, column=2, columnspan=6, sticky="w", padx=4)
         mf.columnconfigure(1, weight=1)
+
+        v["level"].trace_add("write", lambda *_args, vv=v: self._sync_exp_from_level(vv))
+        v["exp"].trace_add("write", lambda *_args, vv=v: self._sync_level_from_exp(vv))
+        v["nature_idx"].trace_add("write", lambda *_args, vv=v: self._schedule_recalculate(vv))
+        for stat in STATS:
+            v["iv_" + stat.lower()].trace_add("write", lambda *_args, vv=v: self._schedule_recalculate(vv))
+            v["ev_" + stat.lower()].trace_add("write", lambda *_args, vv=v: self._schedule_recalculate(vv))
 
         e.columnconfigure(0, weight=1)
         e.columnconfigure(1, weight=1)
         e.columnconfigure(3, weight=1)
         v["_pkmn_obj"] = None
 
-        add_btn = ttk.Button(parent, text="+ Add Pokémon to this slot",
+        v["add_frame"] = ttk.Frame(parent, padding=12)
+        add_btn = ttk.Button(v["add_frame"], text="+ Add Pokémon to this slot",
                              command=lambda s=slot: self._add_to_party_slot(s))
+        add_btn.pack(anchor="center", padx=8, pady=8)
         v["add_btn"] = add_btn
         return v
 
@@ -2536,6 +2887,24 @@ class Editor(tk.Tk):
     def _zero_evs(self, v):
         for stat in STATS: v["ev_"+stat.lower()].set("0")
 
+    def _refresh_move_pp_display(self, v, index: int):
+        try:
+            move_id = int(v[f"move{index}"].get() or 0)
+            pp_ups = int(v[f"moveppup{index}"].get() or 0)
+        except (ValueError, KeyError):
+            return
+        maximum = move_max_pp(move_id, pp_ups)
+        v[f"move{index}_maxpp"].set(f"/{maximum}")
+
+    def _max_pp_ups(self, v):
+        for index in range(4):
+            if f"moveppup{index}" not in v: continue
+            v[f"moveppup{index}"].set("3")
+            try: move_id = int(v[f"move{index}"].get() or 0)
+            except (ValueError, KeyError): move_id = 0
+            v[f"movepp{index}"].set(str(move_max_pp(move_id, 3)))
+            self._refresh_move_pp_display(v, index)
+
     def _restore_pp(self, v):
         self._restore_pp_from_obj(v, None)
 
@@ -2545,11 +2914,213 @@ class Editor(tk.Tk):
                 mid = int(v[f"move{i}"].get() or 0)
             except (ValueError, KeyError):
                 mid = 0
-            max_pp = MOVE_DATA.get(mid, {}).get("pp", 0)
+            try: pp_ups = int(v.get(f"moveppup{i}").get() or 0)
+            except (ValueError, AttributeError): pp_ups = 0
+            max_pp = move_max_pp(mid, pp_ups)
             if max_pp:
                 v[f"movepp{i}"].set(str(max_pp))
 
 
+    def _parse_build_text(self, text: str) -> dict:
+        lines = [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+        fields, move_names, in_moves = {}, [], False
+        for line in lines:
+            if line == "---":
+                continue
+            if line.casefold().startswith("moves:"):
+                in_moves = True; continue
+            if in_moves and line[:1] in ("-", "*", "•"):
+                move_names.append(line[1:].strip()); continue
+            if ":" in line:
+                key, value = line.split(":", 1)
+                fields[key.strip().casefold()] = value.strip(); in_moves = False
+            elif in_moves:
+                move_names.append(line)
+        species = self._species_from_text(fields.get("species", ""))
+        if not species:
+            raise ValueError("Unknown or missing species")
+        level = min(MAX_LEVEL, max(1, int(fields.get("level", 100))))
+        nature_text = fields.get("nature", "Hardy").casefold()
+        nature = next((i for i, name in enumerate(NATURES) if name.casefold() == nature_text), None)
+        if nature is None:
+            nature = nature_index_from_value(fields.get("nature", "Hardy"))
+        ivs = [31] * 6
+        if "ivs" in fields:
+            parsed = [int(x) for x in re.findall(r"\d+", fields["ivs"])][:6]
+            if len(parsed) != 6: raise ValueError("IVs must contain six numbers")
+            ivs = [min(31, max(0, value)) for value in parsed]
+        ev_map = {stat: 0 for stat in STATS}
+        aliases = {"hp":"HP", "atk":"Atk", "def":"Def", "spa":"SpA", "spatk":"SpA",
+                   "spd":"SpD", "spdef":"SpD", "spe":"Spe", "speed":"Spe"}
+        for amount, stat in re.findall(r"(\d+)\s*([A-Za-z]+)", fields.get("evs", "")):
+            key = aliases.get(stat.casefold())
+            if key: ev_map[key] = min(252, max(0, int(amount)))
+        evs = [ev_map[stat] for stat in STATS]
+        moves = []
+        for name in move_names[:4]:
+            match = re.match(r"^(\d+)", name)
+            move_id = int(match.group(1)) if match else next(
+                (mid for mid, data in MOVE_DATA.items() if data.get("name", "").casefold() == name.casefold()), 0)
+            if move_id not in MOVE_DATA: raise ValueError(f"Unknown move: {name}")
+            moves.append((move_id, MOVE_DATA[move_id].get("pp", 0)))
+        return {"fields": fields, "species": species, "level": level, "nature": nature,
+                "ivs": ivs, "evs": evs, "moves": moves}
+
+    def _apply_build_text(self, v, text: str):
+        if v is None: raise ValueError("Select an existing Pokémon before applying to the current slot")
+        build = self._parse_build_text(text); fields = build["fields"]
+        self._select_species(v, str(build["species"]))
+        v["level"].set(str(build["level"]))
+        v["nature_idx"].set(NATURE_CHOICES[build["nature"]])
+        for stat, value in zip(STATS, build["ivs"]): v["iv_" + stat.lower()].set(str(value))
+        for stat, value in zip(STATS, build["evs"]): v["ev_" + stat.lower()].set(str(value))
+        if "happiness" in fields: v["happiness"].set(fields["happiness"])
+        if "item" in fields:
+            wanted = fields["item"].casefold()
+            item_id = next((iid for iid, data in ITEM_DATA.items() if data.get("name", "").casefold() == wanted), 0)
+            if not item_id: raise ValueError(f"Unknown item: {fields['item']}")
+            self._set_held_item_from_picker(v, item_id)
+        if "ability" in fields:
+            wanted = fields["ability"].casefold()
+            choice = next((label for _slot, label in ability_choices_for_species(build["species"])
+                           if label.split(" (")[0].casefold() == wanted), None)
+            if not choice: raise ValueError(f"Ability is not listed for this species: {fields['ability']}")
+            v["ability_slot"].set(choice)
+        for index in range(4):
+            move_id = build["moves"][index][0] if index < len(build["moves"]) else 0
+            self._update_move_vars(v, index, move_id)
+        self._recalculate_stats(v, True)
+
+    def _pokemon_from_build(self, text: str) -> RubyObject:
+        build = self._parse_build_text(text); fields = build["fields"]
+        pkmn = self._create_pokemon_obj(build["species"], nature_index=build["nature"],
+                                        level=build["level"], moves=build["moves"], evs=build["evs"])
+        a = pkmn.attributes
+        a["@iv"] = _display_stats_to_game(build["ivs"])
+        if "happiness" in fields: a["@happiness"] = min(255, max(0, int(fields["happiness"])))
+        if "item" in fields:
+            wanted = fields["item"].casefold()
+            picker_id = next((iid for iid, data in ITEM_DATA.items() if data.get("name", "").casefold() == wanted), 0)
+            if not picker_id: raise ValueError(f"Unknown item: {fields['item']}")
+            a["@item"] = item_source_id(picker_id)
+        if "ability" in fields:
+            wanted = fields["ability"].casefold()
+            label = next((label for _slot, label in ability_choices_for_species(build["species"])
+                          if label.split(" (")[0].casefold() == wanted), None)
+            if not label: raise ValueError(f"Ability is not listed for this species: {fields['ability']}")
+            a["@abilityflag"] = ability_slot_from_value(build["species"], label)
+        stats = calculate_pokemon_stats(build["species"], pokemon_form(a), build["level"],
+                                        build["nature"], build["ivs"], build["evs"])
+        for key, value in zip(("@totalhp","@attack","@defense","@spatk","@spdef","@speed"), stats):
+            a[key] = value
+        a["@hp"] = stats[0]
+        return pkmn
+
+    def _import_builds_to_pc(self, build_texts):
+        if not isinstance(self.storage, RubyObject): raise ValueError("This save has no PC storage")
+        self._apply_party(); self._apply_boxes()
+        boxes = self.storage.attributes.get("@boxes", [])
+        empty = []
+        for box in boxes if isinstance(boxes, list) else []:
+            if not isinstance(box, RubyObject): continue
+            pokemon = box.attributes.get("@pokemon", [])
+            if isinstance(pokemon, list):
+                empty.extend((pokemon, index) for index, value in enumerate(pokemon) if not isinstance(value, RubyObject))
+        if len(empty) < len(build_texts):
+            raise ValueError(f"Need {len(build_texts)} empty PC slots; only {len(empty)} are available")
+        created = [self._pokemon_from_build(text) for text in build_texts]
+        for pkmn, (pokemon, index) in zip(created, empty): pokemon[index] = pkmn
+        self._populate_boxes(); self._fill_trainer()
+        self.status.config(text=f"Imported {len(created)} builds into empty PC slots. Click Save to write.", foreground="blue")
+        return len(created)
+
+    def _open_build_dialog(self, v=None):
+        win = self._make_popup("Pokémon Build Library", "920x640", resizable=(True, True))
+        body = ttk.Frame(win, padding=10); body.pack(fill="both", expand=True)
+        body.columnconfigure(0, weight=1, uniform="build_panes"); body.columnconfigure(1, weight=1, uniform="build_panes"); body.rowconfigure(2, weight=1)
+        filters = ttk.Frame(body); filters.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
+        ttk.Label(filters, text="Tier:").pack(side="left")
+        tier_var = tk.StringVar(value="All")
+        ttk.Combobox(filters, textvariable=tier_var, values=["All", *BUILD_TIERS], width=10, state="readonly").pack(side="left", padx=(4, 14))
+        ttk.Label(filters, text="Search:").pack(side="left")
+        search_var = tk.StringVar(); ttk.Entry(filters, textvariable=search_var, width=30).pack(side="left", padx=4)
+        count_var = tk.StringVar(); ttk.Label(filters, textvariable=count_var, foreground="gray").pack(side="left", padx=8)
+        ttk.Label(body, text="Builds (Ctrl/Shift selects several for PC import):").grid(row=1, column=0, sticky="w")
+        ttk.Label(body, text="Editable set text:").grid(row=1, column=1, sticky="w", padx=(8, 0))
+
+        list_frame = ttk.Frame(body); list_frame.grid(row=2, column=0, sticky="nsew", padx=(0, 4), pady=4)
+        list_frame.rowconfigure(0, weight=1); list_frame.columnconfigure(0, weight=1)
+        library = ttk.Treeview(list_frame, columns=("tier", "species", "set"), show="headings", selectmode="extended")
+        library.column("tier", width=55, minwidth=45, stretch=False, anchor="center")
+        library.column("species", width=150, minwidth=100, stretch=True, anchor="w")
+        library.column("set", width=170, minwidth=100, stretch=True, anchor="w")
+        list_scroll = ttk.Scrollbar(list_frame, orient="vertical", command=library.yview); library.configure(yscrollcommand=list_scroll.set)
+        library.grid(row=0, column=0, sticky="nsew"); list_scroll.grid(row=0, column=1, sticky="ns")
+
+        edit_frame = ttk.Frame(body); edit_frame.grid(row=2, column=1, sticky="nsew", padx=(4, 0), pady=4)
+        edit_frame.rowconfigure(0, weight=1); edit_frame.columnconfigure(0, weight=1)
+        editor = tk.Text(edit_frame, width=46, height=26, wrap="word")
+        edit_scroll = ttk.Scrollbar(edit_frame, orient="vertical", command=editor.yview); editor.configure(yscrollcommand=edit_scroll.set)
+        editor.grid(row=0, column=0, sticky="nsew"); edit_scroll.grid(row=0, column=1, sticky="ns")
+
+        def header_parts(header):
+            species, _, set_name = header.partition(" — ")
+            return species.strip(), set_name.strip()
+        # BUILD_LIBRARY is static, so derive each tier once rather than per redraw.
+        tiers = [build_tier(text) for _header, text in BUILD_LIBRARY]
+        def show_selected(_event=None):
+            selected = library.selection()
+            if selected: editor.delete("1.0", "end"); editor.insert("1.0", BUILD_LIBRARY[int(selected[0])][1])
+        tier_rank = {name: index for index, name in enumerate(BUILD_TIERS)}
+        sort_state = {"col": "tier", "reverse": False}
+        def set_sort(col):
+            if sort_state["col"] == col: sort_state["reverse"] = not sort_state["reverse"]
+            else: sort_state.update(col=col, reverse=False)
+            refresh_library()
+        def refresh_library(*_args):
+            query, tier = search_var.get().casefold().strip(), tier_var.get(); previous = set(library.selection()); rows = []
+            for index, (header, build_text) in enumerate(BUILD_LIBRARY):
+                row_tier = tiers[index]
+                species, set_name = header_parts(header)
+                if tier != "All" and row_tier != tier: continue
+                if query and query not in (header + " " + build_text).casefold(): continue
+                rows.append((index, row_tier, species, set_name))
+            col = sort_state["col"]
+            def key(row):
+                if col == "tier": return (tier_rank.get(row[1], 99), row[2].casefold(), row[3].casefold())
+                if col == "species": return (row[2].casefold(), row[3].casefold())
+                return (row[3].casefold(), row[2].casefold())
+            rows.sort(key=key, reverse=sort_state["reverse"])
+            library.delete(*library.get_children())
+            for heading, label in (("tier", "Tier"), ("species", "Species"), ("set", "Set")):
+                indicator = (" ▼" if sort_state["reverse"] else " ▲") if heading == col else ""
+                library.heading(heading, text=label + indicator, command=lambda c=heading: set_sort(c))
+            for index, row_tier, species, set_name in rows: library.insert("", "end", iid=str(index), values=(row_tier, species, set_name))
+            count_var.set(f"{len(rows)} of {len(BUILD_LIBRARY)} builds")
+            restored = [iid for iid in previous if library.exists(iid)]
+            if restored: library.selection_set(restored); library.see(restored[0]); show_selected()
+            elif library.get_children(): first=library.get_children()[0]; library.selection_set(first); library.see(first); show_selected()
+            else: editor.delete("1.0", "end")
+        library.bind("<<TreeviewSelect>>", show_selected); tier_var.trace_add("write", refresh_library); search_var.trace_add("write", refresh_library); refresh_library()
+        ttk.Label(body, text="Edit freely. Separate pasted builds with a line containing ---.", foreground="gray").grid(row=3, column=0, columnspan=2, sticky="w")
+        row = ttk.Frame(win, padding=10); row.pack(fill="x")
+        def safe(action):
+            try: action()
+            except Exception as exc: messagebox.showerror("Build error", str(exc), parent=win)
+        def apply_current(): self._apply_build_text(v, editor.get("1.0", "end")); win.destroy()
+        def import_selected():
+            texts = [BUILD_LIBRARY[int(iid)][1] for iid in library.selection()]
+            if not texts: raise ValueError("Select one or more library builds")
+            if not messagebox.askyesno("Import builds", f"Create {len(texts)} Pokémon in the first empty PC slots?", parent=win): return
+            count=self._import_builds_to_pc(texts); messagebox.showinfo("Builds imported", f"Created {count} Pokémon. Click Save to write the save file.", parent=win)
+        def import_text():
+            blocks=[block.strip() for block in re.split(r"^---\s*$", editor.get("1.0", "end"), flags=re.MULTILINE) if block.strip()]
+            if not messagebox.askyesno("Import builds", f"Create {len(blocks)} Pokémon in the first empty PC slots?", parent=win): return
+            count=self._import_builds_to_pc(blocks); messagebox.showinfo("Builds imported", f"Created {count} Pokémon. Click Save to write the save file.", parent=win)
+        ttk.Button(row, text="Close", command=win.destroy).pack(side="right")
+        if v is not None: ttk.Button(row, text="Apply to Current", command=lambda: safe(apply_current)).pack(side="right", padx=4)
+        ttk.Button(row, text="Import Text Blocks to PC", command=lambda: safe(import_text)).pack(side="left", padx=4)
+        ttk.Button(row, text="Import Selected Builds to PC", command=lambda: safe(import_selected)).pack(side="left", padx=4)
     # ── shadow Pokemon ────────────────────────────────────────────────────────
 
     def _sync_slot_vars_from_obj(self, v):
@@ -2571,11 +3142,14 @@ class Editor(tk.Tk):
             if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
                 mid = moves[i].attributes.get("@id", 0) or 0
                 pp  = moves[i].attributes.get("@pp", 0) or 0
+                ppup = moves[i].attributes.get("@ppup", 0) or 0
             m = MOVE_DATA.get(mid, {})
             v[f"move{i}"].set(str(mid))
             v[f"move{i}_name"].set(m.get("name", "—") if mid else "—")
             v[f"movepp{i}"].set(str(pp))
-            v[f"move{i}_maxpp"].set(f"/{m.get('pp', 0)}" if mid else "/0")
+            if f"moveppup{i}" in v:
+                v[f"moveppup{i}"].set(str(ppup))
+            v[f"move{i}_maxpp"].set(f"/{move_max_pp(mid, ppup)}" if mid else "/0")
         if "exp" in v:
             v["exp"].set(str(a.get("@exp", 0)))
         ev = _game_stats_to_display(a.get("@ev", []))
@@ -3269,6 +3843,7 @@ class Editor(tk.Tk):
         def _initial_refresh():
             _refresh(preselect=cur)
 
+        search_var.trace_add("write", _refresh)
         cat_var.trace_add("write", _refresh)
         search_var.trace_add("write", _refresh)
         tree.insert("", tk.END, iid="_loading", text=" Loading items...")
@@ -3329,6 +3904,7 @@ class Editor(tk.Tk):
             self.boxes_nb.forget(tab)
         self.box_vars = {}
         self._box_tab_meta = {}
+        self._box_render_order = []
 
         if not isinstance(self.storage, RubyObject):
             reason = getattr(self, "storage_error", "") or "the PokemonStorage stream was not found"
@@ -3390,9 +3966,26 @@ class Editor(tk.Tk):
         if not selected:
             return
         meta = self._box_tab_meta.get(selected)
-        if not meta or meta.get("rendered"):
+        if not meta:
             return
+        if meta.get("rendered"):
+            if selected in self._box_render_order:
+                self._box_render_order.remove(selected)
+            self._box_render_order.append(selected)
+            return
+        # Keep only two heavy box widget trees alive. Persist their UI values to
+        # the in-memory Ruby objects before eviction, so resizing never has to
+        # lay out hundreds of hidden searchable combos.
+        if len(self._box_render_order) >= 2:
+            self._apply_boxes()
+            stale = self._box_render_order.pop(0)
+            stale_meta = self._box_tab_meta.get(stale)
+            if stale_meta:
+                for child in stale_meta["outer"].winfo_children(): child.destroy()
+                stale_meta["rendered"] = False
+                self.box_vars.pop(stale_meta["bi"], None)
         self._render_box_tab(meta)
+        self._box_render_order.append(selected)
 
     def _rerender_box(self, box_idx: int):
         tab_idx = self._box_tab_index_for_box(box_idx)
@@ -3473,39 +4066,47 @@ class Editor(tk.Tk):
             ]):
                 sv[key] = tk.StringVar(value=val)
                 ttk.Label(lp, text=lbl + ":", width=12, anchor="e").grid(row=i, column=0, sticky="e", pady=1)
-                if key == "form":
+                if key == "species_id":
+                    sv["species_search"] = tk.StringVar(value=self._species_label(int(sp)))
+                    species_choices = self._species_choices
+                    combo = self._make_search_combo(lp, sv["species_search"], species_choices,
+                                                    lambda value, vv=sv: self._select_species(vv, value), 22)
+                    combo.grid(row=i, column=1, sticky="w", pady=1, padx=2)
+                    ttk.Entry(lp, textvariable=sv[key], width=6).grid(row=i, column=2, sticky="w", pady=1)
+                elif key == "form":
                     sv["form_combo"] = ttk.Combobox(lp, textvariable=sv[key], values=["0 - Default"], width=18, state="readonly")
                     sv["form_combo"].grid(row=i, column=1, sticky="w", pady=1, padx=2)
-                    sv["form_combo"].bind(
-                        "<<ComboboxSelected>>",
-                        lambda _event, vv=sv: self._refresh_form_options(vv),
-                    )
+                    sv["form_combo"].bind("<<ComboboxSelected>>", lambda _event, vv=sv: self._schedule_recalculate(vv, True))
                 else:
                     ttk.Entry(lp, textvariable=sv[key], width=8).grid(row=i, column=1, sticky="w", pady=1, padx=2)
             self._set_form_value(sv, sp if isinstance(sp, int) else 0, pokemon_form(a))
-            sv["species_id"].trace_add("write", lambda *_args, vv=sv: self._refresh_form_options(vv))
+            sv["species_id"].trace_add("write", lambda *_args, vv=sv: self._manual_species_changed(vv))
 
             sv["item"] = tk.StringVar(value=str(a.get("@item", 0)))
             self._make_held_item_control(rp, sv, row=0, label_width=12, compact=True)
             for i, (key, lbl, val) in enumerate([
                 ("happiness", "Happiness", str(a.get("@happiness", 0))),
                 ("status", "Status", str(a.get("@status", 0))),
+                ("level", "Level", str(_level_for_exp(PKMN_DATA.get(int(sp), {}).get("growth", "medium-fast"), a.get("@exp", 0)))),
                 ("exp", "Exp", str(a.get("@exp", 0))),
-                ("ball", "Ball ID", str(a.get("@ballused", 0))),
-                ("obtain_lv", "Obtained Lv", str(a.get("@obtainLevel", 0))),
             ], start=1):
                 sv[key] = tk.StringVar(value=val)
                 ttk.Label(rp, text=lbl + ":", width=12, anchor="e").grid(row=i, column=0, sticky="e", pady=1)
                 ttk.Entry(rp, textvariable=sv[key], width=8).grid(row=i, column=1, sticky="w", pady=1, padx=2)
+            sv["ball"] = tk.StringVar(value=str(a.get("@ballused", 0)))
+            self._make_ball_control(rp, sv, row=5, label_width=12, compact=True)
+            sv["obtain_lv"] = tk.StringVar(value=str(a.get("@obtainLevel", 0)))
+            ttk.Label(rp, text="Obtained Lv:", width=12, anchor="e").grid(row=6, column=0, sticky="e", pady=1)
+            ttk.Entry(rp, textvariable=sv["obtain_lv"], width=8).grid(row=6, column=1, sticky="w", pady=1, padx=2)
 
-            sv["nature_idx"] = tk.StringVar(value=NATURES[pokemon_nature(a)])
+            sv["nature_idx"] = tk.StringVar(value=NATURE_CHOICES[pokemon_nature(a)])
             sv["gender"] = tk.StringVar(value=pokemon_gender(a))
             sv["shiny"] = tk.BooleanVar(value=pokemon_is_shiny(a, self.trainer_id, self.secret_id))
             ability_flag = a.get("@abilityflag")
             selected_ability_slot = ability_flag if isinstance(ability_flag, int) else pid & 1
             sv["ability_slot"] = tk.StringVar()
             ttk.Label(np, text="Nature:", anchor="e", width=10).grid(row=0, column=0, sticky="e")
-            ttk.Combobox(np, textvariable=sv["nature_idx"], values=NATURES, width=9, state="readonly").grid(row=0, column=1, padx=2)
+            ttk.Combobox(np, textvariable=sv["nature_idx"], values=NATURE_CHOICES, width=23, state="readonly").grid(row=0, column=1, padx=2)
             ttk.Label(np, text="Gender:", anchor="e", width=10).grid(row=1, column=0, sticky="e")
             sv["gender_combo"] = ttk.Combobox(
                 np, textvariable=sv["gender"], values=gender_choices_for_species(sp), width=9, state="readonly"
@@ -3555,10 +4156,8 @@ class Editor(tk.Tk):
             sv["_title_text"] = label
             quick = ttk.LabelFrame(bp, text="Quick Actions", padding=4)
             quick.pack(fill="x", pady=(0, 4))
-            ttk.Button(quick, text="Max IVs", width=10, command=lambda vv=sv: self._max_ivs(vv)).pack(pady=2)
-            ttk.Button(quick, text="Zero EVs", width=10, command=lambda vv=sv: self._zero_evs(vv)).pack(pady=2)
-            ttk.Button(quick, text="Heal", width=10, command=lambda vv=sv: self._heal_slot(vv)).pack(pady=2)
-            ttk.Button(quick, text="Restore PP", width=10, command=lambda vv=sv: self._restore_pp(vv)).pack(pady=2)
+            ttk.Button(quick, text="31 All IVs", width=10, command=lambda vv=sv: self._max_ivs(vv)).pack(pady=2)
+            ttk.Button(quick, text="Build Library", width=10, command=lambda vv=sv: self._open_build_dialog(vv)).pack(pady=2)
             ttk.Separator(quick, orient="horizontal").pack(fill="x", pady=4)
             ttk.Button(quick, text="Shadow…", width=10,
                        command=lambda vv=sv: self._open_shadow_dialog(vv)).pack(pady=2)
@@ -3576,33 +4175,48 @@ class Editor(tk.Tk):
                 compact=True, ability_slot_var=sv["ability_slot"], pkmn=pkmn,
                 slot_vars=sv,
             )
-            dp.pack(side="left", padx=4, fill="y")
 
             mp = ttk.LabelFrame(sf, text="Moves", padding=4)
             mp.pack(side="left", padx=4, fill="y")
             box_moves = a.get("@moves", [])
             for i in range(4):
+                mid, bm = 0, {}
                 sv[f"move{i}"] = tk.StringVar(value="0")
                 sv[f"move{i}_name"] = tk.StringVar(value="-")
                 sv[f"movepp{i}"] = tk.StringVar(value="0")
+                sv[f"moveppup{i}"] = tk.StringVar(value="0")
                 sv[f"move{i}_maxpp"] = tk.StringVar(value="/0")
                 if isinstance(box_moves, list) and i < len(box_moves) and isinstance(box_moves[i], RubyObject):
                     mid = box_moves[i].attributes.get("@id", 0)
                     pp = box_moves[i].attributes.get("@pp", 0)
+                    ppup = box_moves[i].attributes.get("@ppup", 0)
                     bm = MOVE_DATA.get(mid, {})
                     sv[f"move{i}"].set(str(mid))
                     sv[f"move{i}_name"].set(bm.get("name", "-") if mid else "-")
                     sv[f"movepp{i}"].set(str(pp))
-                    sv[f"move{i}_maxpp"].set(f"/{bm.get('pp', 0)}" if mid else "/0")
+                    sv[f"moveppup{i}"].set(str(ppup))
+                    sv[f"move{i}_maxpp"].set(f"/{move_max_pp(mid, ppup)}" if mid else "/0")
                 rf2 = ttk.Frame(mp)
                 rf2.pack(fill="x", pady=1)
                 ttk.Label(rf2, text=f"{i+1}:", width=2).pack(side="left")
                 ttk.Label(rf2, textvariable=sv[f"move{i}_name"], width=14, relief="sunken", anchor="w").pack(side="left", padx=2)
-                ttk.Button(rf2, text="Change", width=7, command=lambda vv=sv, ii=i: self._change_move(vv, ii)).pack(side="left", padx=2)
+                ttk.Button(rf2, text="Search…", width=7, command=lambda vv=sv, ii=i: self._change_move(vv, ii)).pack(side="left", padx=2)
                 ttk.Label(rf2, text="PP:", width=3).pack(side="left")
                 ttk.Entry(rf2, textvariable=sv[f"movepp{i}"], width=4).pack(side="left")
                 ttk.Label(rf2, textvariable=sv[f"move{i}_maxpp"], width=4, anchor="w").pack(side="left")
+                ttk.Label(rf2, text="Ups:", width=4).pack(side="left")
+                ttk.Spinbox(rf2, from_=0, to=3, textvariable=sv[f"moveppup{i}"], width=3).pack(side="left")
+                sv[f"moveppup{i}"].trace_add("write", lambda *_args, vv=sv, ii=i: self._refresh_move_pp_display(vv, ii))
 
+            ttk.Button(mp, text="Max all PP Ups", command=lambda vv=sv: self._max_pp_ups(vv)).pack(anchor="w", pady=(4, 0))
+            dp.pack(side="left", padx=4, fill="y")
+
+            sv["level"].trace_add("write", lambda *_args, vv=sv: self._sync_exp_from_level(vv))
+            sv["exp"].trace_add("write", lambda *_args, vv=sv: self._sync_level_from_exp(vv))
+            sv["nature_idx"].trace_add("write", lambda *_args, vv=sv: self._schedule_recalculate(vv))
+            for stat in STATS:
+                sv["iv_" + stat.lower()].trace_add("write", lambda *_args, vv=sv: self._schedule_recalculate(vv))
+                sv["ev_" + stat.lower()].trace_add("write", lambda *_args, vv=sv: self._schedule_recalculate(vv))
             slot_vars.append((si, sv))
 
         self.box_vars[bi] = (bi, box, slot_vars)
@@ -3865,7 +4479,7 @@ class Editor(tk.Tk):
         a["@happiness"]    = 70
         a["@status"]       = 0
         a["@statusCount"]  = 0
-        a["@ballused"]     = 4
+        a["@ballused"]     = 0
         a["@obtainLevel"]  = level
         a["@obtainMode"]   = 0
         a["@obtainMap"]    = 0
@@ -3929,7 +4543,7 @@ class Editor(tk.Tk):
         form_choices = self._form_choices(species_id, 0)
         form_var = tk.StringVar(value=form_choices[0])
         initial_form = self._parse_form_id(form_choices[0])
-        nature_var = tk.StringVar(value=NATURES[0])
+        nature_var = tk.StringVar(value=NATURE_CHOICES[0])
         level_var = tk.IntVar(value=def_lv)
         sprite = ttk.Label(top, width=8, anchor="center")
         sprite.pack(side="left", padx=(0, 10))
@@ -3944,10 +4558,10 @@ class Editor(tk.Tk):
         form_combo.pack(side="left", padx=(4, 12))
         ttk.Label(top, text="Nature:").pack(side="left")
         ttk.Combobox(
-            top, textvariable=nature_var, values=NATURES, width=10, state="readonly"
+            top, textvariable=nature_var, values=NATURE_CHOICES, width=24, state="readonly"
         ).pack(side="left", padx=(4, 12))
         ttk.Label(top, text="Level:").pack(side="left")
-        ttk.Spinbox(top, from_=1, to=100, textvariable=level_var, width=5).pack(side="left", padx=4)
+        ttk.Spinbox(top, from_=1, to=MAX_LEVEL, textvariable=level_var, width=5).pack(side="left", padx=4)
         ttk.Label(top, text="(double-click a move to add it)", foreground="gray").pack(side="left", padx=8)
 
         # ── Main split ───────────────────────────────────────────────────────
@@ -4026,7 +4640,7 @@ class Editor(tk.Tk):
 
         def _refresh_tree(*_):
             try:
-                lvl = max(1, min(100, int(level_var.get())))
+                lvl = max(1, min(MAX_LEVEL, int(level_var.get())))
             except (ValueError, tk.TclError):
                 return
             tree.delete(*tree.get_children())
@@ -4067,7 +4681,7 @@ class Editor(tk.Tk):
 
         def _auto():
             try:
-                lvl = max(1, min(100, int(level_var.get())))
+                lvl = max(1, min(MAX_LEVEL, int(level_var.get())))
             except (ValueError, tk.TclError):
                 lvl = def_lv
             result = recommended_creation_move_ids(_current_learnset(), lvl)
@@ -4096,7 +4710,7 @@ class Editor(tk.Tk):
 
         def _confirm():
             try:
-                lvl = max(1, min(100, int(level_var.get())))
+                lvl = max(1, min(MAX_LEVEL, int(level_var.get())))
             except (ValueError, tk.TclError):
                 lvl = def_lv
             form_id = _current_form()
@@ -4111,7 +4725,7 @@ class Editor(tk.Tk):
                 )
                 return
             try:
-                nature_index = NATURES.index(nature_var.get())
+                nature_index = nature_index_from_value(nature_var.get())
             except ValueError:
                 nature_index = 0
             win.destroy()
@@ -4139,7 +4753,7 @@ class Editor(tk.Tk):
         """EV selection popup. callback([hp, atk, def, spa, spd, spe]) on confirm."""
         d = PKMN_DATA.get(species_id, {})
         name = d.get("name", f"#{species_id}")
-        level = max(1, min(100, int(level)))
+        level = max(1, min(MAX_LEVEL, int(level)))
 
         win = self._make_popup(f"Choose EVs - {name}", "720x350")
 
@@ -4267,7 +4881,8 @@ class Editor(tk.Tk):
         m = MOVE_DATA.get(move_id, {})
         v[f"move{move_idx}"].set(str(move_id))
         v[f"move{move_idx}_name"].set(m.get("name", "—") if move_id else "—")
-        v[f"move{move_idx}_maxpp"].set(f"/{m.get('pp', 0)}" if move_id else "/0")
+        if f"moveppup{move_idx}" in v: v[f"moveppup{move_idx}"].set("0")
+        v[f"move{move_idx}_maxpp"].set(f"/{move_max_pp(move_id, 0)}" if move_id else "/0")
         if move_id:
             v[f"movepp{move_idx}"].set(str(m.get("pp", 0)))
 
@@ -4276,125 +4891,104 @@ class Editor(tk.Tk):
             sid = int(v["species_id"].get() or 0)
         except (ValueError, KeyError):
             sid = 0
-        self._open_move_browser(sid, lambda mid: self._update_move_vars(v, move_idx, mid))
+        self._open_move_browser(sid, lambda mid: self._update_move_vars(v, move_idx, mid), self._selected_form_id(v))
 
-    def _open_move_browser(self, species_id: int, callback):
-        """Browse all moves with filters/sort. callback(move_id) on select."""
-        learnset_ids = {mid for _, mid in LEARNSET_DATA.get(species_id, [])}
-        all_types = ["All"] + sorted({m["type"] for m in MOVE_DATA.values() if m.get("type")})
-
+    def _open_move_browser(self, species_id: int, callback, form_id: int = 0):
+        """Browse moves. Bundled legality is authoritative only for level-up moves."""
+        learnset_ids = {mid for _, mid in pokemon_learnset(species_id, form_id)}
+        known_legal_ids = set(learnset_ids)
         win = self._make_popup("Move Browser", "760x520", resizable=(True, True))
 
-        # ── Filter row ───────────────────────────────────────────────────────
-        frow = ttk.Frame(win, padding=(10, 8, 10, 4))
-        frow.pack(fill="x")
-        cat_var  = tk.StringVar(value="All")
-        type_var = tk.StringVar(value="All")
-        sort_var = tk.StringVar(value="Name")
-        ttk.Label(frow, text="Category:").pack(side="left")
-        ttk.Combobox(frow, textvariable=cat_var,
-                     values=["All", "Physical", "Special", "Status"],
-                     width=10, state="readonly").pack(side="left", padx=(2, 14))
-        ttk.Label(frow, text="Type:").pack(side="left")
-        ttk.Combobox(frow, textvariable=type_var, values=all_types,
-                     width=12, state="readonly").pack(side="left", padx=(2, 14))
-        ttk.Label(frow, text="Sort by:").pack(side="left")
-        ttk.Combobox(frow, textvariable=sort_var,
-                     values=["Name", "Power", "Accuracy", "PP"],
-                     width=10, state="readonly").pack(side="left", padx=2)
+        frow = ttk.Frame(win, padding=(10, 8, 10, 4)); frow.pack(fill="x")
+        search_var = tk.StringVar()
+        level_only = tk.BooleanVar(value=False)
+        legal_only = tk.BooleanVar(value=False)
+        ttk.Label(frow, text="Search:").pack(side="left")
+        entry = ttk.Entry(frow, textvariable=search_var, width=24)
+        entry.pack(side="left", padx=(2, 12))
+        ttk.Checkbutton(frow, text="Level-up moves only", variable=level_only).pack(side="left", padx=6)
+        ttk.Checkbutton(frow, text="Known legal only (advisory)", variable=legal_only).pack(side="left", padx=6)
 
-        # ── Treeview ─────────────────────────────────────────────────────────
-        tv_frame = ttk.Frame(win, padding=(10, 0, 10, 4))
-        tv_frame.pack(fill="both", expand=True)
+        tv_frame = ttk.Frame(win, padding=(10, 0, 10, 4)); tv_frame.pack(fill="both", expand=True)
         cols = ("name", "type", "cat", "pwr", "acc", "pp", "compat")
         tree = ttk.Treeview(tv_frame, columns=cols, show="headings", height=16, selectmode="browse")
-        for col, w, anch, text in [
-            ("name",   145, "w",      "Name"),
-            ("type",    78, "center", "Type"),
-            ("cat",     72, "center", "Category"),
-            ("pwr",     48, "center", "Power"),
-            ("acc",     52, "center", "Accuracy"),
-            ("pp",      36, "center", "PP"),
-            ("compat",  92, "center", ""),
-        ]:
-            tree.heading(col, text=text)
-            tree.column(col, width=w, anchor=anch, stretch=False)
+        column_info = {
+            "name": (145, "w", "Name"), "type": (78, "center", "Type"),
+            "cat": (72, "center", "Category"), "pwr": (48, "center", "Power"),
+            "acc": (52, "center", "Accuracy"), "pp": (36, "center", "PP"),
+            "compat": (120, "center", "Bundled data"),
+        }
+        for col, (width, anchor, _label) in column_info.items():
+            tree.column(col, width=width, anchor=anchor, stretch=False)
         vsb = ttk.Scrollbar(tv_frame, orient="vertical", command=tree.yview)
         tree.configure(yscrollcommand=vsb.set)
-        tree.pack(side="left", fill="both", expand=True)
-        vsb.pack(side="left", fill="y")
-        tree.tag_configure("incompatible", foreground="#cc0000")
+        tree.pack(side="left", fill="both", expand=True); vsb.pack(side="left", fill="y")
+        tree.tag_configure("unknown", foreground="gray")
 
-        # ── Description ──────────────────────────────────────────────────────
-        desc_frame = ttk.LabelFrame(win, text="Description", padding=(6, 2))
-        desc_frame.pack(fill="x", padx=10, pady=(0, 4))
-        desc_lbl = ttk.Label(desc_frame, text="", wraplength=740, justify="left")
-        desc_lbl.pack(fill="x")
+        desc_frame = ttk.LabelFrame(win, text="Description", padding=(6, 2)); desc_frame.pack(fill="x", padx=10, pady=(0, 4))
+        desc_lbl = ttk.Label(desc_frame, text="", wraplength=740, justify="left"); desc_lbl.pack(fill="x")
+        ttk.Label(
+            win,
+            text="Known-legal data currently contains level-up moves only. TM, tutor, egg, event, and inherited moves may be legal but cannot be verified from the bundled files.",
+            foreground="gray", wraplength=740,
+        ).pack(fill="x", padx=10, pady=(0, 4))
 
-        # ── Buttons ──────────────────────────────────────────────────────────
-        btn_row = ttk.Frame(win, padding=(10, 0, 10, 8))
-        btn_row.pack(fill="x")
-        ttk.Button(btn_row, text="Select",  command=lambda: _confirm()).pack(side="right", padx=4)
-        ttk.Button(btn_row, text="Cancel",  command=win.destroy).pack(side="right")
+        btn_row = ttk.Frame(win, padding=(10, 0, 10, 8)); btn_row.pack(fill="x")
+        ttk.Button(btn_row, text="Select", command=lambda: confirm()).pack(side="right", padx=4)
+        ttk.Button(btn_row, text="Cancel", command=win.destroy).pack(side="right")
+        sort_state = {"col": "name", "reverse": False}
 
-        # ── Helpers ──────────────────────────────────────────────────────────
-        def _refresh(*_):
-            cat  = cat_var.get()
-            typ  = type_var.get()
-            sort = sort_var.get()
-            entries = [
-                (mid, m) for mid, m in MOVE_DATA.items()
-                if (cat == "All" or m.get("category") == cat)
-                and (typ == "All" or m.get("type") == typ)
-            ]
-            key_fns = {
-                "Name":     lambda x: x[1].get("name", "").lower(),
-                "Power":    lambda x: -x[1].get("power", 0),
-                "Accuracy": lambda x: -x[1].get("accuracy", 0),
-                "PP":       lambda x: -x[1].get("pp", 0),
+        def sort_value(entry_pair, col):
+            mid, move = entry_pair
+            values = {
+                "name": move.get("name", "").casefold(), "type": move.get("type", "").casefold(),
+                "cat": move.get("category", "").casefold(), "pwr": move.get("power", 0),
+                "acc": move.get("accuracy", 0), "pp": move.get("pp", 0),
+                "compat": 0 if mid in learnset_ids else 1,
             }
-            entries.sort(key=key_fns.get(sort, key_fns["Name"]))
-            tree.delete(*tree.get_children())
-            for mid, m in entries:
-                pwr = m.get("power", 0)
-                acc = m.get("accuracy", 0)
-                compat = mid in learnset_ids
+            return (values[col], move.get("name", "").casefold())
+
+        def apply_headings():
+            for col, (_width, _anchor, label) in column_info.items():
+                indicator = (" ▼" if sort_state["reverse"] else " ▲") if col == sort_state["col"] else ""
+                tree.heading(col, text=label + indicator, command=lambda c=col: set_sort(c))
+
+        def set_sort(col):
+            if sort_state["col"] == col: sort_state["reverse"] = not sort_state["reverse"]
+            else: sort_state.update(col=col, reverse=False)
+            refresh()
+
+        def refresh(*_):
+            query = search_var.get().strip().casefold()
+            entries = [
+                (mid, move) for mid, move in MOVE_DATA.items()
+                if (not query or query in move.get("name", "").casefold() or query == str(mid))
+                and (not level_only.get() or mid in learnset_ids)
+                and (not legal_only.get() or mid in known_legal_ids)
+            ]
+            entries.sort(key=lambda pair: sort_value(pair, sort_state["col"]), reverse=sort_state["reverse"])
+            tree.delete(*tree.get_children()); apply_headings()
+            for mid, move in entries:
+                known = mid in known_legal_ids
+                power, accuracy = move.get("power", 0), move.get("accuracy", 0)
                 tree.insert("", "end", iid=str(mid), values=(
-                    m.get("name", f"#{mid}"),
-                    m.get("type", ""),
-                    m.get("category", ""),
-                    pwr if pwr > 0 else "—",
-                    acc if acc > 0 else "—",
-                    m.get("pp", 0),
-                    "" if compat else "incompatible",
-                ), tags=(() if compat else ("incompatible",)))
+                    move.get("name", f"#{mid}"), move.get("type", ""), move.get("category", ""),
+                    power if power > 0 else "—", accuracy if accuracy > 0 else "—", move.get("pp", 0),
+                    "Level-up" if mid in learnset_ids else "Other / unknown",
+                ), tags=(() if known else ("unknown",)))
 
-        def _on_select(event):
-            sel = tree.selection()
-            if not sel: return
-            try:
-                m = MOVE_DATA.get(int(sel[0]), {})
-                desc_lbl.config(text=m.get("description", ""))
-            except ValueError:
-                pass
+        def on_select(_event=None):
+            selection = tree.selection()
+            if selection: desc_lbl.config(text=MOVE_DATA.get(int(selection[0]), {}).get("description", ""))
 
-        def _confirm():
-            sel = tree.selection()
-            if not sel: return
-            try:
-                mid = int(sel[0])
-            except ValueError:
-                return
-            win.destroy()
-            callback(mid)
+        def confirm():
+            selection = tree.selection()
+            if not selection: return
+            move_id = int(selection[0]); win.destroy(); callback(move_id)
 
-        cat_var.trace_add("write", _refresh)
-        type_var.trace_add("write", _refresh)
-        sort_var.trace_add("write", _refresh)
-        tree.bind("<<TreeviewSelect>>", _on_select)
-        tree.bind("<Double-1>", lambda e: _confirm())
-        _refresh()
-
+        search_var.trace_add("write", refresh); level_only.trace_add("write", refresh); legal_only.trace_add("write", refresh)
+        tree.bind("<<TreeviewSelect>>", on_select); tree.bind("<Double-1>", lambda _event: confirm())
+        refresh(); entry.focus_set()
     def _add_to_party_slot(self, slot: int):
         if not self.trainer:
             messagebox.showerror("No save loaded", "Load a save file first."); return
@@ -4749,7 +5343,8 @@ class Editor(tk.Tk):
 
     def _do_load(self, path):
         try:
-            raw = open(path, "rb").read()
+            with open(path, "rb") as fd:
+                raw = fd.read()
         except Exception as e:
             messagebox.showerror("Load error", str(e)); return
 
@@ -4868,6 +5463,21 @@ class Editor(tk.Tk):
 
 
     def _fill_pkmn_slot(self, v, pkmn, label_prefix="", tab_parent=None, tab_idx=None, title_frame=None):
+        # Populating these vars fires the nature/IV/EV write traces, which would
+        # schedule a stat recalculation and rewrite (and full-heal) a Pokemon the
+        # user never touched.  Loading a save must stay a no-op, so suppress the
+        # traces here and drop anything already queued for this slot.
+        v["_syncing"] = True
+        pending = v.pop("_recalc_after", None)
+        if pending:
+            try: self.after_cancel(pending)
+            except tk.TclError: pass
+        try:
+            self._fill_pkmn_slot_inner(v, pkmn, label_prefix, tab_parent, tab_idx, title_frame)
+        finally:
+            v["_syncing"] = False
+
+    def _fill_pkmn_slot_inner(self, v, pkmn, label_prefix="", tab_parent=None, tab_idx=None, title_frame=None):
         if isinstance(pkmn, RubyObject):
             a   = pkmn.attributes
             pid = a.get("@personalID", 0) or 0
@@ -4881,8 +5491,11 @@ class Editor(tk.Tk):
             ]:
                 v[key].set(str(a.get(attr, 0)))
             self._set_form_value(v, a.get("@species", 0), pokemon_form(a))
+            v["species_search"].set(self._species_label(int(a.get("@species", 0))))
+            growth = PKMN_DATA.get(int(a.get("@species", 0)), {}).get("growth", "medium-fast")
+            v["level"].set(str(_level_for_exp(growth, a.get("@exp", 0))))
             v["nickname"].set(ds(a.get("@name", b"")))
-            v["nature_idx"].set(NATURES[pokemon_nature(a)])
+            v["nature_idx"].set(NATURE_CHOICES[pokemon_nature(a)])
             self._set_gender_value(v, a)
             v["shiny"].set(pokemon_is_shiny(a, self.trainer_id, self.secret_id))
             ab = a.get("@abilityflag", None)
@@ -4899,16 +5512,18 @@ class Editor(tk.Tk):
             moves = a.get("@moves", [])
             for i in range(4):
                 if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
-                    mid = moves[i].attributes.get("@id", 0)
-                    pp  = moves[i].attributes.get("@pp", 0)
-                    m   = MOVE_DATA.get(mid, {})
-                    v[f"move{i}"].set(str(mid))
-                    v[f"move{i}_name"].set(m.get("name", "—") if mid else "—")
+                    mid = moves[i].attributes.get("@id", 0); pp = moves[i].attributes.get("@pp", 0); ppup = moves[i].attributes.get("@ppup", 0)
+                    m = MOVE_DATA.get(mid, {})
+                    v[f"move{i}"].set(str(mid)); v[f"move{i}_name"].set(m.get("name", "—") if mid else "—")
+                    if f"move{i}_search" in v: v[f"move{i}_search"].set(f"{mid} — {m.get('name', 'Unknown')}" if mid else "0 — None")
                     v[f"movepp{i}"].set(str(pp))
-                    v[f"move{i}_maxpp"].set(f"/{m.get('pp', 0)}" if mid else "/0")
+                    if f"moveppup{i}" in v: v[f"moveppup{i}"].set(str(ppup))
+                    v[f"move{i}_maxpp"].set(f"/{move_max_pp(mid, ppup)}" if mid else "/0")
                 else:
                     v[f"move{i}"].set("0"); v[f"move{i}_name"].set("—")
+                    if f"move{i}_search" in v: v[f"move{i}_search"].set("0 — None")
                     v[f"movepp{i}"].set("0"); v[f"move{i}_maxpp"].set("/0")
+                    if f"moveppup{i}" in v: v[f"moveppup{i}"].set("0")
 
             v["add_frame"].pack_forget()
             v["editor_frame"].pack(fill="both", expand=True)
@@ -4933,6 +5548,13 @@ class Editor(tk.Tk):
     def _fill_party(self):
         party = self.trainer.attributes.get("@party", [])
         for slot, v in enumerate(self.pkmn_vars):
+            # See _fill_pkmn_slot: writing these vars fires the recalculation
+            # traces, which would rewrite the stats of an untouched save.
+            v["_syncing"] = True
+            pending = v.pop("_recalc_after", None)
+            if pending:
+                try: self.after_cancel(pending)
+                except tk.TclError: pass
             if slot < len(party) and isinstance(party[slot], RubyObject):
                 a   = party[slot].attributes
                 pid = a.get("@personalID", 0) or 0
@@ -4946,8 +5568,11 @@ class Editor(tk.Tk):
                 ]:
                     v[key].set(str(a.get(attr, 0)))
                 self._set_form_value(v, a.get("@species", 0), pokemon_form(a))
+                v["species_search"].set(self._species_label(int(a.get("@species", 0))))
+                growth = PKMN_DATA.get(int(a.get("@species", 0)), {}).get("growth", "medium-fast")
+                v["level"].set(str(_level_for_exp(growth, a.get("@exp", 0))))
                 v["nickname"].set(ds(a.get("@name", b"")))
-                v["nature_idx"].set(NATURES[pokemon_nature(a)])
+                v["nature_idx"].set(NATURE_CHOICES[pokemon_nature(a)])
                 self._set_gender_value(v, a)
                 v["shiny"].set(pokemon_is_shiny(a, self.trainer_id, self.secret_id))
                 ab = a.get("@abilityflag", None)
@@ -4964,16 +5589,18 @@ class Editor(tk.Tk):
                 moves = a.get("@moves", [])
                 for i in range(4):
                     if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
-                        mid = moves[i].attributes.get("@id", 0)
-                        pp  = moves[i].attributes.get("@pp", 0)
-                        m   = MOVE_DATA.get(mid, {})
-                        v[f"move{i}"].set(str(mid))
-                        v[f"move{i}_name"].set(m.get("name", "—") if mid else "—")
+                        mid = moves[i].attributes.get("@id", 0); pp = moves[i].attributes.get("@pp", 0); ppup = moves[i].attributes.get("@ppup", 0)
+                        m = MOVE_DATA.get(mid, {})
+                        v[f"move{i}"].set(str(mid)); v[f"move{i}_name"].set(m.get("name", "—") if mid else "—")
+                        if f"move{i}_search" in v: v[f"move{i}_search"].set(f"{mid} — {m.get('name', 'Unknown')}" if mid else "0 — None")
                         v[f"movepp{i}"].set(str(pp))
-                        v[f"move{i}_maxpp"].set(f"/{m.get('pp', 0)}" if mid else "/0")
+                        if f"moveppup{i}" in v: v[f"moveppup{i}"].set(str(ppup))
+                        v[f"move{i}_maxpp"].set(f"/{move_max_pp(mid, ppup)}" if mid else "/0")
                     else:
                         v[f"move{i}"].set("0"); v[f"move{i}_name"].set("—")
+                        if f"move{i}_search" in v: v[f"move{i}_search"].set("0 — None")
                         v[f"movepp{i}"].set("0"); v[f"move{i}_maxpp"].set("/0")
+                        if f"moveppup{i}" in v: v[f"moveppup{i}"].set("0")
                 sp    = a.get("@species", slot+1)
                 form  = pokemon_form(a)
                 self._set_pokemon_dex_vars(v, sp, form if isinstance(form, int) else 0)
@@ -4993,7 +5620,8 @@ class Editor(tk.Tk):
                     v["dex_sprite"].configure(image="", text="")
                     v["dex_sprite"].image = None
                 v["editor_frame"].pack_forget()
-                v["add_btn"].pack(expand=True, pady=100)
+                v["add_frame"].pack(fill="both", expand=True)
+            v["_syncing"] = False
 
     # ── apply UI → objects ────────────────────────────────────────────────────
 
@@ -5036,9 +5664,9 @@ class Editor(tk.Tk):
             if display_iv != _game_stats_to_display(current_iv):
                 a["@iv"] = _display_stats_to_game(display_iv)
             if display_ev != _game_stats_to_display(current_ev):
-                a["@ev"] = _display_stats_to_game(_sanitize_evs(display_ev))
+                a["@ev"] = _display_stats_to_game(display_ev)
             nat_name = v["nature_idx"].get()
-            nat_i    = NATURES.index(nat_name) if nat_name in NATURES else pokemon_nature(a)
+            nat_i    = nature_index_from_value(nat_name, pokemon_nature(a))
             shiny    = bool(v["shiny"].get())
             ab       = self._selected_ability_slot(v)
             apply_pokemon_identity(
@@ -5050,10 +5678,13 @@ class Editor(tk.Tk):
                 if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
                     move_id = gi(f"move{i}")
                     move_pp = gi(f"movepp{i}")
+                    move_ppup = min(3, max(0, gi(f"moveppup{i}")))
                     if move_id != moves[i].attributes.get("@id", 0):
                         moves[i].attributes["@id"] = move_id
                     if move_pp != moves[i].attributes.get("@pp", 0):
                         moves[i].attributes["@pp"] = move_pp
+                    if move_ppup != moves[i].attributes.get("@ppup", 0):
+                        moves[i].attributes["@ppup"] = move_ppup
 
             # Moves and ability are form prerequisites for Keldeo and Arceus,
             # so resolve the requested form only after applying those fields.
@@ -5113,7 +5744,7 @@ class Editor(tk.Tk):
                     a["@name"] = nick.encode("utf-8")
 
                 nat_name = sv["nature_idx"].get()
-                nat_i    = NATURES.index(nat_name) if nat_name in NATURES else pokemon_nature(a)
+                nat_i    = nature_index_from_value(nat_name, pokemon_nature(a))
                 shiny    = bool(sv["shiny"].get())
                 ab       = self._selected_ability_slot(sv)
                 apply_pokemon_identity(
@@ -5127,17 +5758,20 @@ class Editor(tk.Tk):
                 if display_iv != _game_stats_to_display(current_iv):
                     a["@iv"] = _display_stats_to_game(display_iv)
                 if display_ev != _game_stats_to_display(current_ev):
-                    a["@ev"] = _display_stats_to_game(_sanitize_evs(display_ev))
+                    a["@ev"] = _display_stats_to_game(display_ev)
 
                 moves = a.get("@moves", [])
                 for i in range(4):
                     if isinstance(moves, list) and i < len(moves) and isinstance(moves[i], RubyObject):
                         move_id = gi(f"move{i}")
                         move_pp = gi(f"movepp{i}")
+                        move_ppup = min(3, max(0, gi(f"moveppup{i}")))
                         if move_id != moves[i].attributes.get("@id", 0):
                             moves[i].attributes["@id"] = move_id
                         if move_pp != moves[i].attributes.get("@pp", 0):
                             moves[i].attributes["@pp"] = move_pp
+                        if move_ppup != moves[i].attributes.get("@ppup", 0):
+                            moves[i].attributes["@ppup"] = move_ppup
 
                 form = self._selected_form_id(sv)
                 if form != pokemon_form(a):
@@ -5193,15 +5827,47 @@ class Editor(tk.Tk):
             cursor = end
         result += raw[cursor:]
 
-        bak = self.save_path + ".bak"
-        try: shutil.copy(self.save_path, bak)
-        except Exception: pass
-
+        # Validate every stream we are replacing before touching the user's file.
         try:
-            with open(self.save_path, "wb") as f:
-                f.write(result)
+            loads(trainer_bytes)
+            if bag_bytes is not None: loads(bag_bytes)
+            if storage_bytes is not None: loads(storage_bytes)
+            verified_positions = split_streams(result)
+            if not verified_positions or verified_positions[0] != 0:
+                raise ValueError("result is not a valid concatenated Ruby Marshal save")
         except Exception as e:
-            messagebox.showerror("Write error", str(e)); return
+            messagebox.showerror("Validation error", f"The proposed save was not written:\n{e}")
+            return
+
+        bak = timestamped_backup_path(self.save_path)
+        while os.path.exists(bak):
+            bak = timestamped_backup_path(self.save_path)
+        try:
+            shutil.copy2(self.save_path, bak)
+        except Exception as e:
+            messagebox.showerror("Backup error", f"Save cancelled; backup could not be created:\n{e}")
+            return
+
+        temp_path = None
+        try:
+            fd, temp_path = tempfile.mkstemp(prefix=".insurgence-save-", suffix=".tmp",
+                                             dir=os.path.dirname(os.path.abspath(self.save_path)))
+            with os.fdopen(fd, "wb") as f:
+                f.write(result)
+                f.flush()
+                os.fsync(f.fileno())
+            with open(temp_path, "rb") as f:
+                if f.read() != result:
+                    raise IOError("temporary-file verification failed")
+            os.replace(temp_path, self.save_path)
+            temp_path = None
+        except Exception as e:
+            messagebox.showerror("Write error", f"Original save was not replaced:\n{e}\nBackup: {bak}")
+            return
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                try: os.unlink(temp_path)
+                except OSError: pass
 
         # Future saves must compare against the file and identity selections we
         # just wrote.  This also makes changing a nature back after one save work

@@ -1,0 +1,1189 @@
+# Pokemon Insurgence Save Editor Build Library
+# Builds are advisory and editable. Legality uses bundled Insurgence data.
+# Blocks are separated by ---. Header format: Species — Set name
+# Tiers are not stored: they are derived from the species' base stat total.
+
+Giratina — Bulky Special
+Species: Giratina
+Level: 120
+Nature: Modest
+Ability: Pressure
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpA
+Moves:
+- Shadow Ball
+- Aura Sphere
+- Earth Power
+- Calm Mind
+Item: Griseous Orb
+Happiness: 255
+---
+Arceus — Calm Mind
+Species: Arceus
+Level: 120
+Nature: Timid
+Ability: Multitype
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Judgment
+- Earth Power
+- Calm Mind
+- Recover
+Item: Life Orb
+Happiness: 255
+---
+Rayquaza — Mixed Breaker
+Species: Rayquaza
+Level: 120
+Nature: Naive
+Ability: Air Lock
+IVs: 31/31/31/31/31/31
+EVs: 252 Atk / 6 SpA / 252 Spe
+Moves:
+- Dragon Ascent
+- Draco Meteor
+- V-create
+- Extreme Speed
+Item: Life Orb
+Happiness: 255
+---
+Mewtwo — Special Sweeper
+Species: Mewtwo
+Level: 120
+Nature: Timid
+Ability: Pressure
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Psystrike
+- Aura Sphere
+- Ice Beam
+- Calm Mind
+Item: Life Orb
+Happiness: 255
+---
+Garchomp — Swords Dance
+Species: Garchomp
+Level: 120
+Nature: Jolly
+Ability: Rough Skin
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Swords Dance
+- Earthquake
+- Dragon Claw
+- Stone Edge
+Item: Life Orb
+Happiness: 255
+---
+Volcarona — Quiver Dance
+Species: Volcarona
+Level: 120
+Nature: Timid
+Ability: Flame Body
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Quiver Dance
+- Fiery Dance
+- Bug Buzz
+- Giga Drain
+Item: Lum Berry
+Happiness: 255
+---
+Ferrothorn — Defensive Utility
+Species: Ferrothorn
+Level: 120
+Nature: Relaxed
+Ability: Iron Barbs
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 88 Def / 168 SpD
+Moves:
+- Stealth Rock
+- Leech Seed
+- Power Whip
+- Gyro Ball
+Item: Leftovers
+Happiness: 255
+---
+Excadrill — Offensive Utility
+Species: Excadrill
+Level: 120
+Nature: Jolly
+Ability: Mold Breaker
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Earthquake
+- Iron Head
+- Rapid Spin
+- Swords Dance
+Item: Focus Sash
+Happiness: 255
+---
+Dragonite — Dragon Dance
+Species: Dragonite
+Level: 120
+Nature: Adamant
+Ability: Multiscale
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Dragon Dance
+- Outrage
+- Extreme Speed
+- Fire Punch
+Item: Lum Berry
+Happiness: 255
+---
+Scizor — Bulky Priority
+Species: Scizor
+Level: 120
+Nature: Adamant
+Ability: Technician
+IVs: 31/31/31/31/31/31
+EVs: 248 HP / 252 Atk / 8 SpD
+Moves:
+- Bullet Punch
+- U-turn
+- Roost
+- Swords Dance
+Item: Choice Band
+Happiness: 255
+---
+Gengar — Fast Special
+Species: Gengar
+Level: 120
+Nature: Timid
+Ability: Levitate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Shadow Ball
+- Sludge Wave
+- Focus Blast
+- Nasty Plot
+Item: Focus Sash
+Happiness: 255
+---
+Togekiss — Para Flinch
+Species: Togekiss
+Level: 120
+Nature: Timid
+Ability: Serene Grace
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 SpA / 252 Spe
+Moves:
+- Air Slash
+- Thunder Wave
+- Roost
+- Aura Sphere
+Item: Leftovers
+Happiness: 255
+---
+Blissey — Special Wall
+Species: Blissey
+Level: 120
+Nature: Calm
+Ability: Natural Cure
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Def / 6 SpD
+Moves:
+- Soft-Boiled
+- Seismic Toss
+- Thunder Wave
+- Flamethrower
+Item: Leftovers
+Happiness: 255
+---
+Skarmory — Physical Wall
+Species: Skarmory
+Level: 120
+Nature: Impish
+Ability: Sturdy
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Def / 6 SpD
+Moves:
+- Roost
+- Stealth Rock
+- Whirlwind
+- Iron Head
+Item: Rocky Helmet
+Happiness: 255
+---
+Greninja — Fast Special
+Species: Greninja
+Level: 120
+Nature: Timid
+Ability: Protean
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Water Shuriken
+- Dark Pulse
+- Ice Beam
+- Giga Drain
+Item: Life Orb
+Happiness: 255
+---
+Breloom — Spore Offense
+Species: Breloom
+Level: 120
+Nature: Adamant
+Ability: Technician
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Spore
+- Mach Punch
+- Swords Dance
+- Rock Tomb
+Item: Focus Sash
+Happiness: 255
+---
+Kyogre — Calm Mind Rain
+Species: Kyogre
+Level: 120
+Nature: Modest
+Ability: Drizzle
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Origin Pulse
+- Ice Beam
+- Thunder
+- Calm Mind
+Item: Leftovers
+Happiness: 255
+---
+Groudon — Rock Polish
+Species: Groudon
+Level: 120
+Nature: Adamant
+Ability: Drought
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Earthquake
+- Stone Edge
+- Fire Punch
+- Swords Dance
+Item: Life Orb
+Happiness: 255
+---
+Lugia — Defensive Roost
+Species: Lugia
+Level: 120
+Nature: Bold
+Ability: Multiscale
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Def / 6 SpD
+Moves:
+- Roost
+- Aeroblast
+- Ice Beam
+- Whirlwind
+Item: Leftovers
+Happiness: 255
+---
+Ho-Oh — Defensive Band
+Species: Ho-Oh
+Level: 120
+Nature: Careful
+Ability: Regenerator
+IVs: 31/31/31/31/31/31
+EVs: 248 HP / 8 Atk / 252 SpD
+Moves:
+- Sacred Fire
+- Brave Bird
+- Roost
+- Whirlwind
+Item: Leftovers
+Happiness: 255
+---
+Darkrai — Nasty Plot
+Species: Darkrai
+Level: 120
+Nature: Timid
+Ability: Bad Dreams
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Dark Pulse
+- Sludge Bomb
+- Focus Blast
+- Nasty Plot
+Item: Focus Sash
+Happiness: 255
+---
+Deoxys-A — Glass Cannon
+Species: Deoxys
+Level: 120
+Nature: Naive
+Ability: Pressure
+IVs: 31/31/31/31/31/31
+EVs: 252 Atk / 6 SpA / 252 Spe
+Moves:
+- Psycho Boost
+- Superpower
+- Ice Beam
+- Extreme Speed
+Item: Focus Sash
+Happiness: 255
+---
+Xerneas — Geomancy
+Species: Xerneas
+Level: 120
+Nature: Modest
+Ability: Fairy Aura
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Moonblast
+- Thunder
+- Focus Blast
+- Calm Mind
+Item: Power Herb
+Happiness: 255
+---
+Tyranitar — Stealth Rock
+Species: Tyranitar
+Level: 120
+Nature: Careful
+Ability: Sand Stream
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Atk / 252 SpD
+Moves:
+- Stealth Rock
+- Stone Edge
+- Crunch
+- Thunder Wave
+Item: Leftovers
+Happiness: 255
+---
+Salamence — Dragon Dance
+Species: Salamence
+Level: 120
+Nature: Jolly
+Ability: Intimidate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Dragon Dance
+- Outrage
+- Earthquake
+- Roost
+Item: Lum Berry
+Happiness: 255
+---
+Metagross — Agility Sweeper
+Species: Metagross
+Level: 120
+Nature: Adamant
+Ability: Clear Body
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Meteor Mash
+- Zen Headbutt
+- Earthquake
+- Agility
+Item: Life Orb
+Happiness: 255
+---
+Lucario — Nasty Plot
+Species: Lucario
+Level: 120
+Nature: Timid
+Ability: Inner Focus
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Aura Sphere
+- Flash Cannon
+- Vacuum Wave
+- Nasty Plot
+Item: Life Orb
+Happiness: 255
+---
+Kingdra — Rain Sweeper
+Species: Kingdra
+Level: 120
+Nature: Modest
+Ability: Swift Swim
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Hydro Pump
+- Draco Meteor
+- Ice Beam
+- Rain Dance
+Item: Life Orb
+Happiness: 255
+---
+Mienshao — Regenerator Pivot
+Species: Mienshao
+Level: 120
+Nature: Jolly
+Ability: Regenerator
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- High Jump Kick
+- U-turn
+- Stone Edge
+- Fake Out
+Item: Life Orb
+Happiness: 255
+---
+Krookodile — Choice Scarf
+Species: Krookodile
+Level: 120
+Nature: Jolly
+Ability: Intimidate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Earthquake
+- Knock Off
+- Stone Edge
+- Pursuit
+Item: Choice Scarf
+Happiness: 255
+---
+Chandelure — Choice Specs
+Species: Chandelure
+Level: 120
+Nature: Timid
+Ability: Flash Fire
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Shadow Ball
+- Flamethrower
+- Energy Ball
+- Trick
+Item: Choice Specs
+Happiness: 255
+---
+Heracross — Guts Orb
+Species: Heracross
+Level: 120
+Nature: Jolly
+Ability: Guts
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Close Combat
+- Megahorn
+- Facade
+- Swords Dance
+Item: Flame Orb
+Happiness: 255
+---
+Suicune — Calm Mind
+Species: Suicune
+Level: 120
+Nature: Timid
+Ability: Pressure
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Scald
+- Ice Beam
+- Calm Mind
+- Rest
+Item: Leftovers
+Happiness: 255
+---
+Haxorus — Dragon Dance
+Species: Haxorus
+Level: 120
+Nature: Jolly
+Ability: Mold Breaker
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Dragon Dance
+- Outrage
+- Earthquake
+- Poison Jab
+Item: Lum Berry
+Happiness: 255
+---
+Darmanitan — Choice Scarf
+Species: Darmanitan
+Level: 120
+Nature: Jolly
+Ability: Sheer Force
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Flare Blitz
+- U-turn
+- Rock Slide
+- Earthquake
+Item: Choice Scarf
+Happiness: 255
+---
+Nidoking — Special Wallbreaker
+Species: Nidoking
+Level: 120
+Nature: Timid
+Ability: Sheer Force
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Earth Power
+- Sludge Wave
+- Ice Beam
+- Flamethrower
+Item: Life Orb
+Happiness: 255
+---
+Azumarill — Belly Drum
+Species: Azumarill
+Level: 120
+Nature: Adamant
+Ability: Huge Power
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Belly Drum
+- Aqua Jet
+- Play Rough
+- Knock Off
+Item: Sitrus Berry
+Happiness: 255
+---
+Weavile — Fast Attacker
+Species: Weavile
+Level: 120
+Nature: Jolly
+Ability: Pressure
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Icicle Crash
+- Knock Off
+- Ice Shard
+- Swords Dance
+Item: Life Orb
+Happiness: 255
+---
+Alakazam — Focus Sash
+Species: Alakazam
+Level: 120
+Nature: Timid
+Ability: Magic Guard
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Psychic
+- Focus Blast
+- Shadow Ball
+- Nasty Plot
+Item: Focus Sash
+Happiness: 255
+---
+Lanturn — Volt Switch
+Species: Lanturn
+Level: 120
+Nature: Calm
+Ability: Volt Absorb
+IVs: 31/31/31/31/31/31
+EVs: 40 HP / 216 SpD / 252 SpA
+Moves:
+- Scald
+- Volt Switch
+- Ice Beam
+- Thunder Wave
+Item: Leftovers
+Happiness: 255
+---
+Drapion — Toxic Spikes
+Species: Drapion
+Level: 120
+Nature: Jolly
+Ability: Battle Armor
+IVs: 31/31/31/31/31/31
+EVs: 252 Atk / 6 Def / 252 Spe
+Moves:
+- Knock Off
+- Poison Jab
+- Toxic Spikes
+- Swords Dance
+Item: Black Sludge
+Happiness: 255
+---
+Galvantula — Sticky Web
+Species: Galvantula
+Level: 120
+Nature: Timid
+Ability: Compound Eyes
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Sticky Web
+- Thunder
+- Bug Buzz
+- Volt Switch
+Item: Focus Sash
+Happiness: 255
+---
+Aggron — Rock Polish
+Species: Aggron
+Level: 120
+Nature: Adamant
+Ability: Rock Head
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Head Smash
+- Heavy Slam
+- Earthquake
+- Rock Polish
+Item: Life Orb
+Happiness: 255
+---
+Milotic — Defensive
+Species: Milotic
+Level: 120
+Nature: Bold
+Ability: Marvel Scale
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Def / 6 SpD
+Moves:
+- Scald
+- Recover
+- Ice Beam
+- Haze
+Item: Leftovers
+Happiness: 255
+---
+Delta Charizard — Ghost Dragon
+Species: 730
+Level: 120
+Nature: Timid
+Ability: Spirit Call
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Shadow Ball
+- Dragon Pulse
+- Flamethrower
+- Nasty Plot
+Item: Life Orb
+Happiness: 255
+---
+Delta Noivern — Grass Steel
+Species: 765
+Level: 120
+Nature: Timid
+Ability: Chlorophyll
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Air Slash
+- Flash Cannon
+- Roost
+- U-turn
+Item: Life Orb
+Happiness: 255
+---
+Delta Shuckle — No Guard Support
+Species: 832
+Level: 120
+Nature: Careful
+Ability: Sturdy
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 128 Def / 128 SpD
+Moves:
+- Stealth Rock
+- Sticky Web
+- Toxic
+- Knock Off
+Item: Leftovers
+Happiness: 255
+---
+Heatran — Rocks
+Species: Heatran
+Level: 120
+Nature: Calm
+Ability: Flash Fire
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 SpA / 252 SpD
+Moves:
+- Magma Storm
+- Earth Power
+- Stealth Rock
+- Taunt
+Item: Leftovers
+Happiness: 255
+---
+Rotom — Defensive Pivot
+Species: Rotom
+Level: 120
+Nature: Bold
+Ability: Levitate
+IVs: 31/31/31/31/31/31
+EVs: 248 HP / 252 Def / 8 Spe
+Moves:
+- Volt Switch
+- Will-O-Wisp
+- Pain Split
+- Thunderbolt
+Item: Leftovers
+Happiness: 255
+---
+Gliscor — Poison Heal
+Species: Gliscor
+Level: 120
+Nature: Impish
+Ability: Poison Heal
+IVs: 31/31/31/31/31/31
+EVs: 244 HP / 184 Def / 80 Spe
+Moves:
+- Earthquake
+- Roost
+- Protect
+- Toxic
+Item: Toxic Orb
+Happiness: 255
+---
+Clefable — Calm Mind
+Species: Clefable
+Level: 120
+Nature: Bold
+Ability: Magic Guard
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Def / 6 SpA
+Moves:
+- Moonblast
+- Soft-Boiled
+- Calm Mind
+- Flamethrower
+Item: Leftovers
+Happiness: 255
+---
+Magnezone — Trapper
+Species: Magnezone
+Level: 120
+Nature: Modest
+Ability: Magnet Pull
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Thunderbolt
+- Flash Cannon
+- Volt Switch
+- Substitute
+Item: Choice Specs
+Happiness: 255
+---
+Conkeldurr — Guts Attacker
+Species: Conkeldurr
+Level: 120
+Nature: Adamant
+Ability: Guts
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 SpD
+Moves:
+- Drain Punch
+- Mach Punch
+- Knock Off
+- Bulk Up
+Item: Flame Orb
+Happiness: 255
+---
+Latios — Choice Specs
+Species: Latios
+Level: 120
+Nature: Timid
+Ability: Levitate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Draco Meteor
+- Psyshock
+- Surf
+- Trick
+Item: Choice Specs
+Happiness: 255
+---
+Latias — Calm Mind
+Species: Latias
+Level: 120
+Nature: Timid
+Ability: Levitate
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 SpA / 252 Spe
+Moves:
+- Calm Mind
+- Recover
+- Draco Meteor
+- Psyshock
+Item: Leftovers
+Happiness: 255
+---
+Keldeo — Calm Mind
+Species: Keldeo
+Level: 120
+Nature: Timid
+Ability: Justified
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Hydro Pump
+- Secret Sword
+- Calm Mind
+- Scald
+Item: Choice Specs
+Happiness: 255
+---
+Crobat — Fast Utility
+Species: Crobat
+Level: 120
+Nature: Jolly
+Ability: Infiltrator
+IVs: 31/31/31/31/31/31
+EVs: 252 Atk / 6 Def / 252 Spe
+Moves:
+- Brave Bird
+- U-turn
+- Roost
+- Defog
+Item: Black Sludge
+Happiness: 255
+---
+Empoleon — Defog Support
+Species: Empoleon
+Level: 120
+Nature: Calm
+Ability: Torrent
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 SpA / 252 SpD
+Moves:
+- Scald
+- Flash Cannon
+- Defog
+- Stealth Rock
+Item: Leftovers
+Happiness: 255
+---
+Mamoswine — Ice Shard
+Species: Mamoswine
+Level: 120
+Nature: Jolly
+Ability: Thick Fat
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Earthquake
+- Icicle Crash
+- Ice Shard
+- Stealth Rock
+Item: Life Orb
+Happiness: 255
+---
+Victini — V-create Pivot
+Species: Victini
+Level: 120
+Nature: Jolly
+Ability: Victory Star
+IVs: 31/31/31/31/31/31
+EVs: 252 Atk / 6 SpD / 252 Spe
+Moves:
+- V-create
+- Bolt Strike
+- U-turn
+- Zen Headbutt
+Item: Choice Scarf
+Happiness: 255
+---
+Cobalion — Stealth Rock
+Species: Cobalion
+Level: 120
+Nature: Jolly
+Ability: Justified
+IVs: 31/31/31/31/31/31
+EVs: 252 Atk / 6 Def / 252 Spe
+Moves:
+- Close Combat
+- Iron Head
+- Stealth Rock
+- Volt Switch
+Item: Leftovers
+Happiness: 255
+---
+Ninetales — Sun Support
+Species: Ninetales
+Level: 120
+Nature: Timid
+Ability: Drought
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Flamethrower
+- Solar Beam
+- Nasty Plot
+- Will-O-Wisp
+Item: Heat Rock
+Happiness: 255
+---
+Roserade — Spikes
+Species: Roserade
+Level: 120
+Nature: Timid
+Ability: Natural Cure
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Giga Drain
+- Sludge Bomb
+- Spikes
+- Sleep Powder
+Item: Black Sludge
+Happiness: 255
+---
+Flygon — Scarf Pivot
+Species: Flygon
+Level: 120
+Nature: Jolly
+Ability: Levitate
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Earthquake
+- Outrage
+- U-turn
+- Stone Edge
+Item: Choice Scarf
+Happiness: 255
+---
+Cloyster — Shell Smash
+Species: Cloyster
+Level: 120
+Nature: Jolly
+Ability: Skill Link
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Shell Smash
+- Icicle Spear
+- Rock Blast
+- Ice Shard
+Item: White Herb
+Happiness: 255
+---
+Sharpedo — Speed Boost
+Species: Sharpedo
+Level: 120
+Nature: Adamant
+Ability: Speed Boost
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Protect
+- Crunch
+- Waterfall
+- Ice Fang
+Item: Life Orb
+Happiness: 255
+---
+Froslass — Spikes Lead
+Species: Froslass
+Level: 120
+Nature: Timid
+Ability: Cursed Body
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Spikes
+- Taunt
+- Shadow Ball
+- Ice Beam
+Item: Focus Sash
+Happiness: 255
+---
+Porygon-Z — Adaptability
+Species: Porygon-Z
+Level: 120
+Nature: Timid
+Ability: Adaptability
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Tri Attack
+- Shadow Ball
+- Ice Beam
+- Nasty Plot
+Item: Life Orb
+Happiness: 255
+---
+Rhyperior — Rock Polish
+Species: Rhyperior
+Level: 120
+Nature: Adamant
+Ability: Solid Rock
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 SpD
+Moves:
+- Earthquake
+- Stone Edge
+- Rock Polish
+- Stealth Rock
+Item: Life Orb
+Happiness: 255
+---
+Gallade — Swords Dance
+Species: Gallade
+Level: 120
+Nature: Jolly
+Ability: Justified
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Swords Dance
+- Close Combat
+- Psycho Cut
+- Shadow Sneak
+Item: Life Orb
+Happiness: 255
+---
+Feraligatr — Sheer Force
+Species: Feraligatr
+Level: 120
+Nature: Adamant
+Ability: Sheer Force
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Dragon Dance
+- Waterfall
+- Ice Punch
+- Crunch
+Item: Life Orb
+Happiness: 255
+---
+Malamar — Contrary
+Species: Malamar
+Level: 120
+Nature: Adamant
+Ability: Contrary
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 SpD
+Moves:
+- Superpower
+- Knock Off
+- Psycho Cut
+- Rest
+Item: Leftovers
+Happiness: 255
+---
+Hitmontop — Technician Spinner
+Species: Hitmontop
+Level: 120
+Nature: Adamant
+Ability: Technician
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 Atk / 6 Def
+Moves:
+- Rapid Spin
+- Mach Punch
+- Close Combat
+- Sucker Punch
+Item: Leftovers
+Happiness: 255
+---
+Spiritomb — Defensive Ghost
+Species: Spiritomb
+Level: 120
+Nature: Calm
+Ability: Pressure
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 SpA / 252 SpD
+Moves:
+- Shadow Ball
+- Dark Pulse
+- Will-O-Wisp
+- Pain Split
+Item: Leftovers
+Happiness: 255
+---
+Qwilfish — Rain Spikes
+Species: Qwilfish
+Level: 120
+Nature: Jolly
+Ability: Intimidate
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Atk / 252 Spe
+Moves:
+- Spikes
+- Taunt
+- Waterfall
+- Thunder Wave
+Item: Black Sludge
+Happiness: 255
+---
+Audino — Regenerator Wall
+Species: Audino
+Level: 120
+Nature: Calm
+Ability: Regenerator
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 6 Def / 252 SpD
+Moves:
+- Wish
+- Protect
+- Heal Bell
+- Dazzling Gleam
+Item: Leftovers
+Happiness: 255
+---
+Sceptile — Unburden
+Species: Sceptile
+Level: 120
+Nature: Timid
+Ability: Unburden
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 SpA / 252 Spe
+Moves:
+- Leaf Storm
+- Giga Drain
+- Focus Blast
+- Substitute
+Item: Sitrus Berry
+Happiness: 255
+---
+Electivire — Motor Drive
+Species: Electivire
+Level: 120
+Nature: Jolly
+Ability: Motor Drive
+IVs: 31/31/31/31/31/31
+EVs: 6 HP / 252 Atk / 252 Spe
+Moves:
+- Wild Charge
+- Ice Punch
+- Earthquake
+- Volt Switch
+Item: Expert Belt
+Happiness: 255
+---
+Eelektross — Levitate Pivot
+Species: Eelektross
+Level: 120
+Nature: Modest
+Ability: Levitate
+IVs: 31/31/31/31/31/31
+EVs: 252 HP / 252 SpA / 6 SpD
+Moves:
+- Volt Switch
+- Flamethrower
+- Giga Drain
+- Knock Off
+Item: Assault Vest
+Happiness: 255

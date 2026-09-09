@@ -1,18 +1,28 @@
 import unittest
 import tkinter as tk
 import os
+import shutil
+import tempfile
 from types import SimpleNamespace
+from unittest import mock
 
 from rubymarshal.classes import RubyObject
 from rubymarshal.reader import loads
 from rubymarshal.writer import writes
 
+import save_editor
 from save_editor import (
     Editor,
+    BALL_NAMES,
+    BALL_ITEM_IDS,
+    BUILD_LIBRARY,
+    BUILD_TIERS,
+    EV_PRESETS,
     COMPUTED_FORM_SPECIES,
     FORM_OVERRIDE_DATA,
     FORM_DATA,
     HEART_GAUGE_SIZE,
+    ITEM_DATA,
     MOVE_DATA,
     NATURES,
     Ruby18Writer,
@@ -28,6 +38,9 @@ from save_editor import (
     _sanitize_evs,
     split_streams,
     ability_choices_for_species,
+    build_tier,
+    build_tier_for_species,
+    species_id_from_text,
     ability_slot_from_value,
     apply_pokemon_form,
     apply_pokemon_identity,
@@ -37,6 +50,7 @@ from save_editor import (
     item_source_id,
     make_shadow,
     marshal_stream_end,
+    move_max_pp,
     move_party_pokemon_to_box,
     pokemon_gender,
     pokemon_is_shadow,
@@ -65,6 +79,37 @@ class FakeVar:
 
     def set(self, value):
         self.value = value
+
+
+class EditorCatalogTests(unittest.TestCase):
+    def test_ball_constants_match_insurgence_stored_ids(self):
+        # Order comes from $BallTypes in the game's PokemonBalls script.  It is
+        # NOT the vanilla Essentials order: 2/3/4 are Safari/Ultra/Master.
+        self.assertEqual("Poké Ball", BALL_NAMES[0])
+        self.assertEqual("Safari Ball", BALL_NAMES[2])
+        self.assertEqual("Ultra Ball", BALL_NAMES[3])
+        self.assertEqual("Master Ball", BALL_NAMES[4])
+        self.assertEqual("Love Ball", BALL_NAMES[20])
+        self.assertEqual("Delta Ball", BALL_NAMES[26])
+
+    def test_every_named_ball_resolves_to_a_bundled_item_icon(self):
+        for ball_id in BALL_NAMES:
+            if ball_id == 29:                     # Sync Ball has no item entry
+                continue
+            self.assertIn(ball_id, BALL_ITEM_IDS)
+            self.assertIn(BALL_ITEM_IDS[ball_id], ITEM_DATA)
+
+    def test_standard_ev_presets_use_the_full_510_ev_total(self):
+        for name in ("Physical attacker", "Special attacker", "Bulky physical", "Bulky special"):
+            self.assertEqual(510, sum(EV_PRESETS[name]), name)
+
+class MovePpTests(unittest.TestCase):
+    def test_pp_ups_raise_maximum_by_twenty_percent_each(self):
+        self.assertEqual([15, 18, 21, 24], [move_max_pp(175, ups) for ups in range(4)])
+
+    def test_pp_up_count_is_clamped_to_save_field_range(self):
+        self.assertEqual(15, move_max_pp(175, -10))
+        self.assertEqual(24, move_max_pp(175, 10))
 
 
 class PokemonIdentityTests(unittest.TestCase):
@@ -870,6 +915,155 @@ class RealSaveFileTests(unittest.TestCase):
                 self.assertIsNotNone(found, "PokemonStorage stream did not parse")
                 self.assertTrue(any(isinstance(b, RubyObject)
                                     for b in found.attributes.get("@boxes", [])))
+
+
+class SaveRoundTripTests(unittest.TestCase):
+    """Opening a save and saving it again must not change a single byte.
+
+    The stat-recalculation traces on the nature/IV/EV vars fire while the editor
+    populates its widgets from the file, so an unguarded fill silently rewrote
+    every Pokemon's stored stats - and full-healed them - in saves the user never
+    edited.  _fill_party and _fill_pkmn_slot must hold "_syncing" while they
+    populate, and recalculation must still run for real edits afterwards.
+    """
+
+    @staticmethod
+    def _save_files():
+        base = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
+        if not os.path.isdir(base):
+            return []
+        return [os.path.join(base, f) for f in sorted(os.listdir(base))
+                if f.lower().endswith(".rxdata")]
+
+    _app = None
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._app is not None:
+            cls._app.destroy()
+            cls._app = None
+
+    def _editor(self):
+        # Building an Editor is expensive, and these tests only ever drive it
+        # through _do_load, so one shared instance serves the whole class.
+        if type(self)._app is None:
+            try:
+                app = Editor()
+            except tk.TclError as exc:                  # no display available
+                self.skipTest(f"Tk is unavailable: {exc}")
+            app.withdraw()
+            type(self)._app = app
+        return type(self)._app
+
+    def test_loading_then_saving_leaves_the_file_untouched(self):
+        files = self._save_files()
+        if not files:
+            self.skipTest("no local .rxdata save files")
+        with mock.patch.object(save_editor, "messagebox"):
+            app = self._editor()
+            for path in files:
+                with self.subTest(save=os.path.basename(path)):
+                    with tempfile.TemporaryDirectory() as tmp:
+                        copy = os.path.join(tmp, os.path.basename(path))
+                        shutil.copy2(path, copy)
+                        with open(copy, "rb") as fd:
+                            original = fd.read()
+
+                        app._do_load(copy)
+                        app.update()
+                        app._do_save()
+                        app.update()
+
+                        with open(copy, "rb") as fd:
+                            self.assertEqual(original, fd.read(),
+                                             "an untouched save was rewritten")
+                        backups = [f for f in os.listdir(tmp) if f.endswith(".bak")]
+                        self.assertEqual(1, len(backups))
+                        with open(os.path.join(tmp, backups[0]), "rb") as fd:
+                            self.assertEqual(original, fd.read())
+
+    def test_every_save_gets_its_own_backup(self):
+        files = self._save_files()
+        if not files:
+            self.skipTest("no local .rxdata save files")
+        with mock.patch.object(save_editor, "messagebox"):
+            app = self._editor()
+            with tempfile.TemporaryDirectory() as tmp:
+                copy = os.path.join(tmp, os.path.basename(files[0]))
+                shutil.copy2(files[0], copy)
+                app._do_load(copy)
+                app.update()
+                for _ in range(3):
+                    app._do_save()
+                    app.update()
+                backups = [f for f in os.listdir(tmp) if f.endswith(".bak")]
+                self.assertEqual(3, len(backups), "backups must never overwrite each other")
+                self.assertEqual(3, len(set(backups)))
+
+    def test_loading_does_not_recalculate_but_editing_does(self):
+        files = self._save_files()
+        if not files:
+            self.skipTest("no local .rxdata save files")
+        stat_keys = ("totalhp", "attack", "defense", "spatk", "spdef", "speed")
+        stat_attrs = ("@totalhp", "@attack", "@defense", "@spatk", "@spdef", "@speed")
+        with mock.patch.object(save_editor, "messagebox"):
+            app = self._editor()
+            for path in files:
+                with tempfile.TemporaryDirectory() as tmp:
+                    copy = os.path.join(tmp, os.path.basename(path))
+                    shutil.copy2(path, copy)
+                    app._do_load(copy)
+                    app.update()
+                    v = next((s for s in app.pkmn_vars
+                              if isinstance(s.get("_pkmn_obj"), RubyObject)), None)
+                    if v is None:
+                        continue
+
+                    stored = [str(v["_pkmn_obj"].attributes.get(a, 0)) for a in stat_attrs]
+                    self.assertEqual(stored, [v[k].get() for k in stat_keys],
+                                     "loading a save must not recalculate stats")
+
+                    v["ev_hp"].set("252")
+                    v["ev_atk"].set("252")
+                    app.update()
+                    app.update_idletasks()
+                    app.update()
+                    self.assertNotEqual(stored, [v[k].get() for k in stat_keys],
+                                        "editing EVs must still recalculate stats")
+                    return
+        self.skipTest("no local save contains a party Pokemon")
+
+
+class BuildLibraryTests(unittest.TestCase):
+    """Tiers are derived from base stat totals, never stored in the library."""
+
+    def test_tier_follows_the_base_stat_total(self):
+        self.assertEqual("S", build_tier_for_species(493))        # Arceus, 720
+        self.assertEqual("C", build_tier_for_species(184))        # Azumarill, 420
+
+    def test_tier_is_read_from_the_species_line_by_name_or_id(self):
+        self.assertEqual("S", build_tier("Species: Arceus\nLevel: 100"))
+        self.assertEqual("S", build_tier("Species: 493\nLevel: 100"))
+
+    def test_an_unresolvable_species_does_not_raise(self):
+        self.assertEqual("?", build_tier("Species: Nonexistent\nLevel: 100"))
+        self.assertEqual("?", build_tier("Level: 100"))
+
+    def test_species_resolves_from_id_name_or_label(self):
+        self.assertEqual(493, species_id_from_text("493"))
+        self.assertEqual(493, species_id_from_text("Arceus"))
+        self.assertEqual(493, species_id_from_text("493 - Arceus"))
+        self.assertEqual(0, species_id_from_text("nope"))
+
+    def test_the_bundled_library_carries_no_stored_tiers(self):
+        self.assertTrue(BUILD_LIBRARY, "bundled build library failed to load")
+        for header, _text in BUILD_LIBRARY:
+            self.assertFalse(header.startswith("["), f"stored tier left in {header!r}")
+
+    def test_every_bundled_build_resolves_to_a_known_tier(self):
+        for header, text in BUILD_LIBRARY:
+            with self.subTest(build=header):
+                self.assertIn(build_tier(text), BUILD_TIERS)
 
 
 if __name__ == "__main__":

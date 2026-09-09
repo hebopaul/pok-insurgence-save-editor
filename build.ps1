@@ -71,12 +71,12 @@ if ($LASTEXITCODE -ne 0 -or -not $pythonPrefix) {
 }
 
 $tclCandidates = @(
-    'C:\Program Files\Git\mingw64\lib\tcl8.6',
-    (Join-Path $pythonPrefix 'tcl\tcl8.6')
+    (Join-Path $pythonPrefix 'tcl\tcl8.6'),
+    'C:\Program Files\Git\mingw64\lib\tcl8.6'
 )
 $tkCandidates = @(
-    'C:\Program Files\Git\mingw64\lib\tk8.6',
-    (Join-Path $pythonPrefix 'tcl\tk8.6')
+    (Join-Path $pythonPrefix 'tcl\tk8.6'),
+    'C:\Program Files\Git\mingw64\lib\tk8.6'
 )
 
 $env:TCL_LIBRARY = $tclCandidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
