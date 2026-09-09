@@ -1836,21 +1836,143 @@ class Editor(tk.Tk):
         if os.path.exists(self.save_path):
             self._do_load(self.save_path)
 
-    def _make_search_combo(self, parent, variable, choices, on_select, width=28):
-        """Editable ttk combo with case-insensitive name/ID filtering."""
-        combo = ttk.Combobox(parent, textvariable=variable, values=(), width=width)
-        combo._all_choices = tuple(choices)
-        def filter_values(_event=None):
-            query = variable.get().strip().casefold()
-            combo.configure(values=[c for c in combo._all_choices if query in c.casefold()][:250] or combo._all_choices)
-        def commit(_event=None):
-            on_select(variable.get())
-        combo.bind('<KeyRelease>', filter_values)
-        combo.bind('<Button-1>', filter_values)
-        combo.bind('<<ComboboxSelected>>', commit)
-        combo.bind('<Return>', commit)
-        combo.bind('<FocusOut>', commit)
-        return combo
+    _AUTOCOMPLETE_LIMIT = 10
+
+    def _make_search_combo(self, parent, variable, choices, on_select, width=28,
+                           current_label=None):
+        """Entry with its own autocomplete list: type a species ID or a name.
+
+        Tk's native combobox dropdown takes a grab when it posts, so keystrokes
+        after the first would go to its listbox instead of the entry - typing
+        "char" left only the "c".  This drives a small borderless Toplevel
+        instead, which never takes focus, so typing, arrowing and clicking all
+        work together.
+        """
+        entry = ttk.Entry(parent, textvariable=variable, width=width)
+        entry._all_choices = tuple(choices)
+        state = {"popup": None, "list": None, "closing": None}
+
+        def matches(query):
+            query = query.strip().casefold()
+            if not query:
+                return []
+            starts, contains = [], []
+            for choice in entry._all_choices:
+                folded = choice.casefold()
+                if folded.startswith(query):
+                    starts.append(choice)
+                elif query in folded:
+                    contains.append(choice)
+                if len(starts) >= self._AUTOCOMPLETE_LIMIT:
+                    break
+            return (starts + contains)[:self._AUTOCOMPLETE_LIMIT]
+
+        def close(_event=None):
+            if state["closing"] is not None:
+                try: entry.after_cancel(state["closing"])
+                except tk.TclError: pass
+                state["closing"] = None
+            if state["popup"] is not None:
+                try: state["popup"].destroy()
+                except tk.TclError: pass
+            state["popup"] = state["list"] = None
+
+        def choose(_event=None):
+            listbox = state["list"]
+            if listbox is None:
+                return
+            selection = listbox.curselection()
+            if not selection:
+                return
+            value = listbox.get(selection[0])
+            close()
+            variable.set(value)
+            entry.icursor(tk.END)
+            on_select(value)
+
+        def show(found):
+            if not found:
+                close()
+                return
+            if state["popup"] is None:
+                popup = tk.Toplevel(entry)
+                popup.wm_overrideredirect(True)
+                popup.wm_attributes("-topmost", True)
+                listbox = tk.Listbox(popup, activestyle="dotbox", exportselection=False)
+                listbox.pack(fill="both", expand=True)
+                listbox.bind("<ButtonRelease-1>", choose)
+                listbox.bind("<Motion>", lambda e: (listbox.selection_clear(0, tk.END),
+                                                    listbox.selection_set(listbox.nearest(e.y))))
+                state["popup"], state["list"] = popup, listbox
+            listbox = state["list"]
+            listbox.delete(0, tk.END)
+            for item in found:
+                listbox.insert(tk.END, item)
+            listbox.selection_clear(0, tk.END)
+            listbox.selection_set(0)
+            listbox.configure(height=len(found))
+            state["popup"].wm_geometry(
+                "%dx%d+%d+%d" % (max(entry.winfo_width(), 180), 18 * len(found) + 4,
+                                 entry.winfo_rootx(),
+                                 entry.winfo_rooty() + entry.winfo_height()))
+
+        def move(step):
+            listbox = state["list"]
+            if listbox is None or listbox.size() == 0:
+                return "break"
+            current = listbox.curselection()
+            index = (current[0] if current else 0) + step
+            index = max(0, min(listbox.size() - 1, index))
+            listbox.selection_clear(0, tk.END)
+            listbox.selection_set(index)
+            listbox.see(index)
+            return "break"
+
+        def on_key(event):
+            if event.keysym in ("Up", "Down", "Return", "KP_Enter", "Escape",
+                                "Tab", "ISO_Left_Tab", "Left", "Right",
+                                "Shift_L", "Shift_R", "Control_L", "Control_R"):
+                return
+            show(matches(variable.get()))
+
+        def on_return(_event=None):
+            if state["list"] is not None:
+                choose()
+            else:
+                revert()
+            return "break"
+
+        def revert():
+            """Only a pick from the list changes the species; typing never does."""
+            if current_label is not None:
+                variable.set(current_label())
+
+        def on_focus_out(_event=None):
+            # A click on the list pulls focus off the entry first, so give that
+            # click a moment to land before tearing the list down.
+            def finish():
+                state["closing"] = None
+                close()
+                revert()
+            state["closing"] = entry.after(150, finish)
+
+        entry.bind("<KeyRelease>", on_key)
+        entry.bind("<Down>", lambda e: move(1))
+        entry.bind("<Up>", lambda e: move(-1))
+        entry.bind("<Return>", on_return)
+        entry.bind("<KP_Enter>", on_return)
+        entry.bind("<Escape>", lambda e: (close(), revert()))
+        entry.bind("<FocusOut>", on_focus_out)
+        entry.bind("<Destroy>", close)
+        return entry
+
+    def _current_species_label(self, v) -> str:
+        """The label for the species a slot actually holds, for reverting to."""
+        try:
+            species_id = int(v["species_id"].get() or 0)
+        except (KeyError, ValueError):
+            return ""
+        return self._species_label(species_id) if species_id in PKMN_DATA else ""
 
     def _species_label(self, species_id: int) -> str:
         return f"{species_id} — {PKMN_DATA.get(species_id, {}).get('name', 'Unknown')}"
@@ -1955,10 +2077,23 @@ class Editor(tk.Tk):
                 v['hp'].set(str(stats[0]))
             else:
                 v['hp'].set(str(min(stats[0], max(0, old_hp))))
-            if 'ev_total' in v:
-                total = sum(max(0, int(x)) for x in evs)
-                v['ev_total'].set(f"Total: {total} / 510" + ('  ⚠ over limit' if total > 510 else ''))
+            self._refresh_ev_total(v)
         finally: v['_syncing'] = False
+
+    def _refresh_ev_total(self, v):
+        """Update the EV total readout only - never the stats.
+
+        Populating a slot holds "_syncing" so the recalculation traces cannot
+        rewrite a Pokemon the user never touched, which also skipped this label
+        and left it reading 0 after every load.
+        """
+        if 'ev_total' not in v:
+            return
+        try:
+            total = sum(max(0, int(v['ev_' + stat.lower()].get() or 0)) for stat in STATS)
+        except (KeyError, ValueError):
+            return
+        v['ev_total'].set(f"Total: {total} / 510" + ('  ⚠ over limit' if total > 510 else ''))
 
     def _clear_pokemon_editor_vars(self, v):
         # Clearing species_id triggers the form/gender/ability refresh traces,
@@ -2571,15 +2706,20 @@ class Editor(tk.Tk):
         )
         v["ball_choice"] = tk.StringVar()
         v["ball_icon_size"] = 20 if compact else 24
-        v["ball_icon"] = ttk.Label(parent, width=3, anchor="center")
-        v["ball_icon"].grid(row=row, column=1, sticky="w", padx=(2, 0),
-                            pady=1 if compact else 2)
+        # Icon and dropdown share one holder in column 1, the way the held-item
+        # control does.  Gridding the combo in column 2 instead pushed it clear of
+        # the (much wider) held-item row above, leaving a large gap and forcing an
+        # extra column that stretched every row in the group.
+        holder = ttk.Frame(parent)
+        holder.grid(row=row, column=1, sticky="w", padx=2 if compact else 3,
+                    pady=1 if compact else 2)
+        v["ball_icon"] = ttk.Label(holder, width=3, anchor="center")
+        v["ball_icon"].pack(side="left", padx=(0, 2))
         combo = ttk.Combobox(
-            parent, textvariable=v["ball_choice"], values=BALL_CHOICES,
+            holder, textvariable=v["ball_choice"], values=BALL_CHOICES,
             width=18 if compact else 20, state="readonly",
         )
-        combo.grid(row=row, column=2, sticky="w", padx=(2, 0),
-                   pady=1 if compact else 2)
+        combo.pack(side="left")
         def refresh(*_args):
             try:
                 ball_id = int(v["ball"].get() or 0)
@@ -2937,10 +3077,13 @@ class Editor(tk.Tk):
             if key == "species_id":
                 species_choices = self._species_choices
                 v["species_search"] = tk.StringVar()
-                combo = self._make_search_combo(lf, v["species_search"], species_choices,
-                                                lambda value, vv=v: self._select_species(vv, value), 24)
+                # The raw ID is never shown: it only changes when a species is
+                # picked from the list, and the field reverts otherwise.
+                combo = self._make_search_combo(
+                    lf, v["species_search"], species_choices,
+                    lambda value, vv=v: self._select_species(vv, value), 26,
+                    current_label=lambda vv=v: self._current_species_label(vv))
                 combo.grid(row=i, column=1, sticky="ew", pady=2, padx=3)
-                ttk.Entry(lf, textvariable=v[key], width=7).grid(row=i, column=2, sticky="w", pady=2, padx=3)
             elif key == "form":
                 v["form_combo"] = ttk.Combobox(
                     lf, textvariable=v[key], values=["0 - Default"], width=18, state="readonly"
@@ -4667,10 +4810,16 @@ class Editor(tk.Tk):
             sf.pack(fill="x", pady=2, padx=2)
 
             sv = {}
-            lp = ttk.Frame(sf); lp.pack(side="left", padx=4)
-            rp = ttk.Frame(sf); rp.pack(side="left", padx=4)
-            np = ttk.Frame(sf); np.pack(side="left", padx=4)
-            ip = ttk.Frame(sf); ip.pack(side="left", padx=4)
+            # Held Item is the widest row in the slot, so it must not take part in
+            # sizing anything.  It is a child of the slot frame positioned with
+            # place() just under the Species-to-Ability column: placed widgets
+            # contribute nothing to their master's requested size, so the column
+            # keeps its own width and the control simply overlaps to the right.
+            # The bottom padding on lp reserves the vertical room it needs.
+            lp = ttk.Frame(sf); lp.pack(side="left", padx=4, anchor="n", pady=(0, 34))
+            hp_ = ttk.Frame(sf)
+            rp = ttk.Frame(sf); rp.pack(side="left", padx=4, anchor="n")
+            ip = ttk.Frame(sf); ip.pack(side="left", padx=4, anchor="n")
             bp = ttk.Frame(sf); bp.pack(side="left", padx=4, fill="y")
 
             for i, (key, lbl, val) in enumerate([
@@ -4685,10 +4834,11 @@ class Editor(tk.Tk):
                 if key == "species_id":
                     sv["species_search"] = tk.StringVar(value=self._species_label(int(sp)))
                     species_choices = self._species_choices
-                    combo = self._make_search_combo(lp, sv["species_search"], species_choices,
-                                                    lambda value, vv=sv: self._select_species(vv, value), 22)
+                    combo = self._make_search_combo(
+                        lp, sv["species_search"], species_choices,
+                        lambda value, vv=sv: self._select_species(vv, value), 24,
+                        current_label=lambda vv=sv: self._current_species_label(vv))
                     combo.grid(row=i, column=1, sticky="w", pady=1, padx=2)
-                    ttk.Entry(lp, textvariable=sv[key], width=6).grid(row=i, column=2, sticky="w", pady=1)
                 elif key == "form":
                     sv["form_combo"] = ttk.Combobox(lp, textvariable=sv[key], values=["0 - Default"], width=18, state="readonly")
                     sv["form_combo"].grid(row=i, column=1, sticky="w", pady=1, padx=2)
@@ -4699,42 +4849,48 @@ class Editor(tk.Tk):
             sv["species_id"].trace_add("write", lambda *_args, vv=sv: self._manual_species_changed(vv))
 
             sv["item"] = tk.StringVar(value=str(a.get("@item", 0)))
-            self._make_held_item_control(rp, sv, row=0, label_width=12, compact=True)
+            self._make_held_item_control(hp_, sv, row=0, label_width=12, compact=True)
+            # Anchored to lp's bottom-left, but owned by the slot frame, so it can
+            # run past lp's right edge without widening it.
+            hp_.place(in_=lp, relx=0.0, rely=1.0, y=6, anchor="nw")
             for i, (key, lbl, val) in enumerate([
                 ("happiness", "Happiness", str(a.get("@happiness", 0))),
                 ("status", "Status", str(a.get("@status", 0))),
                 ("level", "Level", str(_level_for_exp(PKMN_DATA.get(int(sp), {}).get("growth", "medium-fast"), a.get("@exp", 0)))),
                 ("exp", "Exp", str(a.get("@exp", 0))),
-            ], start=1):
+            ], start=0):
                 sv[key] = tk.StringVar(value=val)
                 ttk.Label(rp, text=lbl + ":", width=12, anchor="e").grid(row=i, column=0, sticky="e", pady=1)
                 ttk.Entry(rp, textvariable=sv[key], width=8).grid(row=i, column=1, sticky="w", pady=1, padx=2)
             sv["ball"] = tk.StringVar(value=str(a.get("@ballused", 0)))
-            self._make_ball_control(rp, sv, row=5, label_width=12, compact=True)
+            self._make_ball_control(rp, sv, row=4, label_width=12, compact=True)
             sv["obtain_lv"] = tk.StringVar(value=str(a.get("@obtainLevel", 0)))
-            ttk.Label(rp, text="Obtained Lv:", width=12, anchor="e").grid(row=6, column=0, sticky="e", pady=1)
-            ttk.Entry(rp, textvariable=sv["obtain_lv"], width=8).grid(row=6, column=1, sticky="w", pady=1, padx=2)
+            ttk.Label(rp, text="Obtained Lv:", width=12, anchor="e").grid(row=5, column=0, sticky="e", pady=1)
+            ttk.Entry(rp, textvariable=sv["obtain_lv"], width=8).grid(row=5, column=1, sticky="w", pady=1, padx=2)
 
             sv["nature_idx"] = tk.StringVar(value=NATURE_CHOICES[pokemon_nature(a)])
             sv["gender"] = tk.StringVar(value=pokemon_gender(a))
             sv["shiny"] = tk.BooleanVar(value=pokemon_is_shiny(a, self.trainer_id, self.secret_id))
             ability_flag = a.get("@abilityflag")
             selected_ability_slot = ability_flag if isinstance(ability_flag, int) else pid & 1
+            # Identity fields continue the left column, under Max HP, instead of
+            # claiming a column of their own.
             sv["ability_slot"] = tk.StringVar()
-            ttk.Label(np, text="Nature:", anchor="e", width=10).grid(row=0, column=0, sticky="e")
-            ttk.Combobox(np, textvariable=sv["nature_idx"], values=NATURE_CHOICES, width=23, state="readonly").grid(row=0, column=1, padx=2)
-            ttk.Label(np, text="Gender:", anchor="e", width=10).grid(row=1, column=0, sticky="e")
+            ttk.Label(lp, text="Nature:", anchor="e", width=12).grid(row=5, column=0, sticky="e", pady=1)
+            ttk.Combobox(lp, textvariable=sv["nature_idx"], values=NATURE_CHOICES, width=22,
+                         state="readonly").grid(row=5, column=1, sticky="w", padx=2, pady=1)
+            ttk.Label(lp, text="Gender:", anchor="e", width=12).grid(row=6, column=0, sticky="e", pady=1)
             sv["gender_combo"] = ttk.Combobox(
-                np, textvariable=sv["gender"], values=gender_choices_for_species(sp), width=9, state="readonly"
+                lp, textvariable=sv["gender"], values=gender_choices_for_species(sp), width=9, state="readonly"
             )
-            sv["gender_combo"].grid(row=1, column=1, padx=2)
-            ttk.Label(np, text="Shiny:", anchor="e", width=10).grid(row=2, column=0, sticky="e")
-            ttk.Checkbutton(np, variable=sv["shiny"]).grid(row=2, column=1, sticky="w", padx=2)
-            ttk.Label(np, text="Ability:", anchor="e", width=10).grid(row=3, column=0, sticky="e")
+            sv["gender_combo"].grid(row=6, column=1, sticky="w", padx=2, pady=1)
+            ttk.Label(lp, text="Shiny:", anchor="e", width=12).grid(row=7, column=0, sticky="e", pady=1)
+            ttk.Checkbutton(lp, variable=sv["shiny"]).grid(row=7, column=1, sticky="w", padx=2, pady=1)
+            ttk.Label(lp, text="Ability:", anchor="e", width=12).grid(row=8, column=0, sticky="e", pady=1)
             sv["ability_combo"] = ttk.Combobox(
-                np, textvariable=sv["ability_slot"], values=[], width=18, state="readonly"
+                lp, textvariable=sv["ability_slot"], values=[], width=18, state="readonly"
             )
-            sv["ability_combo"].grid(row=3, column=1, padx=2)
+            sv["ability_combo"].grid(row=8, column=1, sticky="w", padx=2, pady=1)
             self._set_ability_value(sv, selected_ability_slot)
             self._remember_identity_values(sv)
 
@@ -6092,6 +6248,7 @@ class Editor(tk.Tk):
             self._fill_pkmn_slot_inner(v, pkmn, label_prefix, tab_parent, tab_idx, title_frame)
         finally:
             v["_syncing"] = False
+        self._refresh_ev_total(v)
 
     def _fill_pkmn_slot_inner(self, v, pkmn, label_prefix="", tab_parent=None, tab_idx=None, title_frame=None):
         if isinstance(pkmn, RubyObject):
@@ -6238,6 +6395,7 @@ class Editor(tk.Tk):
                 v["editor_frame"].pack_forget()
                 v["add_frame"].pack(fill="both", expand=True)
             v["_syncing"] = False
+            self._refresh_ev_total(v)
 
     # ── apply UI → objects ────────────────────────────────────────────────────
 
