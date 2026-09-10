@@ -634,6 +634,7 @@ SHADOW_MOVE_DATA = _load_shadow_move_data()
 
 MAP_IMAGE_DIR = "map_images"
 TOWNMAP_CELL = 16          # region images are 480x320 on a 16px grid
+GAME_TILE = 32             # what a tile measures in the game's own art
 
 
 def _map_text(value) -> str:
@@ -859,28 +860,32 @@ def _load_map_image_index():
     """
     path = resource_path(os.path.join(MAP_IMAGE_DIR, "index.json"))
     if not os.path.exists(path):
-        return {}, {}
+        return {}, {}, GAME_TILE
     try:
         with open(path, encoding="utf-8") as stream:
             raw = json.load(stream)
     except (ValueError, OSError):
-        return {}, {}
+        return {}, {}, GAME_TILE
     reasons = {}
     for key, value in (raw.pop("skipped", None) or {}).items():
         try:
             reasons[int(key)] = str(value)
         except (TypeError, ValueError):
             continue
+    try:
+        tile = int(raw.pop("tile", GAME_TILE))
+    except (TypeError, ValueError):
+        tile = GAME_TILE
     offsets = {}
     for key, value in raw.items():
         try:
             offsets[int(key)] = value
         except (TypeError, ValueError):
             continue
-    return offsets, reasons
+    return offsets, reasons, max(1, tile)
 
 
-MAP_IMAGE_INDEX, MAP_SKIP_REASONS = _load_map_image_index()
+MAP_IMAGE_INDEX, MAP_SKIP_REASONS, MAP_TILE_PX = _load_map_image_index()
 
 
 def map_skip_reason(map_id):
@@ -900,14 +905,13 @@ def map_skip_reason(map_id):
     return f"This map could not be rendered: {reason}."
 
 
-def map_image_path(map_id, thumbnail=False):
+def map_image_path(map_id):
     """Rendered PNG for a map, or None when it has not been generated."""
     try:
         map_id = int(map_id)
     except (TypeError, ValueError):
         return None
-    suffix = ".thumb.png" if thumbnail else ".png"
-    path = resource_path(os.path.join(MAP_IMAGE_DIR, f"map{map_id:03d}{suffix}"))
+    path = resource_path(os.path.join(MAP_IMAGE_DIR, f"map{map_id:03d}.png"))
     return path if os.path.exists(path) else None
 
 
@@ -3614,7 +3618,7 @@ class Editor(tk.Tk):
         win = self._make_popup("Map Viewer", "1320x820", resizable=(True, True))
         # Maps are large and the point of opening one is usually to see where a
         # tile sits in the whole place, so start zoomed out.
-        state = {"map_id": current_map, "zoom": 1 / 3, "tile": None, "image": None,
+        state = {"map_id": current_map, "zoom": 1.0, "tile": None, "image": None,
                  "offset": (0, 0), "region_points": {}, "region_index": 0,
                  # False so the first tick turns the player marker red, not grey.
                  "blink": False, "blink_job": None}
@@ -3690,7 +3694,7 @@ class Editor(tk.Tk):
         ttk.Label(header, textvariable=title_var, font=("", 11, "bold")).pack(side="left")
         ttk.Button(header, text="-", width=3,
                    command=lambda: set_zoom(state["zoom"] / 1.5)).pack(side="right")
-        zoom_var = tk.StringVar(value="33%")
+        zoom_var = tk.StringVar(value="100%")
         ttk.Label(header, textvariable=zoom_var, width=6,
                   anchor="center").pack(side="right", padx=2)
         ttk.Button(header, text="+", width=3,
@@ -3926,7 +3930,8 @@ class Editor(tk.Tk):
         def set_zoom(value):
             state["zoom"] = max(0.2, min(4.0, value))
             up, down = zoom_steps(state["zoom"])
-            zoom_var.set(f"{int(round(100 * up / down))}%")
+            shown = 100 * (MAP_TILE_PX * up / down) / GAME_TILE
+            zoom_var.set(f"{int(round(shown))}%")
             draw_map()
 
         def show_map(map_id):
@@ -3971,9 +3976,14 @@ class Editor(tk.Tk):
                 mark_tile(*state["tile"])
 
         def tile_pixels():
-            """On-screen size of one 32px tile at the current zoom."""
+            """On-screen size of one tile at the current zoom.
+
+            Renders are stored smaller than the game's own 32px art so the whole
+            set can ship inside the executable, so the stored size is what a
+            click has to be divided by.
+            """
             up, down = zoom_steps(state["zoom"])
-            return 32 * up / down
+            return MAP_TILE_PX * up / down
 
         def draw_map_marks():
             """Player, respawn and teleport on the map being viewed.

@@ -142,14 +142,17 @@ are unused leftovers. Reading it back costs nothing at startup; deriving the sam
 The viewer also draws pre-rendered PNGs, so generate them once after extracting resources:
 
 ```bash
-python tools/render_maps.py          # every map (about a minute, ~157 MB in map_images/)
+python tools/render_maps.py          # every map (a few minutes, ~16 MB in map_images/)
 python tools/render_maps.py 812      # just one map
+python tools/render_maps.py --force  # re-render maps that already exist
 ```
 
-This needs Pillow (`pip install pillow`); the editor itself does not, because it only loads
-the finished images. `map_images/` is git-ignored and not bundled in the executable - at full
-size the game's 833 maps come to roughly 3.3 gigapixels. Without it the viewer still opens
-and simply says which command to run.
+This needs Pillow (`pip install pillow`); the editor itself does not, because it only loads the
+finished images. Maps are written at 10 px per tile - roughly a third of the game's own 32 px
+art - on a 256-colour palette, which is what makes the whole set 16 MB rather than 150 MB and
+small enough to bundle into the executable. The viewer opens at that scale one-for-one and can
+zoom in from there. `map_images/` is git-ignored, so a checkout renders its own; without it the
+viewer still opens and says which command to run.
 
 ## Notes
 
