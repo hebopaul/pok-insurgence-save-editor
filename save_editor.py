@@ -927,15 +927,214 @@ def map_image_offset(map_id):
         return (0, 0)
     return (int(entry.get("ox", 0)), int(entry.get("oy", 0)))
 
-def species_id_from_text(value) -> int:
-    """Resolve "25", "Pikachu" or "25 - Pikachu" to a species ID, else 0."""
+def _load_species_names():
+    """id -> (display name, internal name) for species a name cannot identify.
+
+    Insurgence gives Delta Pokemon their own species ids but reuses the base
+    name, so "Charmander" answers to both id 4 (Fire, Blaze) and id 730
+    (Ghost/Dragon, Spirit Call).  This is what lets the editor say - and read -
+    "Delta Charmander" instead.
+    """
+    path = resource_path("species_names.txt")
+    if not os.path.exists(path):
+        return {}
+    names = {}
+    try:
+        with open(path, encoding="utf-8") as stream:
+            for line in stream:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                parts = [part.strip() for part in line.split("|")]
+                if len(parts) >= 3 and parts[0].isdigit():
+                    names[int(parts[0])] = (parts[1], parts[2])
+    except OSError:
+        return {}
+    return names
+
+
+SPECIES_VARIANTS = _load_species_names()
+
+
+def _fold_species(text: str) -> str:
+    """Compare species names loosely: case, spaces and punctuation all ignored."""
+    return re.sub(r"[^a-z0-9]", "", str(text or "").casefold())
+
+
+def _form_name_index():
+    """folded form name -> [(species id, form id)] for every named alternate form.
+
+    Forms are a second axis on top of the species id: Space Mew is Mew with
+    form 1, Mega Charizard X and Y are forms 1 and 2 of the same Charizard.
+    Form 0 is skipped, since its name is just the species' own.
+    """
+    index = {}
+    for species_id, forms in FORM_DATA.items():
+        base = _fold_species(PKMN_DATA.get(species_id, {}).get("name", ""))
+        for form_id, name in forms:
+            key = _fold_species(name)
+            if not form_id or not key or key == base:
+                continue
+            index.setdefault(key, []).append((int(species_id), int(form_id)))
+    return {key: sorted(pairs) for key, pairs in index.items()}
+
+
+FORM_NAMES = _form_name_index()
+
+
+def form_display_name(species_id, form_id) -> str:
+    """The form's own name, or "" when it has none."""
+    for candidate, name in FORM_DATA.get(int(species_id), ()):
+        if int(candidate) == int(form_id) and name:
+            return name
+    return ""
+
+
+def _variant_form_name(species_id: int, form_name: str) -> str:
+    """Fold a Delta's qualifier into the form's own name.
+
+    Delta Venusaur's Mega is stored as "Mega Venusaur", the same as the
+    ordinary one's, so the Delta part is slotted in where the species name sits
+    inside it: "Delta Mega Venusaur", "Delta Mega Metagross (Ground)".  A form
+    whose name does not contain the species - "Summer Form" - cannot take the
+    qualifier that way, and is left for the caller to handle.
+    """
+    variant = SPECIES_VARIANTS.get(species_id)
+    base = PKMN_DATA.get(species_id, {}).get("name", "")
+    if not variant or not base or _fold_species(base) not in _fold_species(form_name):
+        return ""
+    display = variant[0]
+    at = display.find(base)
+    if at < 0:
+        return ""
+    return f"{display[:at]}{form_name}{display[at + len(base):]}"
+
+
+def _form_display_index():
+    """(species id, form id) -> the one name that identifies that Pokemon.
+
+    Two passes: work out each form's preferred name, then qualify with the
+    species only those still shared by more than one Pokemon.
+    """
+    preferred = {}
+    for species_id, forms in FORM_DATA.items():
+        for form_id, name in forms:
+            if not form_id or not _fold_species(name):
+                continue
+            key = (int(species_id), int(form_id))
+            preferred[key] = _variant_form_name(key[0], name) or name
+
+    counts = {}
+    for name in preferred.values():
+        folded = _fold_species(name)
+        counts[folded] = counts.get(folded, 0) + 1
+
+    display = {}
+    for key, name in preferred.items():
+        if counts[_fold_species(name)] > 1:
+            variant = SPECIES_VARIANTS.get(key[0])
+            plain = variant[0] if variant else PKMN_DATA.get(key[0], {}).get("name", "")
+            display[key] = f"{plain} ({form_display_name(*key)})"
+        else:
+            display[key] = name
+    return display
+
+
+FORM_DISPLAY = _form_display_index()
+FORM_LOOKUP = {_fold_species(name): key for key, name in FORM_DISPLAY.items()}
+
+
+def species_display_name(species_id, form_id=0) -> str:
+    """The name that identifies a Pokemon on its own.
+
+    "Delta Charmander", "Space Mew", "Mega Charizard X", "Delta Mega Venusaur".
+    A form name several Pokemon still share after that - "Summer Form" belongs
+    to three species - is qualified: "Deerling (Summer Form)".
+    """
+    try:
+        species_id = int(species_id)
+    except (TypeError, ValueError):
+        return ""
+    try:
+        form_id = int(form_id)
+    except (TypeError, ValueError):
+        form_id = 0
+
+    variant = SPECIES_VARIANTS.get(species_id)
+    plain = variant[0] if variant else PKMN_DATA.get(species_id, {}).get("name", "")
+    if not form_id:
+        return plain
+    named = FORM_DISPLAY.get((species_id, form_id))
+    if named:
+        return named
+    # Unown's "?????" and Arceus' "???" are all punctuation, and a form the data
+    # does not name at all has nothing to show: fall back to the id.
+    return f"{plain} (Form {form_id})"
+
+
+def species_candidates(value) -> list:
+    """Every species id a piece of text could mean, best first.
+
+    Accepts an id, a plain name, a variant name, or the game's own internal
+    name, so "730", "Delta Charmander" and "DELTACHARMANDER" all agree.  More
+    than one result means the text was ambiguous.
+    """
     text = str(value or "").strip()
+    if not text:
+        return []
     match = re.match(r"^(\d+)", text)
     if match and int(match.group(1)) in PKMN_DATA:
-        return int(match.group(1))
-    folded = text.casefold()
-    return next((sid for sid, data in PKMN_DATA.items()
-                 if data.get("name", "").casefold() == folded), 0)
+        return [int(match.group(1))]
+    folded = _fold_species(text)
+    if not folded:
+        return []
+    exact, plain, unqualified = [], [], []
+    for species_id in PKMN_DATA:
+        variant = SPECIES_VARIANTS.get(species_id)
+        if variant:
+            display, internal = variant
+            if folded in (_fold_species(display), _fold_species(internal)):
+                exact.append(species_id)
+            elif _fold_species(display.split("(")[0]) == folded:
+                # "Delta Metagross" without the type that tells the two apart.
+                unqualified.append(species_id)
+        elif _fold_species(PKMN_DATA[species_id].get("name", "")) == folded:
+            # A bare name never means a Delta; that needs its own name.
+            plain.append(species_id)
+    return sorted(exact) or sorted(plain) or sorted(unqualified)
+
+
+def species_form_candidates(value) -> list:
+    """Every (species id, form id) a piece of text could mean, best first.
+
+    A qualified form name settles it outright; a bare form name several Pokemon
+    share returns all of them, so the caller can say so rather than guess.
+    """
+    text = str(value or "").strip()
+    if not text:
+        return []
+    # "Pikachu (Form 3)" - what a form with no usable name of its own is called.
+    numbered = re.match(r"^(.*?)\s*\(\s*form\s*(\d+)\s*\)$", text, re.IGNORECASE)
+    if numbered:
+        base = species_candidates(numbered.group(1))
+        if base:
+            return [(base[0], int(numbered.group(2)))]
+    folded = _fold_species(text)
+    # A canonical name settles it outright; the game's own raw form name may
+    # still belong to several Pokemon, and then all of them are returned.
+    canonical = FORM_LOOKUP.get(folded)
+    if canonical:
+        return [canonical]
+    named = FORM_NAMES.get(folded)
+    if named:
+        return list(named)
+    return [(species_id, 0) for species_id in species_candidates(text)]
+
+
+def species_id_from_text(value) -> int:
+    """Resolve "25", "Pikachu", "25 - Pikachu" or "Delta Charmander", else 0."""
+    found = species_candidates(value)
+    return found[0] if found else 0
 
 # Build tiers are scored, never hand-maintained: Insurgence has no competitive
 # ladder, and a tier written into the file would go stale the moment a build was
@@ -1030,13 +1229,30 @@ def _build_move_ids(build_text: str) -> list:
             ids.append(move_id)
     return ids[:4]
 
+def build_species_form(fields: dict):
+    """(species id, form id) a build block names, or (0, 0).
+
+    The Species line may name a form - "Space Mew", "Mega Charizard X" - and a
+    Form line overrides whatever it implied.
+    """
+    found = species_form_candidates(fields.get("species", ""))
+    if not found:
+        return 0, 0
+    species_id, form_id = found[0]
+    if fields.get("form", "").strip():
+        digits = re.sub(r"[^0-9]", "", fields["form"])
+        form_id = int(digits) if digits else form_id
+    return species_id, form_id
+
+
 def build_score(build_text: str) -> int:
     """Score a build 0-100: base stats first, then how well it is actually built."""
     fields = _build_fields(build_text)
-    species_id = species_id_from_text(fields.get("species", ""))
+    species_id, form_id = build_species_form(fields)
     if not species_id:
         return 0
-    score = _bst_points(species_id)
+    # A Mega's base stats are the whole point of it, so the form counts here.
+    score = _bst_points(species_id, form_id)
 
     ivs, evs = _build_ivs_evs(fields)
     score += (sum(evs) / 510.0) * 9.0 + (sum(ivs) / 186.0) * 6.0
@@ -1058,7 +1274,7 @@ def build_tier(build_text: str) -> str:
     stored = fields.get("tier", "").strip()
     if stored:
         return stored
-    if not species_id_from_text(fields.get("species", "")):
+    if not build_species_form(fields)[0]:
         return "?"
     return _tier_for_score(build_score(build_text))
 
@@ -1098,7 +1314,7 @@ def style_for_stats(stats) -> str:
 def build_style(build_text: str) -> str:
     """Classify a build from its final stats: base, IVs, EVs and nature combined."""
     fields = _build_fields(build_text)
-    species_id = species_id_from_text(fields.get("species", ""))
+    species_id, form_id = build_species_form(fields)
     if not species_id:
         return "?"
     ivs, evs = _build_ivs_evs(fields)
@@ -1106,7 +1322,7 @@ def build_style(build_text: str) -> str:
     level = min(MAX_LEVEL, max(1, int(digits)))
     nature = next((i for i, name in enumerate(NATURES)
                    if name.casefold() == fields.get("nature", "").casefold()), 0)
-    return style_for_stats(calculate_pokemon_stats(species_id, 0, level, nature, ivs, evs))
+    return style_for_stats(calculate_pokemon_stats(species_id, form_id, level, nature, ivs, evs))
 
 # -- display ------------------------------------------------------------------
 
@@ -1120,11 +1336,12 @@ def possessive(name: str) -> str:
 def build_summary(build_text: str) -> dict:
     """Everything the library table and Info tab show, derived from one block."""
     fields = _build_fields(build_text)
-    species_id = species_id_from_text(fields.get("species", ""))
+    species_id, form_id = build_species_form(fields)
     return {
         "trainer": fields.get("trainer", "").strip() or "Wild",
         "species_id": species_id,
-        "species_name": PKMN_DATA.get(species_id, {}).get("name", "")
+        "form_id": form_id,
+        "species_name": species_display_name(species_id, form_id)
                         or (fields.get("species", "").strip() or "Unknown"),
         "description": fields.get("description", "").strip(),
         "tier": build_tier(build_text),
@@ -1135,7 +1352,7 @@ def build_summary(build_text: str) -> dict:
 # Only the keys something actually reads are legal, so a typo like "Abilty:" is
 # caught rather than silently ignored.  Trainer and Description may be blank or
 # absent; Species is the one field a build cannot do without.
-BUILD_KEYS = ("trainer", "species", "description", "nickname", "level", "nature",
+BUILD_KEYS = ("trainer", "species", "form", "description", "nickname", "level", "nature",
               "ability", "ivs", "evs", "moves", "item", "happiness", "tier")
 BUILD_KEY_LABELS = {key: {"ivs": "IVs", "evs": "EVs"}.get(key, key.title()) for key in BUILD_KEYS}
 
@@ -1183,8 +1400,28 @@ def validate_build_block(block: str, first_line: int = 1) -> list:
     if move_count > 4:
         problems.append((at("moves"), f"A Pokemon can hold four moves, this block lists {move_count}"))
     fields = _build_fields(block)
-    if not fields.get("species", "").strip():
+    species_text = fields.get("species", "").strip()
+    if not species_text:
         problems.append((at("species"), "Species is required"))
+    else:
+        # A name that means two Pokemon is how a Delta silently turns into its
+        # ordinary counterpart, so say so rather than picking one.
+        found = species_form_candidates(species_text)
+        if not found:
+            problems.append((at("species"), f"No Pokemon called {species_text!r}"))
+        elif len(found) > 1:
+            options = ", ".join(species_display_name(sid, fid) for sid, fid in found)
+            problems.append((at("species"),
+                             f"{species_text!r} could mean {len(found)} Pokemon. "
+                             f"Use one of: {options}"))
+        elif found:
+            wanted = fields.get("ability", "").strip()
+            allowed = [label.split(" (")[0]
+                       for _slot, label in ability_choices_for_species(found[0][0])]
+            if wanted and wanted.casefold() not in [a.casefold() for a in allowed]:
+                problems.append((at("ability"),
+                                 f"{species_display_name(*found[0])} cannot have {wanted!r}. "
+                                 f"It can have: {', '.join(allowed) or 'nothing listed'}"))
     tier = fields.get("tier", "").strip()
     if tier and tier not in BUILD_TIERS:
         problems.append((at("tier"), f"Tier must be one of {', '.join(BUILD_TIERS)}"))
@@ -2524,7 +2761,7 @@ class Editor(tk.Tk):
         return self._species_label(species_id) if species_id in PKMN_DATA else ""
 
     def _species_label(self, species_id: int) -> str:
-        return f"{species_id} — {PKMN_DATA.get(species_id, {}).get('name', 'Unknown')}"
+        return f"{species_id} — {species_display_name(species_id) or 'Unknown'}"
 
     def _species_from_text(self, value) -> int:
         return species_id_from_text(value)
@@ -4498,7 +4735,7 @@ class Editor(tk.Tk):
                 fields[key.strip().casefold()] = value.strip(); in_moves = False
             elif in_moves:
                 move_names.append(line)
-        species = self._species_from_text(fields.get("species", ""))
+        species, form = build_species_form(fields)
         if not species:
             raise ValueError("Unknown or missing species")
         level = min(MAX_LEVEL, max(1, int(fields.get("level", 100))))
@@ -4525,8 +4762,8 @@ class Editor(tk.Tk):
                 (mid for mid, data in MOVE_DATA.items() if data.get("name", "").casefold() == name.casefold()), 0)
             if move_id not in MOVE_DATA: raise ValueError(f"Unknown move: {name}")
             moves.append((move_id, MOVE_DATA[move_id].get("pp", 0)))
-        return {"fields": fields, "species": species, "level": level, "nature": nature,
-                "ivs": ivs, "evs": evs, "moves": moves}
+        return {"fields": fields, "species": species, "form": form, "level": level,
+                "nature": nature, "ivs": ivs, "evs": evs, "moves": moves}
 
     def _validate_build_text(self, text: str) -> list:
         """(block, line, message) for everything wrong with the raw editor text.
@@ -4557,6 +4794,8 @@ class Editor(tk.Tk):
         if v is None: raise ValueError("Select an existing Pokémon before applying to the current slot")
         build = self._parse_build_text(text); fields = build["fields"]
         self._select_species(v, str(build["species"]))
+        if build["form"]:
+            self._set_form_value(v, build["species"], build["form"])
         v["level"].set(str(build["level"]))
         v["nature_idx"].set(NATURE_CHOICES[build["nature"]])
         for stat, value in zip(STATS, build["ivs"]): v["iv_" + stat.lower()].set(str(value))
@@ -4587,6 +4826,8 @@ class Editor(tk.Tk):
         pkmn = self._create_pokemon_obj(build["species"], nature_index=build["nature"],
                                         level=build["level"], moves=build["moves"], evs=build["evs"])
         a = pkmn.attributes
+        if build["form"]:
+            apply_pokemon_form(a, build["form"])
         a["@iv"] = _display_stats_to_game(build["ivs"])
         if fields.get("nickname", "").strip():
             a["@name"] = fields["nickname"].strip().encode("utf-8")
@@ -4629,16 +4870,30 @@ class Editor(tk.Tk):
         return [(pokemon, index) for index, value in enumerate(pokemon)
                 if not isinstance(value, RubyObject)]
 
+    def _unreserved_slots_in(self, box, taken):
+        """Free slots in a box, minus the ones this import has already claimed.
+
+        Nothing is written until every destination is settled, so a box that has
+        just been filled still looks empty to _empty_slots_in.  Only `taken`
+        knows the difference.
+        """
+        return [slot for slot in self._empty_slots_in(box)
+                if (id(slot[0]), slot[1]) not in taken]
+
     def _ask_target_box(self, options, remaining, parent=None):
-        """Ask which box to fill next.  Returns a box option, or None to cancel."""
+        """Ask which box to fill next.  Returns a box option, or None to cancel.
+
+        `options` is (index, box, label, free slots); a box with no free slots
+        left is never offered, so the list can only shrink as an import runs.
+        """
         dlg = self._make_popup(f"Import {remaining} build(s)", "430x170")
         if parent is not None:
             dlg.transient(parent)
         ttk.Label(dlg, text=f"Which PC box should receive {remaining} Pokemon?",
                   font=("", 10, "bold"), padding=(0, 10, 0, 6)).pack()
         frame = ttk.Frame(dlg, padding=8); frame.pack(fill="x", padx=10)
-        labels = [label for _idx, _box, label in options]
-        free = {label: len(self._empty_slots_in(box)) for _idx, box, label in options}
+        labels = [label for _idx, _box, label, _slots in options]
+        free = {label: len(slots) for _idx, _box, label, slots in options}
         current = self.storage.attributes.get("@currentBox", 0)
         default = next((o for o in options if o[0] == current), options[0])
         box_var = tk.StringVar(value=default[2])
@@ -4694,36 +4949,35 @@ class Editor(tk.Tk):
         taken, placements = set(), []
         while len(placements) < count:
             remaining = count - len(placements)
-            option = self._ask_target_box(options, remaining, parent=parent)
+            # Recomputed every time round: a box filled on the last pass must
+            # neither be offered again nor still advertise its old free count.
+            available = [(idx, box, label, self._unreserved_slots_in(box, taken))
+                         for idx, box, label in options]
+            available = [entry for entry in available if entry[3]]
+            if not available:
+                raise ValueError(
+                    f"Need {remaining} more empty PC slots; every box is full")
+            option = self._ask_target_box(available, remaining, parent=parent)
             if option is None:
                 return None
-            _box_idx, box, label = option
-            free = [slot for slot in self._empty_slots_in(box)
-                    if (id(slot[0]), slot[1]) not in taken]
+            _box_idx, box, label, free = option
             if len(free) >= remaining:
                 placements.extend(free[:remaining])
                 break
-            if not free:
-                messagebox.showwarning("Box is full", f"{label} has no free slots.", parent=parent)
-                continue
             choice = self._ask_overflow(label, len(free), remaining, parent=parent)
             if choice is None:
                 return None
             placements.extend(free)
             taken.update((id(slots), index) for slots, index in free)
             if choice == "auto":
-                spare = []
-                for _idx, other, _label in options:
-                    for slot in self._empty_slots_in(other):
-                        if (id(slot[0]), slot[1]) not in taken:
-                            spare.append(slot)
+                spare = [slot for _idx, other, _label in options
+                         for slot in self._unreserved_slots_in(other, taken)]
                 needed = count - len(placements)
                 if len(spare) < needed:
                     raise ValueError(
                         f"Need {needed} more empty PC slots; only {len(spare)} are left")
                 placements.extend(spare[:needed])
                 break
-            taken.update((id(slots), index) for slots, index in placements)
         return placements
 
     def _import_builds_to_pc(self, build_texts, parent=None):
@@ -4767,7 +5021,8 @@ class Editor(tk.Tk):
             raise ValueError("This slot's species is not in the bundled data")
 
         lines = [f"Trainer: {trainer.strip()}"] if trainer.strip() else []
-        lines.append(f"Species: {PKMN_DATA[species_id].get('name', species_id)}")
+        form_id = self._parse_form_id(v["form"].get() if v.get("form") else 0)
+        lines.append(f"Species: {species_display_name(species_id, form_id) or species_id}")
         if description.strip():
             lines.append(f"Description: {description.strip()}")
         nickname = v["nickname"].get().strip() if "nickname" in v else ""
@@ -6414,7 +6669,7 @@ class Editor(tk.Tk):
             rarity = rarity_var.get()
 
             items = [(sid, d) for sid, d in PKMN_DATA.items()
-                     if (not q or q in d["name"].lower() or q in str(sid))
+                     if (not q or q in species_display_name(sid).lower() or q in str(sid))
                      and (typ    == "All" or typ    in (d["type1"], d["type2"]))
                      and (stage  == "All" or stage  == d["stage"])
                      and (rarity == "All" or rarity == d["rarity"])]

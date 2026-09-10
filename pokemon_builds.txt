@@ -108,9 +108,9 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
-Id: fe7a366771d3
+Id: 5fe694f7ce46
 Trainer: Damian
-Species: Charmander
+Species: Delta Charmander
 Description: Twister attacker
 Level: 5
 Nature: Hardy
@@ -174,9 +174,9 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
-Id: 27aecc27f52d
+Id: 76c1fe9bdb0b
 Trainer: Harmony
-Species: Crustle
+Species: Delta Crustle (Fairy)
 Description: White Herb Shell Smash set
 Level: 50
 Nature: Adamant
@@ -327,9 +327,9 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
-Id: ba1c05db5bcf
+Id: 1e3113720a0b
 Trainer: Orion
-Species: Aggron
+Species: Delta Aggron
 Description: Choice Band Flare Blitz attacker
 Level: 50
 Nature: Adamant
@@ -445,9 +445,9 @@ Moves:
 - Taunt
 Happiness: 255
 ---
-Id: 2482ccb04022
+Id: a9781241ac22
 Trainer: Xavier
-Species: Metagross
+Species: Delta Metagross (Ground)
 Description: Mental Herb Sticky Web set
 Level: 50
 Nature: Adamant
@@ -598,9 +598,9 @@ Moves:
 Item: Salac Berry
 Happiness: 255
 ---
-Id: 6a8a9a6dc586
+Id: 38ff7d0bc672
 Trainer: Damian
-Species: Squirtle
+Species: Delta Squirtle
 Description: Tackle attacker
 Level: 5
 Nature: Hardy
@@ -613,9 +613,9 @@ Moves:
 - Tail Whip
 Happiness: 255
 ---
-Id: 93ce797643dd
+Id: d8f3afeac83c
 Trainer: Eduard
-Species: Hydreigon
+Species: Delta Hydreigon
 Description: Choice Specs Fire Blast attacker
 Level: 50
 Nature: Modest

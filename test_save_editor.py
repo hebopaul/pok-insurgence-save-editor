@@ -1848,9 +1848,10 @@ class BuildDialogTests(unittest.TestCase):
         buttons["New Empty Build"].invoke()
         app.update()
         self.assertEqual((), tree.selection())
-        self.assertEqual(["Trainer:", "Species:", "Description:", "Nickname:", "Level:",
-                          "Nature:", "Ability:", "IVs:", "EVs:", "Moves:", "Item:",
-                          "Happiness:"], editor.get("1.0", "end").strip().splitlines())
+        self.assertEqual(["Trainer:", "Species:", "Form:", "Description:", "Nickname:",
+                          "Level:", "Nature:", "Ability:", "IVs:", "EVs:", "Moves:",
+                          "Item:", "Happiness:"],
+                         editor.get("1.0", "end").strip().splitlines())
 
     def test_invalid_text_is_refused_and_nothing_is_written(self):
         app, path, editor, tree, buttons = self._dialog()
@@ -1924,6 +1925,267 @@ class BuildDialogTests(unittest.TestCase):
         blocks = save_editor._read_build_blocks(path)
         self.assertEqual(2, len(blocks))
         self.assertEqual(2, len({save_editor.build_id(b) for b in blocks}))
+
+class SpeciesVariantTests(unittest.TestCase):
+    """Insurgence reuses base names for its Deltas, so a name must say which."""
+
+    def test_a_bare_name_never_means_a_delta(self):
+        # id 4 is Fire with Blaze; id 730 is Ghost/Dragon with Spirit Call, and
+        # both are called "Charmander" in the game's own species data.
+        self.assertEqual(4, save_editor.species_id_from_text("Charmander"))
+        self.assertEqual(730, save_editor.species_id_from_text("Delta Charmander"))
+
+    def test_a_variant_is_recognised_however_it_is_written(self):
+        for text in ("Delta Charmander", "delta charmander", "DELTACHARMANDER",
+                     "Delta  Charmander", "730", "730 - Charmander"):
+            self.assertEqual(730, save_editor.species_id_from_text(text), text)
+
+    def test_names_that_mean_two_pokemon_report_both(self):
+        # Delta Metagross exists twice, Ground/Bug and Grass/Rock.
+        self.assertEqual([867, 870], save_editor.species_candidates("Delta Metagross"))
+        self.assertEqual([867], save_editor.species_candidates("Delta Metagross (Ground)"))
+        self.assertEqual([870], save_editor.species_candidates("Delta Metagross (Grass)"))
+
+    def test_punctuated_names_still_resolve(self):
+        self.assertEqual(83, save_editor.species_id_from_text("Farfetch'd"))
+        self.assertEqual(83, save_editor.species_id_from_text("farfetchd"))
+
+    def test_display_names_identify_a_species_on_their_own(self):
+        self.assertEqual("Charmander", save_editor.species_display_name(4))
+        self.assertEqual("Delta Charmander", save_editor.species_display_name(730))
+        self.assertEqual("Delta Metagross (Ground)", save_editor.species_display_name(867))
+        self.assertEqual("", save_editor.species_display_name(None))
+
+    def test_every_variant_name_is_unique(self):
+        if not save_editor.SPECIES_VARIANTS:
+            self.skipTest("species_names.txt not generated")
+        names = [display for display, _internal in save_editor.SPECIES_VARIANTS.values()]
+        self.assertEqual(len(names), len(set(names)))
+
+    def test_a_variant_round_trips_through_a_build_block(self):
+        # The bug this guards: writing the bare name turned a Delta back into
+        # its ordinary counterpart, ability and all, with no error anywhere.
+        for species_id in (730, 867, 4, 25):
+            block = f"Species: {save_editor.species_display_name(species_id)}\nLevel: 50"
+            self.assertEqual(species_id, save_editor.species_id_from_text(
+                save_editor._build_fields(block)["species"]))
+
+
+class BundledBuildIntegrityTests(unittest.TestCase):
+    """Every shipped build must actually apply, not just parse."""
+
+    def test_no_build_names_an_ability_its_species_cannot_have(self):
+        offenders = []
+        for text in save_editor.BUILD_LIBRARY:
+            fields = save_editor._build_fields(text)
+            wanted = fields.get("ability", "").strip()
+            if not wanted:
+                continue
+            species_id = save_editor.species_id_from_text(fields.get("species", ""))
+            allowed = [label.split(" (")[0].casefold() for _slot, label
+                       in save_editor.ability_choices_for_species(species_id)]
+            if wanted.casefold() not in allowed:
+                offenders.append(f"{fields.get('species')} / {wanted}")
+        self.assertEqual([], offenders)
+
+    def test_every_species_named_resolves_to_exactly_one_pokemon(self):
+        for text in save_editor.BUILD_LIBRARY:
+            name = save_editor._build_fields(text).get("species", "")
+            self.assertEqual(1, len(save_editor.species_candidates(name)), name)
+
+    def test_every_bundled_build_passes_validation(self):
+        for text in save_editor.BUILD_LIBRARY:
+            block = save_editor.strip_build_id(text)
+            self.assertEqual([], save_editor.validate_build_block(block),
+                             save_editor.build_title(text))
+
+    def test_the_validator_catches_a_delta_ability_on_a_plain_species(self):
+        found = save_editor.validate_build_block(
+            "Species: Charmander\nAbility: Spirit Call\nLevel: 5")
+        self.assertTrue(any("cannot have" in message for _line, message in found), found)
+
+    def test_the_validator_rejects_an_ambiguous_species(self):
+        found = save_editor.validate_build_block("Species: Delta Metagross\nLevel: 5")
+        self.assertTrue(any("could mean" in message for _line, message in found), found)
+
+class BoxOverflowTests(unittest.TestCase):
+    """Filling a box during an import must remove it from the next question."""
+
+    @staticmethod
+    def _box(name, size, used):
+        box = RubyObject()
+        box.attributes = {
+            "@name": name.encode(),
+            "@pokemon": [RubyObject() if i < used else None for i in range(size)],
+        }
+        return box
+
+    def _editor_with_boxes(self, sizes_and_used):
+        editor = Editor.__new__(Editor)          # no Tk: only the planner is under test
+        boxes = [self._box(f"Box {i + 1}", size, used)
+                 for i, (size, used) in enumerate(sizes_and_used)]
+        storage = RubyObject()
+        storage.attributes = {"@boxes": boxes, "@currentBox": 0}
+        editor.storage = storage
+        return editor, boxes
+
+    def test_a_filled_box_is_not_offered_again_and_counts_stay_true(self):
+        # Box 1 has 3 free, Box 2 has 30. Importing 10 must overflow out of Box 1.
+        editor, _boxes = self._editor_with_boxes([(30, 27), (30, 0)])
+        asked = []
+
+        def fake_ask(options, remaining, parent=None):
+            asked.append([(label, len(slots)) for _idx, _box, label, slots in options])
+            return options[0]
+
+        editor._ask_target_box = fake_ask
+        editor._ask_overflow = lambda label, fits, remaining, parent=None: "fill"
+        placements = editor._plan_build_placements(10)
+
+        self.assertEqual(10, len(placements))
+        self.assertEqual(10, len({(id(slots), index) for slots, index in placements}))
+        # First question offers both boxes with their real counts...
+        self.assertEqual([("Box 1: Box 1", 3), ("Box 2: Box 2", 30)], asked[0])
+        # ...the second must not mention Box 1 at all, and Box 2 is still 30.
+        self.assertEqual([("Box 2: Box 2", 30)], asked[1])
+
+    def test_a_partly_used_box_reports_what_is_left_not_what_it_started_with(self):
+        # Two overflows in a row: each question must reflect the last one.
+        editor, _boxes = self._editor_with_boxes([(30, 28), (30, 28), (30, 0)])
+        asked = []
+
+        def fake_ask(options, remaining, parent=None):
+            asked.append([(label, len(slots)) for _idx, _box, label, slots in options])
+            return options[0]
+
+        editor._ask_target_box = fake_ask
+        editor._ask_overflow = lambda label, fits, remaining, parent=None: "fill"
+        placements = editor._plan_build_placements(10)
+
+        self.assertEqual(10, len(placements))
+        self.assertEqual([("Box 1: Box 1", 2), ("Box 2: Box 2", 2), ("Box 3: Box 3", 30)], asked[0])
+        self.assertEqual([("Box 2: Box 2", 2), ("Box 3: Box 3", 30)], asked[1])
+        self.assertEqual([("Box 3: Box 3", 30)], asked[2])
+
+    def test_auto_never_reuses_a_slot_already_claimed(self):
+        editor, _boxes = self._editor_with_boxes([(30, 28), (30, 25), (30, 29)])
+        editor._ask_target_box = lambda options, remaining, parent=None: options[0]
+        editor._ask_overflow = lambda label, fits, remaining, parent=None: "auto"
+        placements = editor._plan_build_placements(7)
+        self.assertEqual(7, len(placements))
+        self.assertEqual(7, len({(id(slots), index) for slots, index in placements}))
+
+    def test_cancelling_leaves_every_slot_untouched(self):
+        editor, boxes = self._editor_with_boxes([(30, 28), (30, 0)])
+        before = [list(b.attributes["@pokemon"]) for b in boxes]
+        editor._ask_target_box = lambda options, remaining, parent=None: None
+        self.assertIsNone(editor._plan_build_placements(5))
+        self.assertEqual(before, [list(b.attributes["@pokemon"]) for b in boxes])
+
+class FormNameTests(unittest.TestCase):
+    """A form is part of what a Pokemon is, so its name has to resolve too."""
+
+    def test_a_form_name_resolves_to_its_species_and_form(self):
+        self.assertEqual([(151, 1)], save_editor.species_form_candidates("Space Mew"))
+        self.assertEqual([(6, 1)], save_editor.species_form_candidates("Mega Charizard X"))
+        self.assertEqual([(6, 2)], save_editor.species_form_candidates("Mega Charizard Y"))
+        self.assertEqual([(151, 0)], save_editor.species_form_candidates("Mew"))
+
+    def test_a_form_name_is_matched_however_it_is_written(self):
+        for text in ("Space Mew", "space mew", "SPACEMEW", "Space  Mew"):
+            self.assertEqual([(151, 1)], save_editor.species_form_candidates(text), text)
+
+    def test_a_deltas_mega_carries_the_delta_in_its_name(self):
+        # The game stores a Delta's Mega under the ordinary one's name, so the
+        # qualifier is folded into it rather than bolted on the end.
+        self.assertEqual("Mega Venusaur", save_editor.species_display_name(3, 1))
+        self.assertEqual("Delta Mega Venusaur", save_editor.species_display_name(729, 1))
+        self.assertEqual("Delta Mega Scizor", save_editor.species_display_name(747, 1))
+        # A Delta whose own name is qualified keeps that qualifier too.
+        self.assertEqual("Delta Mega Metagross (Ground)",
+                         save_editor.species_display_name(867, 1))
+        # With the Delta named apart, the plain Mega is no longer ambiguous.
+        self.assertEqual([(3, 1)], save_editor.species_form_candidates("Mega Venusaur"))
+        self.assertEqual([(729, 1)],
+                         save_editor.species_form_candidates("Delta Mega Venusaur"))
+
+    def test_a_form_name_without_the_species_in_it_still_needs_qualifying(self):
+        # "Delta Summer Form" would mean nothing, so these keep the species.
+        self.assertEqual([(585, 1), (586, 1), (776, 1)],
+                         save_editor.species_form_candidates("Summer Form"))
+        self.assertEqual("Deerling (Summer Form)", save_editor.species_display_name(585, 1))
+        self.assertEqual("Delta Snorlax (Summer Form)",
+                         save_editor.species_display_name(776, 1))
+        # A unique form name needs no qualifying at all.
+        self.assertEqual("Space Mew", save_editor.species_display_name(151, 1))
+
+    def test_every_form_name_identifies_exactly_one_pokemon(self):
+        folded = [save_editor._fold_species(name)
+                  for name in save_editor.FORM_DISPLAY.values()]
+        self.assertEqual(len(folded), len(set(folded)))
+        # And none of them collides with a plain species name.
+        species = {save_editor._fold_species(save_editor.species_display_name(sid))
+                   for sid in save_editor.PKMN_DATA}
+        self.assertEqual([], [name for name in folded if name in species])
+
+    def test_a_qualified_name_resolves_back_to_exactly_one_pokemon(self):
+        for species_id, form_id in ((3, 1), (729, 1), (585, 1), (586, 1), (151, 1), (6, 2)):
+            name = save_editor.species_display_name(species_id, form_id)
+            self.assertEqual([(species_id, form_id)],
+                             save_editor.species_form_candidates(name), name)
+
+    def test_every_named_form_round_trips_through_its_display_name(self):
+        for species_id, forms in save_editor.FORM_DATA.items():
+            for form_id, _name in forms:
+                if not form_id:
+                    continue
+                shown = save_editor.species_display_name(species_id, form_id)
+                self.assertEqual([(species_id, form_id)],
+                                 save_editor.species_form_candidates(shown),
+                                 f"{species_id}/{form_id} -> {shown!r}")
+
+
+class FormBuildTests(unittest.TestCase):
+    """Builds carry the form, or a Mega silently reverts to its base species."""
+
+    def test_a_form_name_in_the_species_line_is_understood(self):
+        self.assertEqual([], save_editor.validate_build_block(
+            "Species: Space Mew\nLevel: 50"))
+        self.assertEqual([], save_editor.validate_build_block(
+            "Species: Mega Charizard X\nLevel: 50"))
+
+    def test_an_explicit_form_line_is_allowed_and_wins(self):
+        fields = save_editor._build_fields("Species: Mew\nForm: 1")
+        self.assertEqual((151, 1), save_editor.build_species_form(fields))
+        fields = save_editor._build_fields("Species: Space Mew\nForm: 0")
+        self.assertEqual((151, 0), save_editor.build_species_form(fields))
+
+    def test_an_unknown_species_is_reported_by_the_block_check_itself(self):
+        found = save_editor.validate_build_block("Species: Nonsense\nLevel: 5")
+        self.assertTrue(any("No Pokemon called" in message for _line, message in found), found)
+
+    def test_a_shared_form_name_is_refused_with_the_options(self):
+        found = save_editor.validate_build_block("Species: Summer Form\nLevel: 5")
+        self.assertTrue(any("could mean" in message for _line, message in found), found)
+        self.assertTrue(any("Delta Snorlax (Summer Form)" in message
+                            for _line, message in found), found)
+
+    def test_a_delta_mega_is_accepted_by_name(self):
+        self.assertEqual([], save_editor.validate_build_block(
+            "Species: Delta Mega Venusaur\nLevel: 50"))
+        fields = save_editor._build_fields("Species: Delta Mega Venusaur")
+        self.assertEqual((729, 1), save_editor.build_species_form(fields))
+
+    def test_the_summary_describes_the_form_not_the_base_species(self):
+        summary = save_editor.build_summary("Species: Space Mew\nLevel: 50\nNature: Hardy")
+        self.assertEqual(151, summary["species_id"])
+        self.assertEqual(1, summary["form_id"])
+        self.assertEqual("Space Mew", summary["species_name"])
+
+    def test_a_megas_base_stats_count_towards_its_tier(self):
+        spread = "\nLevel: 100\nNature: Hardy\nIVs: 31/31/31/31/31/31\nEVs: 252 Atk / 252 Spe"
+        self.assertGreater(save_editor.build_score("Species: Mega Charizard X" + spread),
+                           save_editor.build_score("Species: Charizard" + spread))
 
 
 if __name__ == "__main__":
