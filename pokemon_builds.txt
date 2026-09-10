@@ -6,6 +6,7 @@
 # Trainer teams, levels, moves, items, natures and IVs come from the game's
 # own trainers.dat; EV spreads are synthesised from each species' strengths.
 
+Id: 0a01bf7b938c
 Trainer: Adam
 Species: Greninja
 Description: Focus Sash Toxic Spikes set
@@ -22,6 +23,7 @@ Moves:
 Item: Focus Sash
 Happiness: 255
 ---
+Id: e54f94533f74
 Trainer: Anastasia
 Species: Klefki
 Description: Leftovers Substitute set
@@ -38,6 +40,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 228cba16fcd3
 Trainer: Audrey
 Species: Lanturn
 Description: Leftovers Toxic set
@@ -54,6 +57,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: a27cc475b654
 Trainer: Blaine
 Species: Charizard
 Description: Charizardite Y Solar Beam attacker
@@ -70,6 +74,7 @@ Moves:
 Item: Charizardite Y
 Happiness: 255
 ---
+Id: 80015eff55aa
 Trainer: Brock
 Species: Rhyperior
 Description: Choice Band Megahorn attacker
@@ -86,6 +91,7 @@ Moves:
 Item: Choice Band
 Happiness: 255
 ---
+Id: 877c465e6b6e
 Trainer: Cynthia
 Species: Lucario
 Description: Life Orb Swords Dance set
@@ -102,6 +108,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: fe7a366771d3
 Trainer: Damian
 Species: Charmander
 Description: Twister attacker
@@ -116,6 +123,7 @@ Moves:
 - Twister
 Happiness: 255
 ---
+Id: d3ab6e751db7
 Trainer: Eduard
 Species: Hippowdon
 Description: Leftovers Stealth Rock set
@@ -132,6 +140,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: e3145a6a68fb
 Trainer: Erika
 Species: Vileplume
 Description: Heat Rock Synthesis set
@@ -148,6 +157,7 @@ Moves:
 Item: Heat Rock
 Happiness: 255
 ---
+Id: 844c7118e2ec
 Trainer: Giovanni
 Species: Nidoking
 Description: Life Orb Fire Blast attacker
@@ -164,6 +174,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 27aecc27f52d
 Trainer: Harmony
 Species: Crustle
 Description: White Herb Shell Smash set
@@ -180,6 +191,7 @@ Moves:
 Item: White Herb
 Happiness: 255
 ---
+Id: a43340651370
 Trainer: Jaern
 Species: Aegislash
 Description: Weakness Policy Sacred Sword attacker
@@ -196,6 +208,7 @@ Moves:
 Item: Weakness Policy
 Happiness: 255
 ---
+Id: cb6cca0aee35
 Trainer: Janine
 Species: Crobat
 Description: Black Sludge Roost set
@@ -212,6 +225,7 @@ Moves:
 Item: Black Sludge
 Happiness: 255
 ---
+Id: f74218509102
 Trainer: Kayla
 Species: Smeargle
 Description: Focus Sash Quiver Dance set
@@ -228,6 +242,7 @@ Moves:
 Item: Focus Sash
 Happiness: 255
 ---
+Id: 452301a22f3c
 Trainer: London
 Species: Reuniclus
 Description: Reuniclite Calm Mind set
@@ -244,6 +259,7 @@ Moves:
 Item: Reuniclite
 Happiness: 255
 ---
+Id: 5cc313685ac5
 Trainer: Misty
 Species: Quagsire
 Description: Leftovers Recover set
@@ -260,6 +276,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: df82aace12df
 Trainer: Nora
 Species: Leavanny
 Description: Leavanny Armor Sticky Web set
@@ -276,6 +293,7 @@ Moves:
 Item: Leavanny Armor
 Happiness: 255
 ---
+Id: 5831881ed4de
 Trainer: Norman
 Species: Slaking
 Description: Choice Band Giga Impact attacker
@@ -292,6 +310,7 @@ Moves:
 Item: Choice Band
 Happiness: 255
 ---
+Id: 6c6b0c2abbe7
 Trainer: Nyx
 Species: Aurorus
 Description: Leftovers Blizzard attacker
@@ -308,6 +327,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: ba1c05db5bcf
 Trainer: Orion
 Species: Aggron
 Description: Choice Band Flare Blitz attacker
@@ -324,6 +344,7 @@ Moves:
 Item: Choice Band
 Happiness: 255
 ---
+Id: 8f051ce6c6bc
 Trainer: Persephone
 Species: Zoroark
 Description: Zoronite Focus Blast attacker
@@ -340,6 +361,7 @@ Moves:
 Item: Zoronite
 Happiness: 255
 ---
+Id: b834c1d54c6e
 Trainer: Reukra
 Species: Tyranitar
 Description: Tyranitar Armor Dragon Dance set
@@ -356,6 +378,7 @@ Moves:
 Item: Tyranitar Armor
 Happiness: 255
 ---
+Id: ec566fce7cde
 Trainer: Sabrina
 Species: Metagross
 Description: Weakness Policy Explosion attacker
@@ -372,6 +395,7 @@ Moves:
 Item: Weakness Policy
 Happiness: 255
 ---
+Id: 265f47fb667a
 Trainer: Steven
 Species: Skarmory
 Description: Rocky Helmet Spikes set
@@ -388,6 +412,7 @@ Moves:
 Item: Rocky Helmet
 Happiness: 255
 ---
+Id: 40398797ae03
 Trainer: Sylvan
 Species: Jolteon
 Description: Electric Gem Thunder attacker
@@ -404,6 +429,7 @@ Moves:
 Item: Electric Gem
 Happiness: 255
 ---
+Id: 743e9f1562be
 Trainer: Taen
 Species: Grumpig
 Description: Thunder Wave set
@@ -419,6 +445,7 @@ Moves:
 - Taunt
 Happiness: 255
 ---
+Id: 2482ccb04022
 Trainer: Xavier
 Species: Metagross
 Description: Mental Herb Sticky Web set
@@ -435,6 +462,7 @@ Moves:
 Item: Mental Herb
 Happiness: 255
 ---
+Id: e440de85d4ed
 Trainer: Yuki
 Species: Cryogonal
 Description: Cryogonite Recover set
@@ -451,6 +479,7 @@ Moves:
 Item: Cryogonite
 Happiness: 255
 ---
+Id: f6a19965774f
 Trainer: Zenith
 Species: Blaziken
 Description: Blazikenite Swords Dance set
@@ -467,6 +496,7 @@ Moves:
 Item: Blazikenite
 Happiness: 255
 ---
+Id: 3919c578c749
 Trainer: Adam
 Species: Bisharp
 Description: Black Glasses Swords Dance set
@@ -483,6 +513,7 @@ Moves:
 Item: Black Glasses
 Happiness: 255
 ---
+Id: b2299da741d3
 Trainer: Anastasia
 Species: Rotom
 Description: Leftovers Will-O-Wisp set
@@ -499,6 +530,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 4f6f376d6622
 Trainer: Audrey
 Species: Ludicolo
 Description: Life Orb Hydro Pump attacker
@@ -515,6 +547,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: e0f3d9866f99
 Trainer: Blaine
 Species: Magmortar
 Description: Assault Vest Focus Blast attacker
@@ -531,6 +564,7 @@ Moves:
 Item: Assault Vest
 Happiness: 255
 ---
+Id: 0d82e260d4c2
 Trainer: Brock
 Species: Steelix
 Description: Steelixite (Steel) Stone Edge attacker
@@ -547,6 +581,7 @@ Moves:
 Item: Steelixite (Steel)
 Happiness: 255
 ---
+Id: dc3a2aacacb5
 Trainer: Cynthia
 Species: Garchomp
 Description: Salac Berry Swords Dance set
@@ -563,6 +598,7 @@ Moves:
 Item: Salac Berry
 Happiness: 255
 ---
+Id: 6a8a9a6dc586
 Trainer: Damian
 Species: Squirtle
 Description: Tackle attacker
@@ -577,6 +613,7 @@ Moves:
 - Tail Whip
 Happiness: 255
 ---
+Id: 93ce797643dd
 Trainer: Eduard
 Species: Hydreigon
 Description: Choice Specs Fire Blast attacker
@@ -593,6 +630,7 @@ Moves:
 Item: Choice Specs
 Happiness: 255
 ---
+Id: 6eeff6542b3b
 Trainer: Erika
 Species: Cradily
 Description: Leftovers Recover set
@@ -609,6 +647,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: de3a5babd1ca
 Trainer: Giovanni
 Species: Rhyperior
 Description: Assault Vest Stone Edge attacker
@@ -625,6 +664,7 @@ Moves:
 Item: Assault Vest
 Happiness: 255
 ---
+Id: 735d8e1787d7
 Trainer: Harmony
 Species: Gardevoir
 Description: Focus Sash Focus Blast attacker
@@ -641,6 +681,7 @@ Moves:
 Item: Focus Sash
 Happiness: 255
 ---
+Id: f0138ce3866c
 Trainer: Jaern
 Species: Goodra
 Description: White Herb Draco Meteor attacker
@@ -657,6 +698,7 @@ Moves:
 Item: White Herb
 Happiness: 255
 ---
+Id: bc5bf2de8fb7
 Trainer: Janine
 Species: Roserade
 Description: Life Orb Sleep Powder set
@@ -673,6 +715,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 3bbbaff9804a
 Species: Mewtwo
 Description: Leftovers Recover set
 Level: 100
@@ -688,6 +731,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 7156e09ddc61
 Species: Rayquaza
 Description: Leftovers Dragon Dance set
 Level: 100
@@ -703,6 +747,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 0973bcc9db68
 Species: Giratina
 Description: Leftovers Shadow Force attacker
 Level: 100
@@ -718,6 +763,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 92106d65b156
 Species: Darkrai
 Description: Leftovers Nasty Plot set
 Level: 100
@@ -733,6 +779,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 9d5bec9f6bdb
 Species: Arceus
 Description: Leftovers Recover set
 Level: 100
@@ -748,6 +795,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: a4b37f867372
 Species: Kyogre
 Description: Leftovers Calm Mind set
 Level: 100
@@ -763,6 +811,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: b0d1ed80a875
 Species: Groudon
 Description: Leftovers Bulk Up set
 Level: 100
@@ -778,6 +827,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: eedc24561323
 Species: Xerneas
 Description: Leftovers Geomancy set
 Level: 100
@@ -793,6 +843,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: d45897dccdeb
 Trainer: Brock
 Species: Onix
 Description: Gen I Kanto Gym - Iron Tail attacker
@@ -808,6 +859,7 @@ Moves:
 - Screech
 Happiness: 255
 ---
+Id: 690cc05161d8
 Trainer: Lt. Surge
 Species: Raichu
 Description: Gen I Kanto Gym - Thunder Wave set
@@ -823,6 +875,7 @@ Moves:
 - Thunder Wave
 Happiness: 255
 ---
+Id: aa5e1850c6cb
 Trainer: Koga
 Species: Weezing
 Description: Gen I Kanto Gym - Black Sludge Will-O-Wisp set
@@ -839,6 +892,7 @@ Moves:
 Item: Black Sludge
 Happiness: 255
 ---
+Id: d9d6302e3311
 Trainer: Sabrina
 Species: Alakazam
 Description: Gen I Kanto Gym - Life Orb Calm Mind set
@@ -855,6 +909,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 40abd76c16ff
 Trainer: Blaine
 Species: Arcanine
 Description: Gen I Kanto Gym - Life Orb Morning Sun set
@@ -871,6 +926,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: e2a360850015
 Trainer: Lorelei
 Species: Lapras
 Description: Gen I Elite Four - Leftovers Rest set
@@ -887,6 +943,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 0647266e18db
 Trainer: Bruno
 Species: Machamp
 Description: Gen I Elite Four - Leftovers Bulk Up set
@@ -903,6 +960,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 61f203bd4c01
 Trainer: Agatha
 Species: Gengar
 Description: Gen I Elite Four - Life Orb Substitute set
@@ -919,6 +977,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 5e19f2c2d591
 Trainer: Lance
 Species: Dragonite
 Description: Gen I Champion - Leftovers Dragon Dance set
@@ -935,6 +994,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: d2277b881888
 Trainer: Blue
 Species: Blastoise
 Description: Gen I Champion - Leftovers Rapid Spin set
@@ -951,6 +1011,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 59f1027a5ba9
 Trainer: Red
 Species: Pikachu
 Description: Gen II Mt. Silver - Light Ball Volt Tackle attacker
@@ -967,6 +1028,7 @@ Moves:
 Item: Light Ball
 Happiness: 255
 ---
+Id: c68338f71976
 Trainer: Red
 Species: Charizard
 Description: Gen II Mt. Silver - Charizardite Y Solar Beam attacker
@@ -983,6 +1045,7 @@ Moves:
 Item: Charizardite Y
 Happiness: 255
 ---
+Id: 708c47d1d11b
 Trainer: Red
 Species: Venusaur
 Description: Gen II Mt. Silver - Venusaurite Sleep Powder set
@@ -999,6 +1062,7 @@ Moves:
 Item: Venusaurite
 Happiness: 255
 ---
+Id: a580987f93b0
 Trainer: Falkner
 Species: Pidgeot
 Description: Gen II Johto Gym - Roost set
@@ -1014,6 +1078,7 @@ Moves:
 - Tailwind
 Happiness: 255
 ---
+Id: 3b19f8cf2a3f
 Trainer: Bugsy
 Species: Scyther
 Description: Gen II Johto Gym - Swords Dance set
@@ -1029,6 +1094,7 @@ Moves:
 - Quick Attack
 Happiness: 255
 ---
+Id: dcd5065e6eec
 Trainer: Whitney
 Species: Miltank
 Description: Gen II Johto Gym - Leftovers Body Slam attacker
@@ -1045,6 +1111,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 7a70084b5b2b
 Trainer: Morty
 Species: Gengar
 Description: Gen II Johto Gym - Black Sludge Substitute set
@@ -1061,6 +1128,7 @@ Moves:
 Item: Black Sludge
 Happiness: 255
 ---
+Id: f6026ebb45ca
 Trainer: Chuck
 Species: Poliwrath
 Description: Gen II Johto Gym - Leftovers Bulk Up set
@@ -1077,6 +1145,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 3e773ccabcee
 Trainer: Jasmine
 Species: Steelix
 Description: Gen II Johto Gym - Leftovers Stealth Rock set
@@ -1093,6 +1162,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 332b469648d4
 Trainer: Pryce
 Species: Piloswine
 Description: Gen II Johto Gym - Stealth Rock set
@@ -1108,6 +1178,7 @@ Moves:
 - Stealth Rock
 Happiness: 255
 ---
+Id: 6ee3c9d8966b
 Trainer: Clair
 Species: Kingdra
 Description: Gen II Johto Gym - Leftovers Rest set
@@ -1124,6 +1195,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: e2161bfe976e
 Trainer: Will
 Species: Xatu
 Description: Gen II Elite Four - Leftovers Roost set
@@ -1140,6 +1212,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 3ea4ced12bf3
 Trainer: Karen
 Species: Umbreon
 Description: Gen II Elite Four - Leftovers Toxic set
@@ -1156,6 +1229,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 7a63527688d3
 Trainer: Karen
 Species: Houndoom
 Description: Gen II Elite Four - Life Orb Nasty Plot set
@@ -1172,6 +1246,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 7b58f87505c9
 Trainer: Roxanne
 Species: Nosepass
 Description: Gen III Hoenn Gym - Thunder Wave set
@@ -1187,6 +1262,7 @@ Moves:
 - Rest
 Happiness: 255
 ---
+Id: e9d20f45e9fe
 Trainer: Brawly
 Species: Hariyama
 Description: Gen III Hoenn Gym - Leftovers Bulk Up set
@@ -1203,6 +1279,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 5f43f0c1b64e
 Trainer: Wattson
 Species: Manectric
 Description: Gen III Hoenn Gym - Life Orb Thunder Wave set
@@ -1219,6 +1296,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: dd69fb057724
 Trainer: Flannery
 Species: Torkoal
 Description: Gen III Hoenn Gym - Leftovers Stealth Rock set
@@ -1235,6 +1313,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: b94ff1799384
 Trainer: Winona
 Species: Altaria
 Description: Gen III Hoenn Gym - Leftovers Roost set
@@ -1251,6 +1330,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: d8de7270aef1
 Trainer: Wallace
 Species: Milotic
 Description: Gen III Hoenn Champion - Leftovers Recover set
@@ -1267,6 +1347,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 23ff49503690
 Trainer: Sidney
 Species: Absol
 Description: Gen III Elite Four - Life Orb Swords Dance set
@@ -1283,6 +1364,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 4960b2523a53
 Trainer: Phoebe
 Species: Dusclops
 Description: Gen III Elite Four - Leftovers Will-O-Wisp set
@@ -1299,6 +1381,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 29934ebc92ad
 Trainer: Glacia
 Species: Walrein
 Description: Gen III Elite Four - Leftovers Protect set
@@ -1315,6 +1398,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 5c0297ae0ace
 Trainer: Drake
 Species: Salamence
 Description: Gen III Elite Four - Life Orb Dragon Dance set
@@ -1331,6 +1415,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 0ae68937e050
 Trainer: Archie
 Species: Sharpedo
 Description: Gen III Team Aqua - Life Orb Protect set
@@ -1347,6 +1432,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: c7b0d959b88a
 Trainer: Maxie
 Species: Camerupt
 Description: Gen III Team Magma - Leftovers Rest set
@@ -1363,6 +1449,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: e81faf3460c3
 Trainer: Roark
 Species: Cranidos
 Description: Gen IV Sinnoh Gym - Head Smash attacker
@@ -1378,6 +1465,7 @@ Moves:
 - Rock Slide
 Happiness: 255
 ---
+Id: 52170e86aad0
 Trainer: Gardenia
 Species: Roserade
 Description: Gen IV Sinnoh Gym - Life Orb Sleep Powder set
@@ -1394,6 +1482,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 59fe0b022e4a
 Trainer: Maylene
 Species: Lucario
 Description: Gen IV Sinnoh Gym - Life Orb Swords Dance set
@@ -1410,6 +1499,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 60e90348f562
 Trainer: Crasher Wake
 Species: Floatzel
 Description: Gen IV Sinnoh Gym - Life Orb Bulk Up set
@@ -1426,6 +1516,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 6acf1d966212
 Trainer: Fantina
 Species: Mismagius
 Description: Gen IV Sinnoh Gym - Life Orb Nasty Plot set
@@ -1442,6 +1533,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 7fa3fc9cd12a
 Trainer: Byron
 Species: Bastiodon
 Description: Gen IV Sinnoh Gym - Leftovers Stealth Rock set
@@ -1458,6 +1550,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 1cf941edc949
 Trainer: Candice
 Species: Froslass
 Description: Gen IV Sinnoh Gym - Focus Sash Spikes set
@@ -1474,6 +1567,7 @@ Moves:
 Item: Focus Sash
 Happiness: 255
 ---
+Id: 240f1986db3f
 Trainer: Volkner
 Species: Electivire
 Description: Gen IV Sinnoh Gym - Life Orb Earthquake attacker
@@ -1490,6 +1584,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 1b8bdbfa91ae
 Trainer: Aaron
 Species: Drapion
 Description: Gen IV Elite Four - Leftovers Swords Dance set
@@ -1506,6 +1601,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: dcdc13bb5598
 Trainer: Bertha
 Species: Hippowdon
 Description: Gen IV Elite Four - Leftovers Slack Off set
@@ -1522,6 +1618,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: cc1b01eb9b94
 Trainer: Flint
 Species: Infernape
 Description: Gen IV Elite Four - Life Orb Flare Blitz attacker
@@ -1538,6 +1635,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 8928ca49fbc6
 Trainer: Lucian
 Species: Bronzong
 Description: Gen IV Elite Four - Leftovers Stealth Rock set
@@ -1554,6 +1652,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 6626af97d383
 Trainer: Cynthia
 Species: Spiritomb
 Description: Gen IV Sinnoh Champion - Leftovers Will-O-Wisp set
@@ -1570,6 +1669,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: c1a89d2af25c
 Trainer: Cynthia
 Species: Togekiss
 Description: Gen IV Sinnoh Champion - Leftovers Roost set
@@ -1586,6 +1686,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 7da6a76f374b
 Trainer: Cyrus
 Species: Weavile
 Description: Gen IV Team Galactic - Life Orb Swords Dance set
@@ -1602,6 +1703,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 03263c6d7efd
 Trainer: Lenora
 Species: Watchog
 Description: Gen V Unova Gym - Crunch attacker
@@ -1617,6 +1719,7 @@ Moves:
 - Super Fang
 Happiness: 255
 ---
+Id: 33da5fb05c60
 Trainer: Burgh
 Species: Leavanny
 Description: Gen V Unova Gym - Life Orb Swords Dance set
@@ -1633,6 +1736,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 8d6a41830b18
 Trainer: Elesa
 Species: Zebstrika
 Description: Gen V Unova Gym - Life Orb Overheat attacker
@@ -1649,6 +1753,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 8424b8d9e236
 Trainer: Clay
 Species: Excadrill
 Description: Gen V Unova Gym - Leftovers Rapid Spin set
@@ -1665,6 +1770,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: f3f1ea43f568
 Trainer: Skyla
 Species: Swanna
 Description: Gen V Unova Gym - Life Orb Roost set
@@ -1681,6 +1787,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 65a2110fa6d9
 Trainer: Drayden
 Species: Haxorus
 Description: Gen V Unova Gym - Life Orb Dragon Dance set
@@ -1697,6 +1804,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: d8a0b78c906b
 Trainer: Grimsley
 Species: Bisharp
 Description: Gen V Elite Four - Life Orb Swords Dance set
@@ -1713,6 +1821,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 635d18a3af01
 Trainer: Caitlin
 Species: Reuniclus
 Description: Gen V Elite Four - Leftovers Calm Mind set
@@ -1729,6 +1838,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 10c41491f92f
 Trainer: Shauntal
 Species: Chandelure
 Description: Gen V Elite Four - Choice Scarf Trick set
@@ -1745,6 +1855,7 @@ Moves:
 Item: Choice Scarf
 Happiness: 255
 ---
+Id: 84be7ec29ca3
 Trainer: Marshal
 Species: Conkeldurr
 Description: Gen V Elite Four - Leftovers Bulk Up set
@@ -1761,6 +1872,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: d736b4e3a68c
 Trainer: Alder
 Species: Volcarona
 Description: Gen V Unova Champion - Life Orb Quiver Dance set
@@ -1777,6 +1889,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 405ba0243350
 Trainer: Iris
 Species: Haxorus
 Description: Gen V Unova Champion - Life Orb Dragon Dance set
@@ -1793,6 +1906,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: c105f4f032d5
 Trainer: Ghetsis
 Species: Hydreigon
 Description: Gen V Team Plasma - Life Orb Draco Meteor attacker
@@ -1809,6 +1923,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 87b6653520d5
 Trainer: N
 Species: Zoroark
 Description: Gen V Team Plasma - Life Orb Nasty Plot set
@@ -1825,6 +1940,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 8e0473bd3e7b
 Trainer: Korrina
 Species: Lucario
 Description: Gen VI Kalos Gym - Lucarionite Swords Dance set
@@ -1841,6 +1957,7 @@ Moves:
 Item: Lucarionite
 Happiness: 255
 ---
+Id: db95ab05d5e0
 Trainer: Clemont
 Species: Heliolisk
 Description: Gen VI Kalos Gym - Life Orb Thunder Wave set
@@ -1857,6 +1974,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 9d359cce7689
 Trainer: Valerie
 Species: Sylveon
 Description: Gen VI Kalos Gym - Leftovers Wish set
@@ -1873,6 +1991,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 0f81553527f5
 Trainer: Olympia
 Species: Meowstic
 Description: Gen VI Kalos Gym - Leftovers Thunder Wave set
@@ -1889,6 +2008,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: ab20870eec56
 Trainer: Wulfric
 Species: Avalugg
 Description: Gen VI Kalos Gym - Leftovers Recover set
@@ -1905,6 +2025,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 9a133812ad74
 Trainer: Malva
 Species: Talonflame
 Description: Gen VI Elite Four - Life Orb Swords Dance set
@@ -1921,6 +2042,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: f0b0e68bfbc3
 Trainer: Wikstrom
 Species: Aegislash
 Description: Gen VI Elite Four - Leftovers Substitute set
@@ -1937,6 +2059,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 296bbf4bcc28
 Trainer: Drasna
 Species: Noivern
 Description: Gen VI Elite Four - Life Orb Roost set
@@ -1953,6 +2076,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: ba99ae3cf8f6
 Trainer: Diantha
 Species: Gardevoir
 Description: Gen VI Kalos Champion - Gardevoirite Calm Mind set
@@ -1969,6 +2093,7 @@ Moves:
 Item: Gardevoirite
 Happiness: 255
 ---
+Id: be23be14c7d8
 Trainer: Diantha
 Species: Goodra
 Description: Gen VI Kalos Champion - Leftovers Rest set
@@ -1985,6 +2110,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: e258e7700a0c
 Trainer: Lysandre
 Species: Gyarados
 Description: Gen VI Team Flare - Leftovers Dragon Dance set
@@ -2001,6 +2127,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: fed9546a1e00
 Trainer: Ash
 Species: Pikachu
 Description: Anime - Light Ball Volt Tackle attacker
@@ -2017,6 +2144,7 @@ Moves:
 Item: Light Ball
 Happiness: 255
 ---
+Id: f5076ed6099a
 Trainer: Ash
 Species: Charizard
 Description: Anime - Charizardite X Dragon Dance set
@@ -2033,6 +2161,7 @@ Moves:
 Item: Charizardite X
 Happiness: 255
 ---
+Id: 9e7e21e03091
 Trainer: Ash
 Species: Sceptile
 Description: Anime - Life Orb Swords Dance set
@@ -2049,6 +2178,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 1d4c13928d33
 Trainer: Ash
 Species: Infernape
 Description: Anime - Life Orb Flare Blitz attacker
@@ -2065,6 +2195,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: b42529634f7a
 Trainer: Ash
 Species: Greninja
 Description: Anime - Life Orb Substitute set
@@ -2081,6 +2212,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 9c7d87468809
 Trainer: Ash
 Species: Snorlax
 Description: Anime - Leftovers Rest set
@@ -2097,6 +2229,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: fa3cb6392f8d
 Trainer: Ash
 Species: Bulbasaur
 Description: Anime - Eviolite Sleep Powder set
@@ -2113,6 +2246,7 @@ Moves:
 Item: Eviolite
 Happiness: 255
 ---
+Id: df13e10f7b1d
 Trainer: Misty
 Species: Psyduck
 Description: Anime - Water Pulse attacker
@@ -2128,6 +2262,7 @@ Moves:
 - Amnesia
 Happiness: 255
 ---
+Id: 8226cbef6800
 Trainer: Brock
 Species: Crobat
 Description: Anime - Black Sludge Toxic set
@@ -2144,6 +2279,7 @@ Moves:
 Item: Black Sludge
 Happiness: 255
 ---
+Id: 651dd5ff3050
 Trainer: Gary
 Species: Blastoise
 Description: Anime - Leftovers Rapid Spin set
@@ -2160,6 +2296,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: b0783ae7485b
 Trainer: Gary
 Species: Umbreon
 Description: Anime - Leftovers Toxic set
@@ -2176,6 +2313,7 @@ Moves:
 Item: Leftovers
 Happiness: 255
 ---
+Id: 6add76f4b3d1
 Trainer: Paul
 Species: Electivire
 Description: Anime - Life Orb Earthquake attacker
@@ -2192,6 +2330,7 @@ Moves:
 Item: Life Orb
 Happiness: 255
 ---
+Id: 5c5cd962764c
 Trainer: Jessie
 Species: Arbok
 Description: Anime Team Rocket - Black Sludge Rest set
@@ -2208,6 +2347,7 @@ Moves:
 Item: Black Sludge
 Happiness: 255
 ---
+Id: ef3ce81f9caf
 Trainer: James
 Species: Weezing
 Description: Anime Team Rocket - Black Sludge Will-O-Wisp set
@@ -2224,6 +2364,7 @@ Moves:
 Item: Black Sludge
 Happiness: 255
 ---
+Id: ff0861e18a78
 Trainer: Meowth
 Species: Persian
 Description: Anime Team Rocket - Life Orb Taunt set

@@ -64,6 +64,26 @@ Library** button also offers that Pokemon as an unsaved build you can add to the
 Builds you save go to `%APPDATA%\PokemonInsurgenceSaveEditor\pokemon_builds.user.txt`, so
 they survive rebuilding or reinstalling the editor.
 
+Picking rows in the table loads them into the **Raw text** tab, several at a time, separated by
+a line containing `---`. That text is the single source of truth: **Import to PC** creates what
+you can see there, and nothing else acts on it.
+
+Typing in it changes nothing on its own. An **Apply RAW Changes** button appears while there are
+uncommitted edits, and until you press it **Import to PC** and **Apply to Current** stay
+disabled. Applying checks the text first and refuses to save anything if it does not hold up,
+naming the block and line of every problem — an unknown field, a line that is not `Key: value`,
+a move bullet outside a `Moves:` list, five moves, EVs over 510. `Trainer` and `Description` may
+be blank or missing; `Species` may not.
+
+**New Empty Build** clears the editor and the selection and lays out the field names for you to
+fill in. If you apply text holding more than one build, the editor notices and asks before
+splitting it into separate library entries.
+
+Editing one of the built-in builds **overrides** it rather than duplicating it: every build
+carries a hidden id, and your version is written to your own file under the same id, so the list
+shows one row, not two. `pokemon_builds.txt` is never written to. To keep both, copy the text
+into **New Empty Build** instead, which earns a new id.
+
 ## Building
 
 Run `python setup_resources.py "<your Insurgence folder>"` first — the executable bundles the

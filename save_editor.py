@@ -4,7 +4,7 @@ Pokemon Insurgence Save Editor
 """
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import os, shutil, re, sys, time, copy, tempfile, json
+import os, shutil, re, sys, time, copy, tempfile, json, hashlib, uuid
 from datetime import datetime
 
 from rubymarshal.reader import loads
@@ -1127,6 +1127,81 @@ def build_summary(build_text: str) -> dict:
         "style": build_style(build_text),
     }
 
+# -- validation ---------------------------------------------------------------
+# Only the keys something actually reads are legal, so a typo like "Abilty:" is
+# caught rather than silently ignored.  Trainer and Description may be blank or
+# absent; Species is the one field a build cannot do without.
+BUILD_KEYS = ("trainer", "species", "description", "nickname", "level", "nature",
+              "ability", "ivs", "evs", "moves", "item", "happiness", "tier")
+BUILD_KEY_LABELS = {key: {"ivs": "IVs", "evs": "EVs"}.get(key, key.title()) for key in BUILD_KEYS}
+
+
+def validate_build_block(block: str, first_line: int = 1) -> list:
+    """Syntax problems in one block, as (line number, message).
+
+    Line numbers are counted in the text as the user sees it, so a message can
+    point at the line that is actually wrong.
+    """
+    problems = []
+    seen, key_lines, in_moves, move_count = set(), {}, False, 0
+    for offset, raw_line in enumerate(str(block or "").splitlines()):
+        number = first_line + offset
+        line = raw_line.strip()
+        if not line or line.startswith("#") or line == "---":
+            continue
+        if line[:1] in ("-", "*", "•"):
+            if not in_moves:
+                problems.append((number, "Move bullet outside a Moves: list"))
+            elif not line[1:].strip():
+                problems.append((number, "Empty move bullet"))
+            else:
+                move_count += 1
+            continue
+        if ":" not in line:
+            problems.append((number, f"Not a 'Key: value' line: {line!r}"))
+            in_moves = False
+            continue
+        key = line.split(":", 1)[0].strip().casefold()
+        if key == BUILD_ID_FIELD:
+            continue                       # ours, not the user's - quietly ignored
+        if key not in BUILD_KEYS:
+            problems.append((number, f"Unknown field {line.split(':', 1)[0].strip()!r}. "
+                                     f"Valid fields: {', '.join(BUILD_KEY_LABELS.values())}"))
+        elif key in seen:
+            problems.append((number, f"Duplicate field {BUILD_KEY_LABELS[key]!r}"))
+        seen.add(key)
+        key_lines.setdefault(key, number)
+        in_moves = key == "moves"
+
+    def at(key):
+        return key_lines.get(key, first_line)
+
+    if move_count > 4:
+        problems.append((at("moves"), f"A Pokemon can hold four moves, this block lists {move_count}"))
+    fields = _build_fields(block)
+    if not fields.get("species", "").strip():
+        problems.append((at("species"), "Species is required"))
+    tier = fields.get("tier", "").strip()
+    if tier and tier not in BUILD_TIERS:
+        problems.append((at("tier"), f"Tier must be one of {', '.join(BUILD_TIERS)}"))
+    for key, low, high in (("happiness", 0, 255), ("level", 1, MAX_LEVEL)):
+        text = fields.get(key, "").strip()
+        if text and (not text.isdigit() or not low <= int(text) <= high):
+            problems.append((at(key), f"{BUILD_KEY_LABELS[key]} must be a whole number "
+                                      f"from {low} to {high}"))
+    if fields.get("evs", "").strip():
+        total = sum(int(amount) for amount, _stat in re.findall(r"(\d+)\s*([A-Za-z]+)", fields["evs"]))
+        if total > 510:
+            problems.append((at("evs"), f"EVs total {total}, and the game allows 510"))
+    return sorted(problems)
+
+
+def build_validation_report(problems) -> str:
+    """The message the dialog shows, one problem per line."""
+    return "\n".join(f"Block {block}, line {line}: {message}"
+                     for block, line, message in problems)
+
+
 def build_title(build_text: str) -> str:
     """Ash's Pikachu, or just Pikachu for a wild or unowned build."""
     summary = build_summary(build_text)
@@ -1163,31 +1238,149 @@ def _read_build_blocks(path: str) -> list:
             builds.append("\n".join(lines).strip())
     return [text for text in builds if _build_fields(text).get("species")]
 
+# -- build identity -----------------------------------------------------------
+# Every block carries an Id, which the editor strips before showing it: the user
+# never sees it and never types it.  It exists so a block in the user's file can
+# *replace* one of the bundled builds instead of sitting next to it as a near
+# duplicate.  Bundled ids are derived from the block itself rather than being
+# random, so regenerating pokemon_builds.txt does not silently orphan overrides.
+
+BUILD_ID_FIELD = "id"
+
+
+def build_content_id(build_text: str) -> str:
+    """The id a block gets when it does not carry one of its own."""
+    fields = _build_fields(build_text)
+    seed = "|".join(fields.get(key, "").strip().casefold()
+                    for key in ("trainer", "species", "description"))
+    return hashlib.sha1(seed.encode("utf-8")).hexdigest()[:12]
+
+
+def new_build_id() -> str:
+    """A fresh id for a build the user has just written."""
+    return uuid.uuid4().hex[:12]
+
+
+def build_id(build_text: str) -> str:
+    return _build_fields(build_text).get(BUILD_ID_FIELD, "").strip() or build_content_id(build_text)
+
+
+def strip_build_id(build_text: str) -> str:
+    """The block as the user should see it, without its Id line."""
+    return "\n".join(line for line in str(build_text or "").splitlines()
+                     if line.split(":")[0].strip().casefold() != BUILD_ID_FIELD).strip()
+
+
+def with_build_id(build_text: str, identifier: str) -> str:
+    """The block as it is stored, with its Id line first."""
+    return f"Id: {identifier}\n{strip_build_id(build_text)}"
+
+
+def split_build_blocks(raw: str) -> list:
+    """Split library text into blocks on a line containing only ---."""
+    return [block for block, _line in split_build_blocks_with_lines(raw)]
+
+
+def split_build_blocks_with_lines(raw: str) -> list:
+    """(block, first line number) pairs, so a problem can name the real line."""
+    blocks, current, start = [], [], 1
+    for number, line in enumerate(str(raw or "").splitlines(), start=1):
+        if re.match(r"^---\s*$", line):
+            if any(text.strip() for text in current):
+                blocks.append(("\n".join(current).strip(), start))
+            current, start = [], number + 1
+            continue
+        if not current and not line.strip():
+            start = number + 1              # keep the count off leading blank lines
+            continue
+        current.append(line)
+    if any(text.strip() for text in current):
+        blocks.append(("\n".join(current).strip(), start))
+    return blocks
+
+
 def _load_build_library():
-    return (_read_build_blocks(resource_path("pokemon_builds.txt"))
-            + _read_build_blocks(user_builds_path()))
+    """(texts, ids, sources) with the user's builds overriding the bundled ones.
+
+    A user block whose id matches a bundled one takes its place, keeping the
+    bundled ordering so an edited build does not jump to the end of the list.
+    """
+    bundled = _read_build_blocks(resource_path("pokemon_builds.txt"))
+    personal = _read_build_blocks(user_builds_path())
+
+    texts, ids, sources = [], [], []
+    position = {}
+    for text in bundled:
+        identifier = build_id(text)
+        position[identifier] = len(texts)
+        texts.append(text); ids.append(identifier); sources.append("bundled")
+    for text in personal:
+        identifier = build_id(text)
+        if identifier in position:
+            index = position[identifier]
+            texts[index], sources[index] = text, "user"
+        else:
+            position[identifier] = len(texts)
+            texts.append(text); ids.append(identifier); sources.append("user")
+    return texts, ids, sources
+
 
 def reload_build_library() -> list:
-    """Re-read both library files after the user saves a new build."""
-    global BUILD_LIBRARY
-    BUILD_LIBRARY = _load_build_library()
+    """Re-read both library files after the user saves a build."""
+    global BUILD_LIBRARY, BUILD_IDS, BUILD_SOURCES
+    BUILD_LIBRARY, BUILD_IDS, BUILD_SOURCES = _load_build_library()
     return BUILD_LIBRARY
 
-def append_user_build(build_text: str) -> str:
-    """Append one block to the user's library file and return its path."""
+
+def read_user_builds() -> list:
+    """The user's own blocks, each guaranteed to carry an explicit Id."""
+    return [with_build_id(text, build_id(text)) for text in _read_build_blocks(user_builds_path())]
+
+
+def write_user_builds(blocks) -> str:
+    """Rewrite the user's library file, wholesale.
+
+    Editing an existing build means replacing its block, not appending another,
+    so the whole file is rewritten - through a temporary file and a rename, so a
+    failure part-way cannot leave a half-written library behind.
+    """
     path = user_builds_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    existing = os.path.exists(path) and os.path.getsize(path) > 0
-    with open(path, "a", encoding="utf-8") as stream:
-        if not existing:
-            stream.write("# Builds saved from the Pokemon Insurgence Save Editor.\n\n")
-        else:
-            stream.write("\n---\n")
-        stream.write(build_text.strip() + "\n")
+    body = "\n---\n".join(block.strip() for block in blocks if block.strip())
+    text = "# Builds saved from the Pokemon Insurgence Save Editor.\n\n" + body + "\n"
+    handle, temporary = tempfile.mkstemp(dir=os.path.dirname(path), suffix=".tmp")
+    try:
+        with os.fdopen(handle, "w", encoding="utf-8") as stream:
+            stream.write(text)
+        os.replace(temporary, path)
+    except Exception:
+        if os.path.exists(temporary):
+            os.remove(temporary)
+        raise
     reload_build_library()
     return path
 
-BUILD_LIBRARY = _load_build_library()
+
+def save_user_builds(pairs) -> str:
+    """Store (id, block text) pairs, replacing any entry already using that id."""
+    existing = read_user_builds()
+    by_id = {build_id(text): index for index, text in enumerate(existing)}
+    for identifier, text in pairs:
+        block = with_build_id(text, identifier)
+        if identifier in by_id:
+            existing[by_id[identifier]] = block
+        else:
+            by_id[identifier] = len(existing)
+            existing.append(block)
+    return write_user_builds(existing)
+
+
+def append_user_build(build_text: str) -> str:
+    """Add one new block to the user's library and return the file's path."""
+    return save_user_builds([(new_build_id(), build_text)])
+
+
+BUILD_LIBRARY, BUILD_IDS, BUILD_SOURCES = _load_build_library()
 
 def pokemon_base_stats(species_id: int, form_id: int = 0) -> list:
     """Return HP/Atk/Def/SpA/SpD/Spe, honoring form script overrides."""
@@ -4325,6 +4518,31 @@ class Editor(tk.Tk):
         return {"fields": fields, "species": species, "level": level, "nature": nature,
                 "ivs": ivs, "evs": evs, "moves": moves}
 
+    def _validate_build_text(self, text: str) -> list:
+        """(block, line, message) for everything wrong with the raw editor text.
+
+        Syntax first, from validate_build_block; then _parse_build_text, which
+        already raises on the semantic problems - an unknown species, move, item
+        or ability, or IVs that are not six numbers - so they are not restated
+        here.  A block with broken syntax is not parsed, because the parser
+        would only report a confusing consequence of it.
+        """
+        blocks = split_build_blocks_with_lines(text)
+        if not blocks:
+            return [(1, 1, "There is no build text here")]
+        problems = []
+        for index, (block, first_line) in enumerate(blocks, start=1):
+            found = validate_build_block(block, first_line)
+            if not found:
+                try:
+                    self._parse_build_text(block)
+                except ValueError as exc:
+                    found = [(first_line, str(exc))]
+                except Exception as exc:
+                    found = [(first_line, f"{type(exc).__name__}: {exc}")]
+            problems.extend((index, line, message) for line, message in found)
+        return problems
+
     def _apply_build_text(self, v, text: str):
         if v is None: raise ValueError("Select an existing Pokémon before applying to the current slot")
         build = self._parse_build_text(text); fields = build["fields"]
@@ -4334,6 +4552,10 @@ class Editor(tk.Tk):
         for stat, value in zip(STATS, build["ivs"]): v["iv_" + stat.lower()].set(str(value))
         for stat, value in zip(STATS, build["evs"]): v["ev_" + stat.lower()].set(str(value))
         if "happiness" in fields: v["happiness"].set(fields["happiness"])
+        # _build_text_from_slot writes Nickname, so applying has to read it back
+        # or a saved build quietly loses the name it was saved with.
+        if fields.get("nickname", "").strip() and "nickname" in v:
+            v["nickname"].set(fields["nickname"].strip())
         if "item" in fields:
             wanted = fields["item"].casefold()
             item_id = next((iid for iid, data in ITEM_DATA.items() if data.get("name", "").casefold() == wanted), 0)
@@ -4356,6 +4578,8 @@ class Editor(tk.Tk):
                                         level=build["level"], moves=build["moves"], evs=build["evs"])
         a = pkmn.attributes
         a["@iv"] = _display_stats_to_game(build["ivs"])
+        if fields.get("nickname", "").strip():
+            a["@name"] = fields["nickname"].strip().encode("utf-8")
         if "happiness" in fields: a["@happiness"] = min(255, max(0, int(fields["happiness"])))
         if "item" in fields:
             wanted = fields["item"].casefold()
@@ -4702,7 +4926,8 @@ class Editor(tk.Tk):
         ttk.Label(filters, text="Search:").pack(side="left")
         search_var = tk.StringVar(); ttk.Entry(filters, textvariable=search_var, width=30).pack(side="left", padx=4)
         count_var = tk.StringVar(); ttk.Label(filters, textvariable=count_var, foreground="gray").pack(side="left", padx=8)
-        ttk.Label(body, text="Builds (Ctrl/Shift selects several for PC import):").grid(row=1, column=0, sticky="w")
+        ttk.Label(body, text="Builds (Ctrl/Shift selects several; the Raw text tab holds "
+                             "whatever you pick):").grid(row=1, column=0, sticky="w")
 
         list_frame = ttk.Frame(body); list_frame.grid(row=2, column=0, sticky="nsew", padx=(0, 6), pady=4)
         list_frame.rowconfigure(0, weight=1); list_frame.columnconfigure(0, weight=1)
@@ -4732,38 +4957,135 @@ class Editor(tk.Tk):
         info_canvas.configure(yscrollcommand=info_scroll.set)
         info_canvas.pack(side="left", fill="both", expand=True); info_scroll.pack(side="right", fill="y")
 
+        # Buttons that must not run while the editor holds uncommitted edits.
+        raw_gated = []
+
+        # These two live inside the Raw tab, so they are visible exactly when the
+        # editor is and need no tab-change plumbing.  The strip is packed before
+        # the text box so its height is reserved rather than fought over.
+        raw_buttons = ttk.Frame(raw_outer)
+        raw_buttons.pack(side="bottom", fill="x", pady=(4, 2))
+        apply_raw = ttk.Button(raw_buttons, text="Apply RAW Changes",
+                               command=lambda: safe(apply_raw_changes))
+        ttk.Button(raw_buttons, text="New Empty Build",
+                   command=lambda: safe(new_empty_build)).pack(side="right")
+        ttk.Label(raw_outer, foreground="gray", wraplength=340, justify="left",
+                  text="Edits are checked and saved only when you apply them, and go to "
+                       "your own build file. Separate several builds with a --- line.").pack(
+                           side="bottom", fill="x", pady=(4, 2))
+
         editor = tk.Text(raw_outer, wrap="word", height=10, undo=True)
         raw_scroll = ttk.Scrollbar(raw_outer, orient="vertical", command=editor.yview)
         editor.configure(yscrollcommand=raw_scroll.set)
-        # The hint belongs with the editor it describes, not under the table.  It
-        # is packed first so its strip is reserved before the text box expands.
-        ttk.Label(raw_outer, foreground="gray", wraplength=340, justify="left",
-                  text="Edit freely, then Apply to Current or import. Separate several "
-                       "builds with a line containing ---.").pack(side="bottom", fill="x", pady=(4, 2))
         editor.pack(side="left", fill="both", expand=True); raw_scroll.pack(side="right", fill="y")
 
         # Entry 0 is the unsaved Pokemon, when there is one; the rest mirror the
         # library.  Summaries are derived once per rebuild, not per redraw.
-        entries, summaries = [], []
+        entries, summaries, entry_ids = [], [], []
         def rebuild_entries():
             entries[:] = ([pending["text"]] if pending["text"] else []) + list(BUILD_LIBRARY)
+            entry_ids[:] = ([None] if pending["text"] else []) + list(BUILD_IDS)
             summaries[:] = [build_summary(text) for text in entries]
             if pending["text"]:
                 summaries[0] = dict(summaries[0], description="(unregistered - not in library)")
         rebuild_entries()
 
+        # The ids of the blocks currently loaded into the editor, in order.  The
+        # user never sees them; they are what lets an edited build be written
+        # back over itself instead of appended as a near-duplicate.
+        loaded = {"ids": [], "dirty": False}
+
         def current_text():
             return editor.get("1.0", "end").strip()
 
         def refresh_info(*_args):
-            self._render_build_info(info_frame, current_text())
+            blocks = split_build_blocks(current_text())
+            self._render_build_info(info_frame, blocks[0] if blocks else "")
+            if len(blocks) > 1:
+                ttk.Label(info_frame, foreground="gray",
+                          text=f"Showing 1 of {len(blocks)} builds in the raw text.").pack(
+                              anchor="w", padx=8, pady=(6, 0))
+
+        def set_dirty(state):
+            """Only an explicit Apply commits the raw text, so the rest of the
+            dialog must not act on half-typed edits."""
+            loaded["dirty"] = bool(state)
+            editor.edit_modified(False)
+            if state:
+                apply_raw.pack(side="left", padx=(0, 4))
+            else:
+                apply_raw.pack_forget()
+            for button in raw_gated:
+                button.configure(state="disabled" if state else "normal")
+
+        def load_into_editor(texts, ids):
+            editor.delete("1.0", "end")
+            editor.insert("1.0", "\n---\n".join(strip_build_id(text) for text in texts))
+            loaded["ids"] = list(ids)
+            set_dirty(False)
+            refresh_info()
 
         def show_selected(_event=None):
             selected = library.selection()
             if selected:
-                editor.delete("1.0", "end")
-                editor.insert("1.0", entries[int(selected[0])])
-            refresh_info()
+                indexes = [int(iid) for iid in selected]
+                load_into_editor([entries[i] for i in indexes],
+                                 [entry_ids[i] for i in indexes])
+            else:
+                refresh_info()
+
+        def new_empty_build():
+            """Start a build from nothing: the field names, and nothing else."""
+            library.selection_remove(*library.selection())
+            editor.delete("1.0", "end")
+            editor.insert("1.0", "\n".join(f"{label}:" for label in BUILD_KEY_LABELS.values()
+                                           if label != "Tier"))
+            loaded["ids"] = []
+            set_dirty(True)
+            tabs.select(raw_outer)
+            editor.focus_set()
+
+        def apply_raw_changes():
+            """Validate the raw text, then write it to the user's library file."""
+            problems = self._validate_build_text(current_text())
+            if problems:
+                messagebox.showerror(
+                    "Build text is not valid",
+                    "Nothing was saved. Fix these and apply again:\n\n"
+                    + build_validation_report(problems), parent=win)
+                return
+            blocks = split_build_blocks(current_text())
+            # The unsaved Pokemon at the top of the list has no id yet; applying
+            # is what turns it into a real library entry.
+            ids = [identifier or new_build_id() for identifier in loaded["ids"]]
+            if len(blocks) > len(ids):
+                # More builds than were loaded means the user added some, and
+                # what to ask depends on whether they started from an entry.
+                if ids:
+                    question = ("You seem to have added multiple Pokemon builds inside an "
+                                "already existing entry. Do you want to save them as "
+                                "separate builds?")
+                else:
+                    question = ("Multiple Builds detected in the RAW text. Do you want to "
+                                "import them to the library?")
+                if len(blocks) > 1 and not messagebox.askokcancel("Multiple builds", question,
+                                                                  parent=win):
+                    return
+                ids += [new_build_id() for _ in range(len(blocks) - len(ids))]
+            path = save_user_builds(list(zip(ids, blocks)))
+            pending["text"] = None
+            rebuild_entries(); refresh_library()
+            keep = [str(entries.index(text)) for text in BUILD_LIBRARY
+                    if build_id(text) in ids and text in entries]
+            loaded["ids"] = ids
+            set_dirty(False)
+            if keep:
+                library.selection_set(keep); library.see(keep[0])
+            self.status.config(text=f"Saved {len(blocks)} build(s) to your library.",
+                               foreground="blue")
+            messagebox.showinfo("Builds saved",
+                                f"{len(blocks)} build(s) written to your library.\n{path}",
+                                parent=win)
 
         tier_rank = {name: index for index, name in enumerate(BUILD_TIERS)}
         sort_state = {"col": "tier", "reverse": False}
@@ -4826,18 +5148,14 @@ class Editor(tk.Tk):
         def safe(action):
             try: action()
             except Exception as exc: messagebox.showerror("Build error", str(exc), parent=win)
-        def apply_current(): self._apply_build_text(v, current_text()); win.destroy()
-        def import_selected():
-            texts = [entries[int(iid)] for iid in library.selection()]
-            if not texts: raise ValueError("Select one or more library builds")
-            count = self._import_builds_to_pc(texts, parent=win)
-            if count:
-                messagebox.showinfo("Builds imported",
-                                    f"Created {count} Pokemon. Click Save to write the save file.",
-                                    parent=win)
-        def import_text():
-            blocks = [block.strip() for block in re.split(r"^---\s*$", current_text(), flags=re.MULTILINE)
-                      if block.strip()]
+        def apply_current():
+            blocks = split_build_blocks(current_text())
+            if not blocks: raise ValueError("There is no build text to apply")
+            self._apply_build_text(v, blocks[0]); win.destroy()
+        def import_to_pc():
+            # The editor is the one source of truth: what you can see is what
+            # gets created, whether you picked it from the table or typed it.
+            blocks = split_build_blocks(current_text())
             if not blocks: raise ValueError("There is no build text to import")
             count = self._import_builds_to_pc(blocks, parent=win)
             if count:
@@ -4870,11 +5188,23 @@ class Editor(tk.Tk):
                                 f"Build added to your library.\n{path}", parent=win)
 
         ttk.Button(row, text="Close", command=win.destroy).pack(side="right")
-        if v is not None: ttk.Button(row, text="Apply to Current", command=lambda: safe(apply_current)).pack(side="right", padx=4)
         if pending["text"]:
-            ttk.Button(row, text="Save to Library", command=lambda: safe(save_to_library)).pack(side="left", padx=(0, 4))
-        ttk.Button(row, text="Import Text Blocks to PC", command=lambda: safe(import_text)).pack(side="left", padx=4)
-        ttk.Button(row, text="Import Selected Builds to PC", command=lambda: safe(import_selected)).pack(side="left", padx=4)
+            ttk.Button(row, text="Save to Library",
+                       command=lambda: safe(save_to_library)).pack(side="left", padx=(0, 4))
+        import_button = ttk.Button(row, text="Import to PC", command=lambda: safe(import_to_pc))
+        import_button.pack(side="left", padx=4)
+        raw_gated.append(import_button)
+        if v is not None:
+            current_button = ttk.Button(row, text="Apply to Current",
+                                        command=lambda: safe(apply_current))
+            current_button.pack(side="right", padx=4)
+            raw_gated.append(current_button)
+
+        # Everything downstream reads committed text, so nothing may run while
+        # the editor holds edits that have not been through Apply.
+        editor.bind("<<Modified>>", lambda _e: editor.edit_modified() and set_dirty(True))
+        show_selected()
+
     def _sync_slot_vars_from_obj(self, v):
         """Re-read the fields the shadow dialog can rewrite behind the UI's back.
 

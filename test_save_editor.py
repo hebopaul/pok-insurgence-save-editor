@@ -1,6 +1,7 @@
 import unittest
 import tkinter as tk
 import os
+import re
 import shutil
 import tempfile
 from types import SimpleNamespace
@@ -1667,6 +1668,262 @@ class MapViewerTests(unittest.TestCase):
         app.update()
         self.assertIn("5", tree.get_children())
         self.assertIn("unused", tree.item("5", "tags"))
+
+class BuildIdentityTests(unittest.TestCase):
+    """A hidden Id is what lets a user build replace a bundled one."""
+
+    def _library_in(self, blocks):
+        """Reload the library with a throwaway user file holding these blocks."""
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = os.path.join(tmp, "pokemon_builds.user.txt")
+        with open(path, "w", encoding="utf-8") as handle:
+            handle.write("\n---\n".join(blocks))
+        patcher = mock.patch.object(save_editor, "user_builds_path", lambda: path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(save_editor.reload_build_library)
+        save_editor.reload_build_library()
+        return path
+
+    def test_bundled_ids_are_derived_from_the_block_not_random(self):
+        # tools/gen_builds.py rewrites pokemon_builds.txt wholesale, so the ids
+        # have to fall out of the content or every override would be orphaned.
+        self._library_in([])
+        for text in save_editor.BUILD_LIBRARY:
+            self.assertEqual(save_editor.build_content_id(text), save_editor.build_id(text))
+
+    def test_a_user_block_replaces_the_bundled_one_with_the_same_id(self):
+        self._library_in([])
+        count = len(save_editor.BUILD_LIBRARY)
+        target = save_editor.BUILD_LIBRARY[0]
+        edited = save_editor.with_build_id(
+            save_editor.strip_build_id(target) + "\nHappiness: 7", save_editor.build_id(target))
+        self._library_in([edited])
+        self.assertEqual(count, len(save_editor.BUILD_LIBRARY))
+        self.assertEqual("user", save_editor.BUILD_SOURCES[0])
+        self.assertIn("Happiness: 7", save_editor.BUILD_LIBRARY[0])
+
+    def test_a_user_block_with_its_own_id_is_added_not_merged(self):
+        self._library_in([])
+        count = len(save_editor.BUILD_LIBRARY)
+        self._library_in([save_editor.with_build_id(
+            "Species: Bulbasaur\nLevel: 5\nNature: Hardy", save_editor.new_build_id())])
+        self.assertEqual(count + 1, len(save_editor.BUILD_LIBRARY))
+        self.assertEqual("user", save_editor.BUILD_SOURCES[-1])
+
+    def test_the_id_never_reaches_the_user(self):
+        block = save_editor.with_build_id("Species: Bulbasaur\nLevel: 5", "abc123")
+        self.assertIn("Id: abc123", block)
+        self.assertNotIn("Id:", save_editor.strip_build_id(block))
+        # Round-tripping must not accumulate Id lines either.
+        self.assertEqual(1, save_editor.with_build_id(block, "abc123").count("Id:"))
+
+    def test_saving_replaces_an_entry_rather_than_appending_a_copy(self):
+        path = self._library_in([])
+        save_editor.save_user_builds([("keep-me", "Species: Bulbasaur\nLevel: 5")])
+        save_editor.save_user_builds([("keep-me", "Species: Bulbasaur\nLevel: 9")])
+        blocks = save_editor._read_build_blocks(path)
+        self.assertEqual(1, len(blocks))
+        self.assertIn("Level: 9", blocks[0])
+
+
+class BuildValidationTests(unittest.TestCase):
+    """Nothing is saved until the raw text passes, and errors name their line."""
+
+    def _messages(self, block):
+        return {line: message for line, message in save_editor.validate_build_block(block)}
+
+    def test_a_bundled_build_is_valid(self):
+        for text in save_editor.BUILD_LIBRARY[:20]:
+            self.assertEqual([], save_editor.validate_build_block(save_editor.strip_build_id(text)))
+
+    def test_trainer_and_description_may_be_blank_or_absent(self):
+        self.assertEqual([], save_editor.validate_build_block(
+            "Species: Bulbasaur\nLevel: 5\nNature: Hardy"))
+        self.assertEqual([], save_editor.validate_build_block(
+            "Trainer:\nDescription:\nSpecies: Bulbasaur\nLevel: 5"))
+
+    def test_each_syntax_problem_points_at_its_own_line(self):
+        block = ("Trainer: Ash\n"                        # 1
+                 "Species: Pikachu\n"                    # 2
+                 "no colon here\n"                       # 3
+                 "Abilty: Static\n"                      # 4
+                 "Level: 999\n"                          # 5
+                 "EVs: 252 HP / 252 Atk / 252 Spe\n"     # 6
+                 "- Stray Bullet\n"                      # 7
+                 "Tier: Z")                              # 8
+        found = self._messages(block)
+        self.assertIn("Key: value", found[3])
+        self.assertIn("Unknown field 'Abilty'", found[4])
+        self.assertIn("Level", found[5])
+        self.assertIn("510", found[6])
+        self.assertIn("outside a Moves", found[7])
+        self.assertIn("Tier", found[8])
+
+    def test_more_than_four_moves_is_rejected(self):
+        block = ("Species: Pikachu\nMoves:\n- Thunderbolt\n- Quick Attack\n"
+                 "- Iron Tail\n- Agility\n- Thunder")
+        self.assertTrue(any("four moves" in message
+                            for _line, message in save_editor.validate_build_block(block)))
+
+    def test_a_missing_species_is_rejected(self):
+        self.assertTrue(any("Species is required" in message
+                            for _line, message in save_editor.validate_build_block("Level: 5")))
+
+    def test_a_duplicate_field_is_rejected(self):
+        self.assertIn("Duplicate", self._messages("Species: Pikachu\nLevel: 5\nLevel: 6")[3])
+
+
+class BuildDialogTests(unittest.TestCase):
+    """The raw editor is the one source of truth, and only Apply commits it."""
+
+    _app = None
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._app is not None:
+            cls._app.destroy()
+            cls._app = None
+        save_editor.reload_build_library()
+
+    def _dialog(self):
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        path = os.path.join(tmp, "pokemon_builds.user.txt")
+        patcher = mock.patch.object(save_editor, "user_builds_path", lambda: path)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(save_editor.reload_build_library)
+        save_editor.reload_build_library()
+
+        if type(self)._app is None:
+            try:
+                app = Editor()
+            except tk.TclError as exc:
+                self.skipTest(f"Tk is unavailable: {exc}")
+            app.withdraw()
+            type(self)._app = app
+        app = type(self)._app
+        app._open_build_dialog(None)
+        app.update()
+        win = [w for w in app.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+        self.addCleanup(win.destroy)
+        widgets = []
+
+        def walk(widget):
+            widgets.append(widget)
+            for child in widget.winfo_children():
+                walk(child)
+
+        walk(win)
+        editor = [w for w in widgets if isinstance(w, tk.Text)][0]
+        tree = [w for w in widgets if isinstance(w, save_editor.ttk.Treeview)][0]
+        buttons = {w.cget("text"): w for w in widgets if isinstance(w, save_editor.ttk.Button)}
+        return app, path, editor, tree, buttons
+
+    def test_selecting_several_rows_loads_them_all_into_the_editor(self):
+        app, _path, editor, tree, _buttons = self._dialog()
+        tree.selection_set(tree.get_children()[:3])
+        app.update()
+        text = editor.get("1.0", "end")
+        self.assertEqual(3, len(save_editor.split_build_blocks(text)))
+        self.assertNotIn("Id:", text)
+
+    def test_editing_reveals_apply_and_locks_the_actions_behind_it(self):
+        app, _path, editor, tree, buttons = self._dialog()
+        tree.selection_set(tree.get_children()[0])
+        app.update()
+        self.assertFalse(buttons["Apply RAW Changes"].winfo_manager())
+        self.assertEqual("normal", str(buttons["Import to PC"].cget("state")))
+        editor.insert("end", "\n# a note")
+        app.update()
+        self.assertTrue(buttons["Apply RAW Changes"].winfo_manager())
+        self.assertEqual("disabled", str(buttons["Import to PC"].cget("state")))
+
+    def test_new_empty_build_clears_the_selection_and_offers_the_field_names(self):
+        app, _path, editor, tree, buttons = self._dialog()
+        tree.selection_set(tree.get_children()[0])
+        app.update()
+        buttons["New Empty Build"].invoke()
+        app.update()
+        self.assertEqual((), tree.selection())
+        self.assertEqual(["Trainer:", "Species:", "Description:", "Nickname:", "Level:",
+                          "Nature:", "Ability:", "IVs:", "EVs:", "Moves:", "Item:",
+                          "Happiness:"], editor.get("1.0", "end").strip().splitlines())
+
+    def test_invalid_text_is_refused_and_nothing_is_written(self):
+        app, path, editor, tree, buttons = self._dialog()
+        tree.selection_set(tree.get_children()[0])
+        app.update()
+        editor.delete("1.0", "end")
+        editor.insert("1.0", "Species: Pikachu\nAbilty: Static")
+        app.update()
+        with mock.patch.object(save_editor.messagebox, "showerror") as error, \
+             mock.patch.object(save_editor.messagebox, "showinfo"):
+            buttons["Apply RAW Changes"].invoke()
+        self.assertTrue(error.called)
+        self.assertIn("Block 1, line 2", error.call_args[0][1])
+        self.assertFalse(os.path.exists(path))
+
+    def test_editing_a_bundled_build_overrides_it_instead_of_copying_it(self):
+        app, path, editor, tree, buttons = self._dialog()
+        before = len(save_editor.BUILD_LIBRARY)
+        row = tree.get_children()[0]
+        tree.selection_set(row)
+        app.update()
+        identifier = save_editor.BUILD_IDS[int(row)]
+        edited = re.sub(r"^Level: \d+$", "Level: 42",
+                        editor.get("1.0", "end").strip(), flags=re.MULTILINE)
+        editor.delete("1.0", "end")
+        editor.insert("1.0", edited)
+        app.update()
+        with mock.patch.object(save_editor.messagebox, "showinfo"), \
+             mock.patch.object(save_editor.messagebox, "showerror"):
+            buttons["Apply RAW Changes"].invoke()
+        app.update()
+        self.assertEqual(before, len(save_editor.BUILD_LIBRARY))
+        saved = save_editor._read_build_blocks(path)
+        self.assertEqual(1, len(saved))
+        self.assertEqual(identifier, save_editor.build_id(saved[0]))
+        self.assertIn("Level: 42", save_editor.BUILD_LIBRARY[int(row)])
+        self.assertFalse(buttons["Apply RAW Changes"].winfo_manager())
+
+    def test_extra_blocks_in_an_existing_entry_ask_before_splitting(self):
+        app, path, editor, tree, buttons = self._dialog()
+        tree.selection_set(tree.get_children()[0])
+        app.update()
+        editor.insert("end", "\n---\nSpecies: Bulbasaur\nLevel: 5\nNature: Hardy")
+        app.update()
+        with mock.patch.object(save_editor.messagebox, "askokcancel", return_value=False) as ask, \
+             mock.patch.object(save_editor.messagebox, "showinfo"), \
+             mock.patch.object(save_editor.messagebox, "showerror"):
+            buttons["Apply RAW Changes"].invoke()
+        self.assertIn("already existing entry", ask.call_args[0][1])
+        self.assertFalse(os.path.exists(path))          # cancelling writes nothing
+
+        with mock.patch.object(save_editor.messagebox, "askokcancel", return_value=True), \
+             mock.patch.object(save_editor.messagebox, "showinfo"), \
+             mock.patch.object(save_editor.messagebox, "showerror"):
+            buttons["Apply RAW Changes"].invoke()
+        self.assertEqual(2, len(save_editor._read_build_blocks(path)))
+
+    def test_a_fresh_multi_build_paste_asks_the_other_question(self):
+        app, path, editor, tree, buttons = self._dialog()
+        buttons["New Empty Build"].invoke()
+        app.update()
+        editor.delete("1.0", "end")
+        editor.insert("1.0", "Species: Bulbasaur\nLevel: 5\nNature: Hardy\n---\n"
+                             "Species: Squirtle\nLevel: 5\nNature: Hardy")
+        app.update()
+        with mock.patch.object(save_editor.messagebox, "askokcancel", return_value=True) as ask, \
+             mock.patch.object(save_editor.messagebox, "showinfo"), \
+             mock.patch.object(save_editor.messagebox, "showerror"):
+            buttons["Apply RAW Changes"].invoke()
+        self.assertIn("Multiple Builds detected", ask.call_args[0][1])
+        blocks = save_editor._read_build_blocks(path)
+        self.assertEqual(2, len(blocks))
+        self.assertEqual(2, len({save_editor.build_id(b) for b in blocks}))
 
 
 if __name__ == "__main__":
