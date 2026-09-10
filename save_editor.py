@@ -4,7 +4,7 @@ Pokemon Insurgence Save Editor
 """
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import os, shutil, re, sys, time, copy, tempfile
+import os, shutil, re, sys, time, copy, tempfile, json
 from datetime import datetime
 
 from rubymarshal.reader import loads
@@ -623,6 +623,305 @@ def _load_teachable_data():
 LEARNSET_DATA    = _load_learnset_data()
 TEACHABLE_DATA   = _load_teachable_data()
 SHADOW_MOVE_DATA = _load_shadow_move_data()
+
+# ── maps ──────────────────────────────────────────────────────────────────────
+# The player's position is editable, but only within the map the save was made
+# on.  PokemonLoad does "$game_map = $MapFactory.map" with no setup() call, so
+# the map that loads is the one serialised in stream 9 - tiles, events and all.
+# That stream cannot even be parsed (object cycles), so changing its @map_id
+# would leave the previous map's tiles under a new ID.  Cross-map relocation is
+# offered through the respawn point instead, which is plain parseable data.
+
+MAP_IMAGE_DIR = "map_images"
+TOWNMAP_CELL = 16          # region images are 480x320 on a 16px grid
+
+
+def _map_text(value) -> str:
+    """Local decode: ds() is defined further down this module."""
+    if isinstance(value, (bytes, bytearray)):
+        return value.decode("utf-8", "replace")
+    return str(value) if value is not None else ""
+
+
+def _load_map_names():
+    """map_id -> name, from the game's MapInfos.rxdata."""
+    path = resource_path(os.path.join("game_resources", "Data", "MapInfos.rxdata"))
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "rb") as stream:
+            infos = loads(stream.read())
+    except Exception:
+        return {}
+    names = {}
+    for map_id, info in (infos.items() if isinstance(infos, dict) else []):
+        raw = getattr(info, "attributes", {}).get("@name", b"")
+        names[int(map_id)] = _map_text(raw)
+    return names
+
+
+def _load_town_map():
+    """Regions from townmap.dat: [{name, image, points}, ...].
+
+    A point is [cell_x, cell_y, name, subtitle, map_id, x, y, nil].  Only some
+    points carry a map id - the rest are decorative labels - which is why the
+    viewer also offers a plain searchable list of every map.
+    """
+    path = resource_path(os.path.join("game_resources", "Data", "townmap.dat"))
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "rb") as stream:
+            raw = loads(stream.read())
+    except Exception:
+        return []
+    regions = []
+    for entry in raw if isinstance(raw, list) else []:
+        if not isinstance(entry, list) or len(entry) < 3:
+            continue
+        points = []
+        for point in entry[2] or []:
+            if not isinstance(point, list) or len(point) < 5:
+                continue
+            map_id = point[4] if isinstance(point[4], int) else None
+            points.append({
+                "cell": (int(point[0]), int(point[1])),
+                "name": _map_text(point[2]),
+                "subtitle": _map_text(point[3]) if len(point) > 3 else "",
+                "map_id": map_id,
+                "x": point[5] if len(point) > 5 and isinstance(point[5], int) else None,
+                "y": point[6] if len(point) > 6 and isinstance(point[6], int) else None,
+            })
+        regions.append({"name": _map_text(entry[0]), "image": _map_text(entry[1]), "points": points})
+    return regions
+
+
+def _load_map_positions():
+    """(region, cell_x, cell_y) -> [map_id, ...] from metadata.dat.
+
+    townmap.dat only names 27 landmarks, but every outdoor map records its own
+    town-map square in metadata entry 7 (MapPosition).  That is what makes the
+    routes between towns clickable rather than dead space.
+    """
+    path = resource_path(os.path.join("game_resources", "Data", "metadata.dat"))
+    if not os.path.exists(path):
+        return {}
+    try:
+        with open(path, "rb") as stream:
+            table = loads(stream.read())
+    except Exception:
+        return {}
+    cells = {}
+    for map_id, entry in enumerate(table if isinstance(table, list) else []):
+        if map_id == 0 or not isinstance(entry, list) or len(entry) < 8:
+            continue
+        position = entry[7]
+        if not (isinstance(position, list) and len(position) == 3):
+            continue
+        try:
+            key = (int(position[0]), int(position[1]), int(position[2]))
+        except (TypeError, ValueError):
+            continue
+        cells.setdefault(key, []).append(map_id)
+    return cells
+
+
+def _load_map_meta():
+    """(parents, doors, unused) as precomputed by tools/gen_map_index.py.
+
+    All three come out of the 832 Map###.rxdata files, which take the better
+    part of a minute to parse - far too long to do at startup - so they are
+    generated once and shipped as JSON.
+
+    parents  map_id -> parent_id, the MapInfos tree
+    doors    map_id -> {(x, y): (target_map_id, direction)}
+    unused   maps the game cannot reach and cannot draw: Insurgence still
+             carries the whole Pokemon Essentials sample project
+    """
+    path = resource_path("map_meta.txt")
+    if not os.path.exists(path):
+        return {}, {}, frozenset()
+    try:
+        with open(path, encoding="utf-8") as stream:
+            data = json.load(stream)
+    except (ValueError, OSError):
+        return {}, {}, frozenset()
+
+    parents = {}
+    for key, value in (data.get("parents") or {}).items():
+        try:
+            parents[int(key)] = int(value)
+        except (TypeError, ValueError):
+            continue
+
+    doors = {}
+    for key, cells in (data.get("doors") or {}).items():
+        try:
+            map_id = int(key)
+        except (TypeError, ValueError):
+            continue
+        entry = {}
+        for cell, target in (cells or {}).items():
+            try:
+                x, y = (int(part) for part in str(cell).split(","))
+                entry[(x, y)] = (int(target[0]), str(target[1]))
+            except (TypeError, ValueError, IndexError):
+                continue
+        if entry:
+            doors[map_id] = entry
+
+    unused = set()
+    for value in (data.get("unused") or []):
+        try:
+            unused.add(int(value))
+        except (TypeError, ValueError):
+            continue
+    return parents, doors, frozenset(unused)
+
+
+MAP_NAMES = _load_map_names()
+TOWN_MAP_REGIONS = _load_town_map()
+MAP_POSITIONS = _load_map_positions()
+MAP_PARENTS, MAP_DOORS, UNUSED_MAPS = _load_map_meta()
+
+# Reverse of MAP_POSITIONS, so placing a map on the town map is a lookup.
+MAP_CELL = {map_id: cell for cell, ids in MAP_POSITIONS.items() for map_id in ids}
+
+
+def maps_at_town_cell(region_index: int, cell_x: int, cell_y: int) -> list:
+    """Every map whose MapPosition is this town-map square."""
+    return list(MAP_POSITIONS.get((int(region_index), int(cell_x), int(cell_y)), ()))
+
+
+def map_ancestors(map_id) -> list:
+    """A map followed by every map it sits inside, outermost last."""
+    try:
+        map_id = int(map_id)
+    except (TypeError, ValueError):
+        return []
+    chain, seen = [], set()
+    while map_id and map_id not in seen:
+        seen.add(map_id)
+        chain.append(map_id)
+        map_id = MAP_PARENTS.get(map_id, 0)
+    return chain
+
+
+def town_cell_for_map(map_id):
+    """(region, cell_x, cell_y, anchor_map_id, depth), or None if off the map.
+
+    An interior has no MapPosition of its own - a Pokemon Center is not a square
+    on the town map - so the square comes from the nearest ancestor that has
+    one.  depth is how far up the chain that was: 0 means standing on the
+    square's own map, anything higher means being inside something on it, which
+    is what the viewer draws as an arrow rather than a box.
+    """
+    for depth, ancestor in enumerate(map_ancestors(map_id)):
+        cell = MAP_CELL.get(ancestor)
+        if cell is not None:
+            return (cell[0], cell[1], cell[2], ancestor, depth)
+    return None
+
+
+def doors_to(view_map_id, target_map_id) -> list:
+    """Doors on one map leading towards another, as (x, y, direction).
+
+    "Towards" includes the maps the target is inside, which is what makes
+    Metchi Town's Pokemon Center door the way to a player standing in the
+    Center rather than nothing at all.
+    """
+    try:
+        view_map_id = int(view_map_id)
+    except (TypeError, ValueError):
+        return []
+    wanted = set(map_ancestors(target_map_id))
+    if not wanted:
+        return []
+    return sorted((x, y, direction)
+                  for (x, y), (target, direction) in MAP_DOORS.get(view_map_id, {}).items()
+                  if target in wanted)
+
+
+def map_display_name(map_id) -> str:
+    try:
+        map_id = int(map_id)
+    except (TypeError, ValueError):
+        return "-"
+    name = MAP_NAMES.get(map_id, "")
+    return f"{map_id} - {name}" if name else str(map_id)
+
+
+def _load_map_image_index():
+    """(crop offsets, skip reasons) written by tools/render_maps.py.
+
+    The "skipped" section says why a map has no image, so the viewer can give
+    the real reason rather than suggesting a re-render that would not help.
+    """
+    path = resource_path(os.path.join(MAP_IMAGE_DIR, "index.json"))
+    if not os.path.exists(path):
+        return {}, {}
+    try:
+        with open(path, encoding="utf-8") as stream:
+            raw = json.load(stream)
+    except (ValueError, OSError):
+        return {}, {}
+    reasons = {}
+    for key, value in (raw.pop("skipped", None) or {}).items():
+        try:
+            reasons[int(key)] = str(value)
+        except (TypeError, ValueError):
+            continue
+    offsets = {}
+    for key, value in raw.items():
+        try:
+            offsets[int(key)] = value
+        except (TypeError, ValueError):
+            continue
+    return offsets, reasons
+
+
+MAP_IMAGE_INDEX, MAP_SKIP_REASONS = _load_map_image_index()
+
+
+def map_skip_reason(map_id):
+    """Plain-English reason a map has no rendered image, or None."""
+    try:
+        reason = MAP_SKIP_REASONS.get(int(map_id))
+    except (TypeError, ValueError):
+        return None
+    if not reason:
+        return None
+    if reason.startswith("tileset graphic missing: "):
+        return (f"This map is drawn with the tileset {reason.split(': ', 1)[1]}, which the "
+                "game does not ship a graphic for.\n\nIt is leftover content the game itself "
+                "cannot draw either.")
+    if reason in ("no tiles", "empty tile table"):
+        return "This map has no tiles at all - it is an empty placeholder in the game's data."
+    return f"This map could not be rendered: {reason}."
+
+
+def map_image_path(map_id, thumbnail=False):
+    """Rendered PNG for a map, or None when it has not been generated."""
+    try:
+        map_id = int(map_id)
+    except (TypeError, ValueError):
+        return None
+    suffix = ".thumb.png" if thumbnail else ".png"
+    path = resource_path(os.path.join(MAP_IMAGE_DIR, f"map{map_id:03d}{suffix}"))
+    return path if os.path.exists(path) else None
+
+
+def map_image_offset(map_id):
+    """(ox, oy) tile offset of a rendered image within its full map.
+
+    Renders are cropped to the part of the map that actually has content, so a
+    click has to add this back to land on the tile the game would use.
+    """
+    try:
+        entry = MAP_IMAGE_INDEX.get(int(map_id)) or {}
+    except (TypeError, ValueError):
+        return (0, 0)
+    return (int(entry.get("ox", 0)), int(entry.get("oy", 0)))
 
 def species_id_from_text(value) -> int:
     """Resolve "25", "Pikachu" or "25 - Pikachu" to a species ID, else 0."""
@@ -1816,6 +2115,8 @@ class Editor(tk.Tk):
         self.trainer      = None
         self.bag          = None
         self.bag_idx      = None
+        self.player_idx   = None
+        self.meta_idx     = None
         self.storage      = None
         self.storage_idx  = None
         self.storage_error = ""
@@ -1849,6 +2150,19 @@ class Editor(tk.Tk):
         self.var_coins = tk.StringVar(value="-")
         self.var_current_box = tk.StringVar(value="-")
         self.var_player_location = tk.StringVar(value="-")
+        self.var_player_x = tk.StringVar()
+        self.var_player_y = tk.StringVar()
+        self.var_respawn = tk.StringVar(value="-")
+        self.var_teleport = tk.StringVar(value="-")
+        self._loaded_location = None      # (x, y) as loaded, to detect real edits
+        # Two different things, and the game uses them for two different things:
+        # pbStartOver revives you at @pokecenter*, while the Teleport move sends
+        # you to @healingSpot.
+        self._respawn_spot = None         # [map_id, x, y] from @pokecenter*
+        self._teleport_spot = None        # [map_id, x, y] from @healingSpot
+        self._loaded_respawn = None       # copies as loaded, to detect real edits
+        self._loaded_teleport = None
+        self._location_dirty = False      # only rewrite those streams when edited
         self.var_registered_items = tk.StringVar(value="-")
         self.badge_vars = [tk.BooleanVar() for _ in range(8)]
         self.pkmn_vars  = []
@@ -2993,13 +3307,651 @@ class Editor(tk.Tk):
             ("Visited Maps", self.var_visited_maps),
             ("Coins", self.var_coins),
             ("Current PC Box", self.var_current_box),
-            ("Player Location", self.var_player_location),
             ("Registered Items", self.var_registered_items),
         ]):
             col = 0 if i < 4 else 2
             r = i if i < 4 else i - 4
             ttk.Label(world, text=label + ":", width=17, anchor="e").grid(row=r, column=col, sticky="e", pady=3, padx=4)
             ttk.Label(world, textvariable=var, width=26, anchor="w").grid(row=r, column=col + 1, sticky="w", pady=3, padx=4)
+
+        # Player position: editable X/Y on the map the save was made on, plus the
+        # respawn point, which is the only cross-map relocation that is safe.
+        location = ttk.LabelFrame(world, text="Player Position", padding=6)
+        location.grid(row=4, column=0, columnspan=4, sticky="ew", padx=4, pady=(8, 2))
+        ttk.Label(location, text="Current map:", width=13, anchor="e").grid(row=0, column=0, sticky="e", pady=2)
+        ttk.Label(location, textvariable=self.var_player_location, width=28,
+                  anchor="w").grid(row=0, column=1, sticky="w", padx=(4, 12))
+        ttk.Label(location, text="X:").grid(row=0, column=2, sticky="e")
+        ttk.Entry(location, textvariable=self.var_player_x, width=6).grid(row=0, column=3, sticky="w", padx=(2, 8))
+        ttk.Label(location, text="Y:").grid(row=0, column=4, sticky="e")
+        ttk.Entry(location, textvariable=self.var_player_y, width=6).grid(row=0, column=5, sticky="w", padx=(2, 10))
+        ttk.Button(location, text="Show Map",
+                   command=self._open_map_viewer).grid(row=0, column=6, sticky="w")
+
+        # Two separate destinations, which the game keeps separate too.
+        ttk.Label(location, text="Respawn at:", width=13, anchor="e").grid(row=1, column=0, sticky="e", pady=2)
+        ttk.Label(location, textvariable=self.var_respawn, width=28,
+                  anchor="w").grid(row=1, column=1, sticky="w", padx=(4, 12))
+        ttk.Label(location, text="where you reappear after whiting out",
+                  foreground="gray").grid(row=1, column=2, columnspan=5, sticky="w")
+
+        ttk.Label(location, text="Teleport to:", width=13, anchor="e").grid(row=2, column=0, sticky="e", pady=2)
+        ttk.Label(location, textvariable=self.var_teleport, width=28,
+                  anchor="w").grid(row=2, column=1, sticky="w", padx=(4, 12))
+        ttk.Label(location, text="where the Teleport move sends you",
+                  foreground="gray").grid(row=2, column=2, columnspan=5, sticky="w")
+
+    def _current_map_id(self):
+        gp = self.game_player.attributes if isinstance(self.game_player, RubyObject) else {}
+        value = gp.get("@oldMap")
+        return int(value) if isinstance(value, int) else None
+
+    # Marker colours.  Four different things used to share one red box, which is
+    # why every town you clicked looked like it was where you were standing.
+    MARK_SELECT = "#ffd24d"      # the tile you have picked, and nothing else
+    MARK_PLAYER = "#ff4d4d"      # where the save says you are
+    MARK_PLAYER_DIM = "#8a8f98"  # the other half of the player blink
+    MARK_RESPAWN = "#3fb950"     # @pokecenter*, where whiting out puts you
+    MARK_TELEPORT = "#7cc4ff"    # @healingSpot, where the Teleport move puts you
+
+    def _place_label(self, canvas, centre_x, top, bottom, text, colour, size, taken, tags):
+        """Draw a marker's label clear of the labels already placed.
+
+        Zoomed out, a tile is about ten pixels and a label three times that, so
+        stacking by tile is not enough - a label two tiles up still lands on the
+        marker below it.  Labels are laid out in priority order and each one is
+        pushed further out until it stops overlapping.
+        """
+        height = size + 4
+        half = max(9.0, len(text) * size * 0.34)
+        x0, x1 = centre_x - half, centre_x + half
+
+        def free(low, high):
+            return not any(x0 < ox1 and ox0 < x1 and low < oy1 and oy0 < high
+                           for ox0, ox1, oy0, oy1 in taken)
+
+        for step in range(8):                       # upwards first
+            y1 = top - 2 - step * height
+            if y1 - height >= 0 and free(y1 - height, y1):
+                taken.append((x0, x1, y1 - height, y1))
+                return self._stroked_text(canvas, centre_x, y1, text, colour, "s",
+                                          ("", int(size), "bold"), tags)
+        for step in range(8):                       # then below, if that is full
+            y0 = bottom + 2 + step * height
+            if free(y0, y0 + height):
+                taken.append((x0, x1, y0, y0 + height))
+                return self._stroked_text(canvas, centre_x, y0, text, colour, "n",
+                                          ("", int(size), "bold"), tags)
+        return None
+
+    @staticmethod
+    def _stroked_text(canvas, x, y, text, colour, anchor, font, tags):
+        """Canvas text with a dark outline, so it reads over any map.
+
+        The outline copies deliberately do not carry the marker's own tag: the
+        blink recolours everything tagged for the player, and eight red copies
+        of the name one pixel apart is a red smear, not a label.
+        """
+        for dx, dy in ((-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)):
+            canvas.create_text(x + dx, y + dy, text=text, fill="#0b0b0b",
+                               anchor=anchor, font=font, tags=("mark",))
+        return canvas.create_text(x, y, text=text, fill=colour, anchor=anchor,
+                                  font=font, tags=tags)
+
+    @staticmethod
+    def _arrow_points(x0, y0, size, direction):
+        """A triangle filling one tile, pointing the way you walk through it."""
+        pad = max(1.0, size * 0.15)
+        mid_x, mid_y = x0 + size / 2, y0 + size / 2
+        if direction == "down":
+            return [mid_x, y0 + size - pad, x0 + pad, y0 + pad, x0 + size - pad, y0 + pad]
+        if direction == "left":
+            return [x0 + pad, mid_y, x0 + size - pad, y0 + pad, x0 + size - pad, y0 + size - pad]
+        if direction == "right":
+            return [x0 + size - pad, mid_y, x0 + pad, y0 + pad, x0 + pad, y0 + size - pad]
+        return [mid_x, y0 + pad, x0 + pad, y0 + size - pad, x0 + size - pad, y0 + size - pad]
+
+    def _open_map_viewer(self):
+        if not isinstance(self.game_player, RubyObject):
+            messagebox.showerror("No save loaded", "Load a save file first.", parent=self)
+            return
+
+        current_map = self._current_map_id()
+        player_name = (self.var_trainer_name.get() or "Player").strip()
+        win = self._make_popup("Map Viewer", "1320x820", resizable=(True, True))
+        # Maps are large and the point of opening one is usually to see where a
+        # tile sits in the whole place, so start zoomed out.
+        state = {"map_id": current_map, "zoom": 1 / 3, "tile": None, "image": None,
+                 "offset": (0, 0), "region_points": {}, "region_index": 0,
+                 # False so the first tick turns the player marker red, not grey.
+                 "blink": False, "blink_job": None}
+
+        def player_tile():
+            try:
+                return (int(self.var_player_x.get()), int(self.var_player_y.get()))
+            except (TypeError, ValueError):
+                return None
+
+        def marks():
+            """The three save-backed points, in draw order."""
+            found = []
+            if current_map is not None and player_tile() is not None:
+                found.append(("player", self.MARK_PLAYER, player_name,
+                              current_map, player_tile()))
+            if self._respawn_spot:
+                found.append(("respawn", self.MARK_RESPAWN, "Respawn",
+                              int(self._respawn_spot[0]),
+                              (int(self._respawn_spot[1]), int(self._respawn_spot[2]))))
+            if self._teleport_spot:
+                found.append(("teleport", self.MARK_TELEPORT, "Teleport",
+                              int(self._teleport_spot[0]),
+                              (int(self._teleport_spot[1]), int(self._teleport_spot[2]))))
+            return found
+
+        body = ttk.Frame(win, padding=8); body.pack(fill="both", expand=True)
+        body.columnconfigure(1, weight=1); body.rowconfigure(0, weight=1)
+
+        picker = ttk.Notebook(body, width=500)
+        picker.grid(row=0, column=0, sticky="nsw", padx=(0, 8))
+
+        # ── region tab: the game's own town map, 16px cells ──────────────────
+        region_tab = ttk.Frame(picker); picker.add(region_tab, text=" Region ")
+        region_names = [r["name"] for r in TOWN_MAP_REGIONS] or ["(no town map data)"]
+        region_var = tk.StringVar(value=region_names[0])
+        ttk.Combobox(region_tab, textvariable=region_var, values=region_names, width=24,
+                     state="readonly").pack(anchor="w", pady=(6, 4))
+        region_canvas = tk.Canvas(region_tab, width=480, height=320, highlightthickness=0)
+        region_canvas.pack(fill="both", expand=True)
+        region_hint = ttk.Label(region_tab, foreground="gray", wraplength=470, justify="left",
+                                text="Click a marked square. Only places the game lists on "
+                                     "its town map appear here - use All Maps for the rest.")
+        region_hint.pack(anchor="w", pady=(4, 6))
+
+        # ── list tab: every map, searchable ──────────────────────────────────
+        list_tab = ttk.Frame(picker); picker.add(list_tab, text=" All Maps ")
+        search_var = tk.StringVar()
+        show_unused = tk.BooleanVar(value=False)
+        search_row = ttk.Frame(list_tab); search_row.pack(fill="x", pady=(6, 4))
+        ttk.Label(search_row, text="Search:").pack(side="left")
+        ttk.Entry(search_row, textvariable=search_var, width=22).pack(side="left", padx=4)
+        ttk.Checkbutton(list_tab, text="Show unused maps", variable=show_unused,
+                        takefocus=False,
+                        command=lambda: refresh_list()).pack(anchor="w", pady=(0, 4))
+        list_holder = ttk.Frame(list_tab); list_holder.pack(fill="both", expand=True)
+        maps_tree = ttk.Treeview(list_holder, columns=("id", "name"), show="headings",
+                                 selectmode="browse", height=20)
+        maps_tree.heading("id", text="ID"); maps_tree.heading("name", text="Name")
+        maps_tree.column("id", width=52, anchor="center", stretch=False)
+        maps_tree.column("name", width=210, anchor="w", stretch=True)
+        maps_tree.tag_configure("unused", foreground="gray")
+        list_scroll = ttk.Scrollbar(list_holder, orient="vertical", command=maps_tree.yview)
+        maps_tree.configure(yscrollcommand=list_scroll.set)
+        maps_tree.pack(side="left", fill="both", expand=True); list_scroll.pack(side="right", fill="y")
+
+        # ── map view ────────────────────────────────────────────────────────
+        view = ttk.Frame(body); view.grid(row=0, column=1, sticky="nsew")
+        view.rowconfigure(1, weight=1); view.columnconfigure(0, weight=1)
+
+        header = ttk.Frame(view); header.grid(row=0, column=0, sticky="ew", pady=(0, 4))
+        title_var = tk.StringVar(value="-")
+        ttk.Label(header, textvariable=title_var, font=("", 11, "bold")).pack(side="left")
+        ttk.Button(header, text="-", width=3,
+                   command=lambda: set_zoom(state["zoom"] / 1.5)).pack(side="right")
+        zoom_var = tk.StringVar(value="33%")
+        ttk.Label(header, textvariable=zoom_var, width=6,
+                  anchor="center").pack(side="right", padx=2)
+        ttk.Button(header, text="+", width=3,
+                   command=lambda: set_zoom(state["zoom"] * 1.5)).pack(side="right")
+
+        canvas_holder = ttk.Frame(view); canvas_holder.grid(row=1, column=0, sticky="nsew")
+        canvas_holder.rowconfigure(0, weight=1); canvas_holder.columnconfigure(0, weight=1)
+        canvas = tk.Canvas(canvas_holder, background="#101010", highlightthickness=0)
+        vbar = ttk.Scrollbar(canvas_holder, orient="vertical", command=canvas.yview)
+        hbar = ttk.Scrollbar(canvas_holder, orient="horizontal", command=canvas.xview)
+        canvas.configure(yscrollcommand=vbar.set, xscrollcommand=hbar.set)
+        canvas.grid(row=0, column=0, sticky="nsew"); vbar.grid(row=0, column=1, sticky="ns")
+        hbar.grid(row=1, column=0, sticky="ew")
+
+        footer = ttk.Frame(view); footer.grid(row=2, column=0, sticky="ew", pady=(4, 0))
+        status_var = tk.StringVar(value="Click a tile to choose a position.")
+        ttk.Label(footer, textvariable=status_var, foreground="gray").pack(side="left")
+
+        # Classic tk buttons, not ttk: in light mode the app uses the "vista"
+        # ttk theme, whose native button element throws away any background you
+        # give it, and matching each button to its marker is the whole point.
+        def action_button(text, colour, command):
+            button = tk.Button(footer, text=text, command=command, state="disabled",
+                               bg="#4a4f57", activebackground=colour, fg="#101010",
+                               activeforeground="#101010", relief="raised", bd=1,
+                               disabledforeground="#8a8f98", padx=8, takefocus=0)
+            button.pack(side="right", padx=3)
+            button.marker_colour = colour
+            return button
+
+        def set_action(button, enabled):
+            """A tk button keeps its colour when disabled, so change it here."""
+            button.configure(state="normal" if enabled else "disabled",
+                             bg=button.marker_colour if enabled else "#4a4f57")
+
+        ttk.Button(footer, text="Close", command=win.destroy).pack(side="right", padx=(10, 0))
+        teleport_button = action_button("Set Teleport Point", self.MARK_TELEPORT,
+                                        lambda: apply_spot("teleport"))
+        respawn_button = action_button("Set Respawn Point", self.MARK_RESPAWN,
+                                       lambda: apply_spot("respawn"))
+        move_button = action_button("Move Player Here", self.MARK_SELECT,
+                                    lambda: apply_spot("player"))
+
+        # ── region tab behaviour ────────────────────────────────────────────
+        def refresh_region(*_args):
+            region_canvas.delete("all")
+            region = next((r for r in TOWN_MAP_REGIONS if r["name"] == region_var.get()), None)
+            if region is None:
+                return
+            path = resource_path(os.path.join("game_resources", "Graphics",
+                                              "Pictures", region["image"]))
+            image = None
+            if os.path.exists(path):
+                try:
+                    image = tk.PhotoImage(file=path)
+                except tk.TclError:
+                    image = None
+            if image is not None:
+                region_canvas.image = image
+                region_canvas.create_image(0, 0, image=image, anchor="nw")
+                region_canvas.configure(scrollregion=(0, 0, image.width(), image.height()))
+            state["region_index"] = TOWN_MAP_REGIONS.index(region)
+            state["region_points"] = {}
+            # Outline every square that any map claims, not just the named
+            # landmarks - that is what makes routes reachable.
+            for cell in sorted(k for k in MAP_POSITIONS if k[0] == state["region_index"]):
+                cx, cy = cell[1], cell[2]
+                x0, y0 = cx * TOWNMAP_CELL, cy * TOWNMAP_CELL
+                region_canvas.create_rectangle(
+                    x0, y0, x0 + TOWNMAP_CELL, y0 + TOWNMAP_CELL,
+                    outline="#3fb950", width=1)
+            for point in region["points"]:
+                cx, cy = point["cell"]
+                x0, y0 = cx * TOWNMAP_CELL, cy * TOWNMAP_CELL
+                if point["map_id"] is not None:
+                    # Landmarks get a heavier outline and carry a landing tile.
+                    region_canvas.create_rectangle(
+                        x0, y0, x0 + TOWNMAP_CELL, y0 + TOWNMAP_CELL,
+                        outline="#7cc4ff", width=2)
+                    state["region_points"][(cx, cy)] = point
+            draw_region_marks()
+
+        def draw_region_marks():
+            """Player, respawn and teleport on the town map.
+
+            A map with no square of its own resolves to its parent's, and that
+            is drawn as an arrow instead of a box: you are inside something on
+            that square, not standing on it.  The arrow opens the map you are
+            really in.
+            """
+            region_canvas.delete("mark")
+            placed = []
+            for index, (kind, colour, label, map_id, _tile) in enumerate(marks()):
+                cell = town_cell_for_map(map_id)
+                if cell is None or cell[0] != state["region_index"]:
+                    continue
+                placed.append((index, kind, colour, label, map_id, cell[1], cell[2], cell[4]))
+
+            # All three points routinely land on one 16px square - a Pokemon
+            # Center is the respawn, the town outside it the teleport - so the
+            # labels stack and the player is drawn last, on top of the rest.
+            slots, depth_of_cell = {}, {}
+            for index, _kind, _colour, _label, _map_id, cx, cy, _depth in placed:
+                slots[index] = depth_of_cell.get((cx, cy), 0)
+                depth_of_cell[(cx, cy)] = slots[index] + 1
+            # Shapes back to front, so the player ends up innermost and on top
+            # while the markers it sits on still show as a ring around it.
+            for index, kind, colour, label, map_id, cx, cy, depth in reversed(placed):
+                slot = slots[index]
+                inset = (depth_of_cell[(cx, cy)] - 1 - slot) * 2
+                size = TOWNMAP_CELL - inset * 2
+                x0, y0 = cx * TOWNMAP_CELL + inset, cy * TOWNMAP_CELL + inset
+                tags = ("mark", f"mark_{kind}")
+                if depth > 0:
+                    # Only the topmost marker gets a dark rim: on a nested one it
+                    # would swallow the couple of pixels the marker underneath
+                    # has to show itself with.
+                    item = region_canvas.create_polygon(
+                        self._arrow_points(x0, y0, size, "up"), fill=colour,
+                        outline="#101010" if slot == 0 else "",
+                        width=1 if slot == 0 else 0, tags=tags)
+                    region_canvas.tag_bind(item, "<Button-1>",
+                                           lambda _e, m=map_id: open_marked_map(m))
+                    region_canvas.tag_bind(item, "<Enter>",
+                                           lambda _e: region_canvas.configure(cursor="hand2"))
+                else:
+                    region_canvas.create_rectangle(
+                        x0 + 1, y0 + 1, x0 + size - 1, y0 + size - 1,
+                        outline=colour, width=2, tags=tags)
+            # Labels in priority order, so the player's name gets the spot
+            # nearest its marker and the rest stack outwards from there.
+            taken = []
+            for _index, kind, colour, label, _map_id, cx, cy, _depth in placed:
+                top = cy * TOWNMAP_CELL
+                self._place_label(region_canvas, cx * TOWNMAP_CELL + TOWNMAP_CELL / 2,
+                                  top, top + TOWNMAP_CELL, label, colour, 7, taken,
+                                  ("mark", f"mark_{kind}"))
+
+        def open_marked_map(map_id):
+            """Follow a marker's arrow into the map it stands for."""
+            show_map(map_id)
+            status_var.set(f"Opened {map_display_name(map_id)}")
+            return "break"
+
+        def region_cell(event):
+            return (int(region_canvas.canvasx(event.x) // TOWNMAP_CELL),
+                    int(region_canvas.canvasy(event.y) // TOWNMAP_CELL))
+
+        def cell_maps(cell):
+            """Maps reachable from a town-map square, landmark first."""
+            found = maps_at_town_cell(state.get("region_index", 0), cell[0], cell[1])
+            point = state.get("region_points", {}).get(cell)
+            if point and point["map_id"] is not None:
+                found = [point["map_id"]] + [m for m in found if m != point["map_id"]]
+            return found, point
+
+        def on_region_motion(event):
+            cell = region_cell(event)
+            region_canvas.delete("hover")
+            x0, y0 = cell[0] * TOWNMAP_CELL, cell[1] * TOWNMAP_CELL
+            found, point = cell_maps(cell)
+            region_canvas.create_rectangle(
+                x0, y0, x0 + TOWNMAP_CELL, y0 + TOWNMAP_CELL,
+                outline="#ffd24d" if found else "#8899aa", width=2, tags="hover")
+            if region_canvas.find_withtag("mark"):
+                region_canvas.tag_lower("hover", "mark")
+            region_canvas.configure(cursor="hand2" if found else "")
+            if found:
+                label = point["name"] if point else map_display_name(found[0])
+                if point and point["subtitle"]:
+                    label += f" - {point['subtitle']}"
+                extra = f"   ({len(found)} maps)" if len(found) > 1 else ""
+                region_hint.configure(text=f"{label}{extra}")
+            else:
+                region_hint.configure(text="Nothing here. Use All Maps for anywhere "
+                                           "the town map does not cover.")
+
+        def on_region_leave(_event=None):
+            region_canvas.delete("hover")
+            region_canvas.configure(cursor="")
+
+        def on_region_click(event):
+            cell = region_cell(event)
+            found, point = cell_maps(cell)
+            if not found:
+                return
+            if len(found) == 1:
+                open_cell_map(found[0], point)
+                return
+            menu = tk.Menu(win, tearoff=0)
+            for map_id in found:
+                menu.add_command(label=map_display_name(map_id),
+                                 command=lambda m=map_id, p=point: open_cell_map(m, p))
+            try:
+                menu.tk_popup(event.x_root, event.y_root)
+            finally:
+                menu.grab_release()
+
+        def open_cell_map(map_id, point=None):
+            show_map(map_id)
+            if point and point["map_id"] == map_id and point["x"] is not None:
+                select_tile(point["x"], point["y"])
+            status_var.set(point["name"] if point else map_display_name(map_id))
+
+        # ── list tab behaviour ──────────────────────────────────────────────
+        def refresh_list(*_args):
+            query = search_var.get().strip().casefold()
+            include_unused = show_unused.get()
+            maps_tree.delete(*maps_tree.get_children())
+            for map_id in sorted(MAP_NAMES):
+                unused = map_id in UNUSED_MAPS
+                if unused and not include_unused:
+                    continue
+                name = MAP_NAMES[map_id]
+                if query and query not in name.casefold() and query != str(map_id):
+                    continue
+                maps_tree.insert("", "end", iid=str(map_id),
+                                 values=(map_id, name + ("   (unused)" if unused else "")),
+                                 tags=("unused",) if unused else ())
+
+        def on_list_select(_event=None):
+            selection = maps_tree.selection()
+            if selection:
+                show_map(int(selection[0]))
+
+        # ── map view behaviour ──────────────────────────────────────────────
+        def zoom_steps(factor):
+            """PhotoImage only scales by whole numbers, so zoom snaps to ratios."""
+            if factor < 1:
+                return 1, max(1, int(round(1 / factor)))
+            return max(1, int(round(factor))), 1
+
+        def set_zoom(value):
+            state["zoom"] = max(0.2, min(4.0, value))
+            up, down = zoom_steps(state["zoom"])
+            zoom_var.set(f"{int(round(100 * up / down))}%")
+            draw_map()
+
+        def show_map(map_id):
+            state["map_id"] = int(map_id)
+            state["tile"] = None
+            state["offset"] = map_image_offset(map_id)
+            title_var.set(map_display_name(map_id)
+                          + ("   (current map)" if map_id == current_map else ""))
+            for button in (move_button, respawn_button, teleport_button):
+                set_action(button, False)
+            draw_map()
+
+        def draw_map():
+            canvas.delete("all")
+            state["image"] = None
+            path = map_image_path(state["map_id"])
+            if path is None:
+                reason = map_skip_reason(state["map_id"])
+                canvas.create_text(
+                    20, 20, anchor="nw", fill="#cccccc", width=560,
+                    text=reason or ("No rendered image for this map.\n\n"
+                                    "Run  python tools/render_maps.py  to generate the "
+                                    "map images (needs game_resources/ and Pillow)."))
+                return
+            try:
+                image = tk.PhotoImage(file=path)
+            except tk.TclError:
+                canvas.create_text(20, 20, anchor="nw", fill="#cccccc",
+                                   text="That map image could not be loaded.")
+                return
+            up, down = zoom_steps(state["zoom"])
+            if up > 1:
+                image = image.zoom(up)
+            if down > 1:
+                image = image.subsample(down)
+            state["image"] = image
+            canvas.image = image
+            canvas.create_image(0, 0, image=image, anchor="nw")
+            canvas.configure(scrollregion=(0, 0, image.width(), image.height()))
+            draw_map_marks()
+            if state["tile"]:
+                mark_tile(*state["tile"])
+
+        def tile_pixels():
+            """On-screen size of one 32px tile at the current zoom."""
+            up, down = zoom_steps(state["zoom"])
+            return 32 * up / down
+
+        def draw_map_marks():
+            """Player, respawn and teleport on the map being viewed.
+
+            On the map itself they are boxes.  On a map that merely *contains*
+            the marked one they become an arrow on the door that leads there,
+            pointing the way you would walk through it, and clicking it follows
+            the door.
+            """
+            canvas.delete("mark")
+            size = tile_pixels()
+            ox, oy = state["offset"]
+            placed = []
+            for kind, colour, label, map_id, tile in marks():
+                spots = ([(tile[0], tile[1], None)] if map_id == state["map_id"]
+                         else doors_to(state["map_id"], map_id))
+                for tx, ty, direction in spots:
+                    placed.append((len(placed), kind, colour, label, map_id, tx, ty, direction))
+
+            slots, on_tile = {}, {}
+            for index, _kind, _colour, _label, _map_id, tx, ty, _direction in placed:
+                slots[index] = on_tile.get((tx, ty), 0)
+                on_tile[(tx, ty)] = slots[index] + 1
+            # Drawn back to front, so the blinking player marker is never buried
+            # under the respawn box when they share a tile.
+            for index, kind, colour, label, map_id, tx, ty, direction in reversed(placed):
+                slot = slots[index]
+                inset = (on_tile[(tx, ty)] - 1 - slot) * max(2.0, size * 0.12)
+                left, top = (tx - ox) * size, (ty - oy) * size
+                x0, y0, box = left + inset, top + inset, size - inset * 2
+                tags = ("mark", f"mark_{kind}")
+                if direction is None:
+                    canvas.create_rectangle(x0, y0, x0 + box, y0 + box,
+                                            outline=colour, width=3, tags=tags)
+                else:
+                    item = canvas.create_polygon(
+                        self._arrow_points(x0, y0, box, direction), fill=colour,
+                        outline="#101010" if slot == 0 else "",
+                        width=1 if slot == 0 else 0, tags=tags)
+                    canvas.tag_bind(item, "<Button-1>",
+                                    lambda _e, m=map_id: open_marked_map(m))
+                    canvas.tag_bind(item, "<Enter>",
+                                    lambda _e: canvas.configure(cursor="hand2"))
+                    canvas.tag_bind(item, "<Leave>",
+                                    lambda _e: canvas.configure(cursor=""))
+            taken = []
+            for _index, kind, colour, label, _map_id, tx, ty, _direction in placed:
+                left, top = (tx - ox) * size, (ty - oy) * size
+                self._place_label(canvas, left + size / 2, top, top + size,
+                                  label, colour, 8, taken, ("mark", f"mark_{kind}"))
+
+        def blink():
+            """Only the player marker blinks; it is the one you are looking for."""
+            state["blink"] = not state["blink"]
+            colour = self.MARK_PLAYER if state["blink"] else self.MARK_PLAYER_DIM
+            for widget in (canvas, region_canvas):
+                for item in widget.find_withtag("mark_player"):
+                    kind = widget.type(item)
+                    if kind == "polygon":
+                        widget.itemconfigure(item, fill=colour)
+                    elif kind == "text":
+                        widget.itemconfigure(item, fill=colour)
+                    else:
+                        widget.itemconfigure(item, outline=colour)
+            state["blink_job"] = win.after(600, blink)
+
+        def mark_tile(tx, ty):
+            """tx/ty are map tile coordinates; the image may start part-way in."""
+            size = tile_pixels()
+            ox, oy = state["offset"]
+            tx, ty = tx - ox, ty - oy
+            x0, y0 = tx * size, ty * size
+            colour = self.MARK_SELECT
+            canvas.create_rectangle(x0, y0, x0 + size, y0 + size,
+                                    outline=colour, width=3, tags="marker")
+            canvas.create_line(x0, y0, x0 + size, y0 + size, fill=colour, tags="marker")
+            canvas.create_line(x0, y0 + size, x0 + size, y0, fill=colour, tags="marker")
+
+        def select_tile(tx, ty):
+            state["tile"] = (int(tx), int(ty))
+            canvas.delete("marker")
+            mark_tile(int(tx), int(ty))
+            set_action(move_button, state["map_id"] == current_map)
+            set_action(respawn_button, True)
+            set_action(teleport_button, True)
+            status_var.set(f"Selected tile  X {int(tx)}  Y {int(ty)}")
+
+        def on_map_motion(event):
+            if state["image"] is None:
+                return
+            size = tile_pixels()
+            ox, oy = state["offset"]
+            col = int(canvas.canvasx(event.x) // size)
+            row = int(canvas.canvasy(event.y) // size)
+            canvas.delete("hover")
+            canvas.create_rectangle(col * size, row * size,
+                                    (col + 1) * size, (row + 1) * size,
+                                    outline="#ffd24d", width=2, tags="hover")
+            status_var.set(f"X {col + ox}  Y {row + oy}"
+                           + (f"   (selected X {state['tile'][0]} Y {state['tile'][1]})"
+                              if state["tile"] else ""))
+
+        def on_map_leave(_event=None):
+            canvas.delete("hover")
+
+        def on_canvas_click(event):
+            if state["image"] is None:
+                return
+            size = tile_pixels()
+            ox, oy = state["offset"]
+            select_tile(int(canvas.canvasx(event.x) // size) + ox,
+                        int(canvas.canvasy(event.y) // size) + oy)
+
+        def apply_spot(kind):
+            """Each button writes its own field; the dialog stays open."""
+            if not state["tile"]:
+                return
+            tx, ty = state["tile"]
+            map_id = int(state["map_id"])
+            if kind == "player":
+                if map_id != current_map:
+                    return
+                self.var_player_x.set(str(tx)); self.var_player_y.set(str(ty))
+                self.status.config(
+                    text=f"Player position set to X {tx} Y {ty}. Click Save to write.",
+                    foreground="blue")
+            elif kind == "respawn":
+                self._respawn_spot = [map_id, tx, ty]
+                self.var_respawn.set(self._spot_text(self._respawn_spot))
+                self.status.config(
+                    text=f"Respawn point set to {self._spot_text(self._respawn_spot)}. "
+                         "Click Save to write.", foreground="blue")
+            else:
+                self._teleport_spot = [map_id, tx, ty]
+                self.var_teleport.set(self._spot_text(self._teleport_spot))
+                self.status.config(
+                    text=f"Teleport point set to {self._spot_text(self._teleport_spot)}. "
+                         "Click Save to write.", foreground="blue")
+            status_var.set(f"{kind.capitalize()} set to X {tx} Y {ty} on "
+                           f"{map_display_name(map_id)}.")
+            draw_map_marks()
+            draw_region_marks()
+
+        def on_destroy(event):
+            if event.widget is win and state["blink_job"] is not None:
+                try:
+                    win.after_cancel(state["blink_job"])
+                except tk.TclError:
+                    pass
+                state["blink_job"] = None
+
+        canvas.bind("<Button-1>", on_canvas_click)
+        canvas.bind("<Motion>", on_map_motion)
+        canvas.bind("<Leave>", on_map_leave)
+        region_canvas.bind("<Button-1>", on_region_click)
+        region_canvas.bind("<Motion>", on_region_motion)
+        region_canvas.bind("<Leave>", on_region_leave)
+        maps_tree.bind("<<TreeviewSelect>>", on_list_select)
+        region_var.trace_add("write", refresh_region)
+        search_var.trace_add("write", refresh_list)
+        win.bind("<Destroy>", on_destroy)
+        self._make_scrollable(canvas)
+
+        set_zoom(state["zoom"])
+        refresh_region(); refresh_list()
+        if current_map is not None:
+            show_map(current_map)
+            tile = player_tile()
+            if tile is not None:
+                select_tile(*tile)
+        blink()
 
     def _all_badges(self):
         for bv in self.badge_vars:
@@ -6201,7 +7153,7 @@ class Editor(tk.Tk):
             messagebox.showerror("Error", "No Marshal streams found."); return
 
         trainer = bag = storage = game_system = game_player = global_meta = None
-        bag_idx = storage_idx = None
+        bag_idx = storage_idx = player_idx = meta_idx = None
         play_time_frames = None
         stream_errors = []
         for idx, start in enumerate(positions):
@@ -6228,9 +7180,9 @@ class Editor(tk.Tk):
             elif cn == "Game_System":
                 game_system = obj
             elif cn == "Game_Player":
-                game_player = obj
+                game_player = obj; player_idx = idx
             elif cn == "PokemonGlobalMetadata":
-                global_meta = obj
+                global_meta = obj; meta_idx = idx
 
         if trainer is None:
             messagebox.showerror("Error", "PokeBattle_Trainer not found."); return
@@ -6240,6 +7192,8 @@ class Editor(tk.Tk):
         self.trainer     = trainer
         self.bag         = bag;     self.bag_idx     = bag_idx
         self.storage     = storage; self.storage_idx = storage_idx
+        self.player_idx  = player_idx
+        self.meta_idx    = meta_idx
         self.storage_error = "" if storage is not None else (
             "; ".join(stream_errors) if stream_errors else "no PokemonStorage stream in this file")
         self.game_system = game_system
@@ -6304,10 +7258,37 @@ class Editor(tk.Tk):
         current_box = self.storage.attributes.get("@currentBox", None) if isinstance(self.storage, RubyObject) else None
         self.var_current_box.set(f"Box {current_box + 1}" if isinstance(current_box, int) else "-")
         if gp:
-            self.var_player_location.set(f"Map {gp.get('@oldMap', '?')}  X {gp.get('@x', '?')}  Y {gp.get('@y', '?')}")
+            self.var_player_location.set(map_display_name(gp.get("@oldMap", "?")))
+            x, y = gp.get("@x", 0), gp.get("@y", 0)
+            self.var_player_x.set(str(x))
+            self.var_player_y.set(str(y))
+            self._loaded_location = (str(x), str(y))
         else:
             self.var_player_location.set("-")
+            self.var_player_x.set(""); self.var_player_y.set("")
+            self._loaded_location = None
+
+        self._location_dirty = False
+        # Kernel.pbStartOver revives you at @pokecenter*; @healingSpot is only
+        # where the Teleport move takes you.  They are usually different maps.
+        healing = gm.get("@healingSpot")
+        self._teleport_spot = list(healing) if isinstance(healing, list) and len(healing) == 3 else None
+        centre = [gm.get("@pokecenterMapId"), gm.get("@pokecenterX"), gm.get("@pokecenterY")]
+        if all(isinstance(value, int) for value in centre):
+            self._respawn_spot = centre
+        else:
+            self._respawn_spot = list(self._teleport_spot) if self._teleport_spot else None
+        self._loaded_respawn = list(self._respawn_spot) if self._respawn_spot else None
+        self._loaded_teleport = list(self._teleport_spot) if self._teleport_spot else None
+        self.var_respawn.set(self._spot_text(self._respawn_spot))
+        self.var_teleport.set(self._spot_text(self._teleport_spot))
         self.var_registered_items.set(self._registered_items_text())
+
+    @staticmethod
+    def _spot_text(spot) -> str:
+        if not spot:
+            return "-"
+        return f"{map_display_name(spot[0])}  X {spot[1]}  Y {spot[2]}"
 
 
     def _fill_pkmn_slot(self, v, pkmn, label_prefix="", tab_parent=None, tab_idx=None, title_frame=None):
@@ -6486,6 +7467,53 @@ class Editor(tk.Tk):
         for i, bv in enumerate(self.badge_vars):
             if isinstance(badges, list) and i < len(badges):
                 badges[i] = bool(bv.get())
+        self._apply_player_location()
+
+    def _apply_player_location(self):
+        """Write X/Y and the respawn point, but only when they actually changed.
+
+        Writing unconditionally would break the byte-identical round trip that
+        SaveRoundTripTests guards.
+        """
+        gp = self.game_player.attributes if isinstance(self.game_player, RubyObject) else None
+        if gp is not None and self._loaded_location is not None:
+            current = (self.var_player_x.get().strip(), self.var_player_y.get().strip())
+            if current != self._loaded_location:
+                try:
+                    x, y = max(0, int(current[0])), max(0, int(current[1]))
+                except ValueError:
+                    raise ValueError("Player X and Y must be whole numbers")
+                gp["@x"], gp["@y"] = x, y
+                # real_* are the pixel position the sprite is drawn at; leaving
+                # them stale renders the player offset from their own tile.
+                gp["@real_x"], gp["@real_y"] = x * 128, y * 128
+                if "@oldX" in gp: gp["@oldX"] = x
+                if "@oldY" in gp: gp["@oldY"] = y
+                self._loaded_location = (str(x), str(y))
+                self._location_dirty = True
+
+        meta = self.global_meta.attributes if isinstance(self.global_meta, RubyObject) else None
+        if meta is None:
+            return
+
+        # The two destinations are written independently: overwriting one with
+        # the other is what made the editor report the wrong respawn point.
+        if self._respawn_spot is not None and self._respawn_spot != self._loaded_respawn:
+            meta["@pokecenterMapId"] = int(self._respawn_spot[0])
+            meta["@pokecenterX"] = int(self._respawn_spot[1])
+            meta["@pokecenterY"] = int(self._respawn_spot[2])
+            self._loaded_respawn = list(self._respawn_spot)
+            self._location_dirty = True
+
+        if self._teleport_spot is not None and self._teleport_spot != self._loaded_teleport:
+            stored = meta.get("@healingSpot")
+            if isinstance(stored, list) and len(stored) == 3:
+                # Written in place: the list object is shared with the stream.
+                stored[0], stored[1], stored[2] = (int(value) for value in self._teleport_spot)
+            else:
+                meta["@healingSpot"] = [int(value) for value in self._teleport_spot]
+            self._loaded_teleport = list(self._teleport_spot)
+            self._location_dirty = True
 
     def _apply_party(self):
         party = self.trainer.attributes.get("@party", [])
@@ -6659,6 +7687,19 @@ class Editor(tk.Tk):
             except Exception as e:
                 messagebox.showerror("Serialization error", f"Storage: {e}"); return
 
+        # Player position lives in Game_Player and the respawn point in
+        # PokemonGlobalMetadata, so those streams have to be rewritten too -
+        # editing the parsed objects alone would be silently discarded.
+        player_bytes = meta_bytes = None
+        if self._location_dirty and self.game_player is not None and self.player_idx is not None:
+            try:    player_bytes = writes(self.game_player, cls=Ruby18Writer)
+            except Exception as e:
+                messagebox.showerror("Serialization error", f"Player: {e}"); return
+        if self._location_dirty and self.global_meta is not None and self.meta_idx is not None:
+            try:    meta_bytes = writes(self.global_meta, cls=Ruby18Writer)
+            except Exception as e:
+                messagebox.showerror("Serialization error", f"Global metadata: {e}"); return
+
         trainer_end = positions[1] if len(positions) > 1 else len(raw)
         replacements = [(positions[0], trainer_end, trainer_bytes)]
         if self.bag_idx is not None and bag_bytes:
@@ -6669,6 +7710,11 @@ class Editor(tk.Tk):
             ss = positions[self.storage_idx]
             se = positions[self.storage_idx+1] if self.storage_idx+1 < len(positions) else len(raw)
             replacements.append((ss, se, storage_bytes))
+        for index, payload in ((self.player_idx, player_bytes), (self.meta_idx, meta_bytes)):
+            if index is not None and payload:
+                start = positions[index]
+                end = positions[index+1] if index+1 < len(positions) else len(raw)
+                replacements.append((start, end, payload))
 
         replacements.sort(key=lambda x: x[0])
         result = b""; cursor = 0
@@ -6682,6 +7728,8 @@ class Editor(tk.Tk):
             loads(trainer_bytes)
             if bag_bytes is not None: loads(bag_bytes)
             if storage_bytes is not None: loads(storage_bytes)
+            if player_bytes is not None: loads(player_bytes)
+            if meta_bytes is not None: loads(meta_bytes)
             verified_positions = split_streams(result)
             if not verified_positions or verified_positions[0] != 0:
                 raise ValueError("result is not a valid concatenated Ruby Marshal save")
@@ -6724,6 +7772,7 @@ class Editor(tk.Tk):
         # correctly, without ever treating a mere load as an identity edit.
         self.raw = result
         self.positions = split_streams(result)
+        self._location_dirty = False
         for v in self.pkmn_vars:
             if isinstance(v.get("_pkmn_obj"), RubyObject):
                 self._remember_identity_values(v)

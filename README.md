@@ -26,9 +26,19 @@ Grab the latest `.exe` from the [Releases](https://github.com/hebopaul/pok-insur
 - **Pokemon Build Library**: 141 ready-made builds drawn from the game's own trainer data
   and from canon Gen I-VI teams, each with an owning trainer, a computed power tier and a
   play-style tag. Apply one to the Pokemon you are editing, batch-import several into PC
-  boxes of your choosing, paste builds in as text, or save your own Pokemon to the library.
+  boxes of your choosing, write or paste your own, or save a Pokemon straight from a slot.
+  The **Raw text** tab is a real editor over your own build file: what it holds is exactly
+  what **Import to PC** creates.
 - Turn any Pokemon into a Shadow Pokemon, set its heart gauge, choose its Shadow moves and
   the moves it gets back on purification, or purify it, from either tab.
+- Edit where the player stands. The **Show Map** button opens a viewer with the game's own
+  region map and a searchable list of every map. Your position, your respawn point and your
+  Teleport destination are each drawn in their own colour and labelled - the blinking red
+  marker is you - and each has its own button. When a marker sits *inside* somewhere, on the
+  Pokemon Center you are standing in rather than the town around it, it becomes an arrow on
+  the door that leads there, pointing the way you would walk through it; click the arrow to
+  follow it. Position can be changed anywhere on the map the save was made on, and any other
+  map can be set as a respawn or Teleport point.
 - Manage the bag by pocket, with searchable item selection, visible game IDs, quantities,
   item icons, and item details.
 - View Pokemon sprite/type/ability details and move descriptions while editing.
@@ -96,11 +106,47 @@ python setup_resources.py "G:\Games\Insurgence" --force   # overwrite everything
 `game_resources/` is git-ignored and never redistributed. You need it to build the
 executable, or to regenerate the bundled data files, but not merely to edit saves.
 
+### Map data and images
+
+The viewer needs one generated data file, which is committed and already in the checkout.
+Regenerate it only if the game updates:
+
+```bash
+python tools/gen_map_index.py        # writes map_meta.txt
+```
+
+It records each map's parent, every door and the direction you walk through it, and which maps
+are unused leftovers. Reading it back costs nothing at startup; deriving the same facts from the
+832 `Map###.rxdata` files takes the better part of a minute.
+
+The viewer also draws pre-rendered PNGs, so generate them once after extracting resources:
+
+```bash
+python tools/render_maps.py          # every map (about a minute, ~157 MB in map_images/)
+python tools/render_maps.py 812      # just one map
+```
+
+This needs Pillow (`pip install pillow`); the editor itself does not, because it only loads
+the finished images. `map_images/` is git-ignored and not bundled in the executable - at full
+size the game's 833 maps come to roughly 3.3 gigapixels. Without it the viewer still opens
+and simply says which command to run.
+
 ## Notes
 
 - Save files are Ruby Marshal streams.
 - Nature, gender, ability, and shiny edits use Insurgence's native override fields, preserving the Pokemon's PID and its other PID-derived traits.
 - Level and stat fields are written directly; the game may recalculate some derived values after loading.
+- The player's map cannot be changed. The save stores the whole map - tiles, events and all -
+  and the game loads it verbatim rather than rebuilding it, so only the X/Y position within
+  that map is safe to edit. Use the respawn point to relocate across maps.
+- The save keeps two separate destinations, and so does the editor. **Respawn at** is
+  `@pokecenterMapId`, where `Kernel.pbStartOver` revives you after whiting out; **Teleport to**
+  is `@healingSpot`, where the Teleport move sends you. They are usually different maps.
+- Insurgence still ships the whole Pokemon Essentials sample project - a second Route 1,
+  Lerucean Town, Cedolan Dept. and so on. Those maps are unreachable, and the tilesets they
+  were drawn with have either been repurposed or were never shipped, so they render as
+  scrambled tiles or not at all. The viewer hides them behind **Show unused maps**, and says
+  which of the two reasons applies when you open one.
 - Move legality is read from the game's own data: level-up learnsets, the TM/HM/tutor
   compatibility table, and the egg-move table. Event-exclusive moves cannot be verified and
   show as illegal.

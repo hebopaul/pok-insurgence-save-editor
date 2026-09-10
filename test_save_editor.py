@@ -16,6 +16,10 @@ from save_editor import (
     BALL_NAMES,
     BALL_ITEM_IDS,
     BUILD_LIBRARY,
+    MAP_NAMES,
+    TOWN_MAP_REGIONS,
+    map_display_name,
+    map_image_path,
     BUILD_STYLES,
     BUILD_TIERS,
     MOVE_KIND_COLOURS,
@@ -1300,6 +1304,369 @@ class MoveLegalityTests(unittest.TestCase):
         self.assertEqual({"levelup", "teachable", "illegal"}, set(MOVE_KIND_COLOURS))
         self.assertEqual({"levelup", "teachable", "illegal"}, set(MOVE_KIND_LABELS))
         self.assertEqual(3, len(set(MOVE_KIND_COLOURS.values())))
+
+
+class MapDataTests(unittest.TestCase):
+    """Map names and the town map come from the game's own data files."""
+
+    def test_map_names_load_and_resolve(self):
+        if not MAP_NAMES:
+            self.skipTest("game_resources/Data/MapInfos.rxdata not extracted")
+        self.assertGreater(len(MAP_NAMES), 800)
+        self.assertIn("Pok\u00e9mon Center", map_display_name(812))
+
+    def test_town_map_regions_and_linked_points(self):
+        if not TOWN_MAP_REGIONS:
+            self.skipTest("game_resources/Data/townmap.dat not extracted")
+        self.assertEqual(2, len(TOWN_MAP_REGIONS))
+        linked = [p for region in TOWN_MAP_REGIONS
+                  for p in region["points"] if p["map_id"] is not None]
+        # Only some town-map points carry a destination; the rest are labels,
+        # which is why the viewer also offers the full searchable map list.
+        self.assertTrue(linked)
+        helios = next(p for p in linked if p["name"] == "Helios City")
+        self.assertEqual((13, 12), helios["cell"])
+        self.assertEqual(178, helios["map_id"])
+        self.assertEqual((49, 82), (helios["x"], helios["y"]))
+
+    def test_route_squares_resolve_through_map_positions(self):
+        if not save_editor.MAP_POSITIONS:
+            self.skipTest("game_resources/Data/metadata.dat not extracted")
+        # townmap.dat names only 27 landmarks; metadata entry 7 (MapPosition) is
+        # what puts the routes between them on the town map.
+        self.assertGreater(len(save_editor.MAP_POSITIONS), 50)
+        self.assertEqual([2], save_editor.maps_at_town_cell(0, 24, 12))   # Telnor Town
+        route = save_editor.maps_at_town_cell(0, 24, 9)
+        self.assertIn(48, route)                                          # Route 1
+        self.assertGreater(len(route), 1)                                 # shares its square
+        self.assertEqual([], save_editor.maps_at_town_cell(0, 1, 1))      # open sea
+
+    def test_an_unknown_map_id_still_renders_a_label(self):
+        self.assertEqual("-", map_display_name(None))
+        self.assertEqual("999999", map_display_name(999999))
+
+    def test_crop_offsets_are_known_for_rendered_maps(self):
+        if not save_editor.MAP_IMAGE_INDEX:
+            self.skipTest("map images not rendered")
+        # Renders are trimmed to the part of the map that has content, so a
+        # click must add the offset back to reach the tile the game uses.
+        for entry in save_editor.MAP_IMAGE_INDEX.values():
+            self.assertGreaterEqual(entry["ox"], 0)
+            self.assertGreaterEqual(entry["oy"], 0)
+            self.assertLessEqual(entry["ox"] + entry["w"], entry["map_w"])
+            self.assertLessEqual(entry["oy"] + entry["h"], entry["map_h"])
+
+    def test_an_unrendered_map_reports_a_zero_offset(self):
+        self.assertEqual((0, 0), save_editor.map_image_offset(999999))
+        self.assertEqual((0, 0), save_editor.map_image_offset(None))
+
+    def test_map_image_path_is_none_when_not_rendered(self):
+        self.assertIsNone(map_image_path(999999))
+        self.assertIsNone(map_image_path("nonsense"))
+
+    def test_an_interior_resolves_to_its_parents_town_map_square(self):
+        if not save_editor.MAP_PARENTS:
+            self.skipTest("map_meta.txt not generated")
+        # A Pokemon Center is not a square on the town map, so it has to borrow
+        # the square of the town it stands in.  812 -> 130 -> 109 Metchi Town.
+        self.assertEqual((0, 20, 15, 109, 2), save_editor.town_cell_for_map(812))
+        # Depth 0 means standing on the square itself, which is what tells the
+        # viewer to draw a box rather than an arrow.
+        self.assertEqual((0, 20, 15, 109, 0), save_editor.town_cell_for_map(109))
+        self.assertIsNone(save_editor.town_cell_for_map(None))
+
+    def test_doors_lead_towards_a_map_and_know_which_way_you_walk(self):
+        if not save_editor.MAP_DOORS:
+            self.skipTest("map_meta.txt not generated")
+        # Every transfer event in the game stores direction 0, "retain", so the
+        # direction is derived from which neighbouring tile you can stand on.
+        self.assertEqual([(11, 25, "up")], save_editor.doors_to(109, 812))
+        self.assertEqual([(28, 32, "down")], save_editor.doors_to(812, 109))
+        self.assertEqual([], save_editor.doors_to(109, 999999))
+
+    def test_unused_maps_cover_the_essentials_sample_project(self):
+        if not save_editor.UNUSED_MAPS:
+            self.skipTest("map_meta.txt not generated")
+        # Insurgence never deleted the Pokemon Essentials demo, so the map list
+        # carries a second Route 1, Lerucean Town, Cedolan Dept and so on, all
+        # drawn against tilesets that were repurposed or never shipped.
+        for dead in (5, 21, 23, 28, 14, 36):
+            self.assertIn(dead, save_editor.UNUSED_MAPS, map_display_name(dead))
+        for live in (48, 80, 126, 421, 109, 812):
+            self.assertNotIn(live, save_editor.UNUSED_MAPS, map_display_name(live))
+
+    def test_every_unrenderable_map_is_flagged_unused(self):
+        if not save_editor.MAP_SKIP_REASONS or not save_editor.UNUSED_MAPS:
+            self.skipTest("map images not rendered, or map_meta.txt not generated")
+        for map_id in save_editor.MAP_SKIP_REASONS:
+            self.assertIn(map_id, save_editor.UNUSED_MAPS, map_display_name(map_id))
+
+    def test_skip_reasons_explain_themselves(self):
+        if not save_editor.MAP_SKIP_REASONS:
+            self.skipTest("map images not rendered")
+        # The viewer must not tell the user to run a renderer that cannot help.
+        self.assertIn("does not ship a graphic", save_editor.map_skip_reason(14))
+        self.assertIn("no tiles at all", save_editor.map_skip_reason(72))
+        self.assertIsNone(save_editor.map_skip_reason(109))
+        self.assertIsNone(save_editor.map_skip_reason(None))
+
+    def test_arrow_points_the_way_it_is_asked_to(self):
+        up = save_editor.Editor._arrow_points(0, 0, 32, "up")
+        down = save_editor.Editor._arrow_points(0, 0, 32, "down")
+        left = save_editor.Editor._arrow_points(0, 0, 32, "left")
+        right = save_editor.Editor._arrow_points(0, 0, 32, "right")
+        self.assertLess(up[1], up[3])       # apex above its base
+        self.assertGreater(down[1], down[3])
+        self.assertLess(left[0], left[2])   # apex left of its base
+        self.assertGreater(right[0], right[2])
+
+
+class PlayerLocationTests(unittest.TestCase):
+    """Position edits write through; untouched saves must not."""
+
+    _app = None
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._app is not None:
+            cls._app.destroy()
+            cls._app = None
+
+    def _editor_with_save(self):
+        source = os.path.join(os.path.expanduser("~"), "Saved Games",
+                              "Pokemon Insurgence", "Game.rxdata")
+        if not os.path.isfile(source):
+            self.skipTest("no local Game.rxdata")
+        if type(self)._app is None:
+            try:
+                app = Editor()
+            except tk.TclError as exc:
+                self.skipTest(f"Tk is unavailable: {exc}")
+            app.withdraw()
+            type(self)._app = app
+        app = type(self)._app
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        copy = os.path.join(tmp, "Game.rxdata")
+        shutil.copy2(source, copy)
+        with mock.patch.object(save_editor, "messagebox"):
+            app._do_load(copy)
+            app.update()
+        return app, copy
+
+    @staticmethod
+    def _saved_streams(path):
+        with open(path, "rb") as handle:
+            raw = handle.read()
+        positions = split_streams(raw)
+        player = meta = None
+        for index, start in enumerate(positions):
+            end = positions[index + 1] if index + 1 < len(positions) else len(raw)
+            try:
+                obj = loads(raw[start:end])
+            except Exception:
+                continue
+            name = getattr(obj, "ruby_class_name", None)
+            if name == "Game_Player":
+                player = obj.attributes
+            elif name == "PokemonGlobalMetadata":
+                meta = obj.attributes
+        return player, meta
+
+    def test_loading_populates_the_position_fields(self):
+        app, _copy = self._editor_with_save()
+        self.assertTrue(app.var_player_x.get())
+        self.assertTrue(app.var_player_y.get())
+        self.assertIsNotNone(app._current_map_id())
+
+    def test_moving_the_player_updates_the_pixel_position_too(self):
+        app, copy = self._editor_with_save()
+        with mock.patch.object(save_editor, "messagebox"):
+            app.var_player_x.set("40")
+            app.var_player_y.set("12")
+            app._do_save()
+            app.update()
+        player, _meta = self._saved_streams(copy)
+        self.assertEqual(40, player["@x"])
+        self.assertEqual(12, player["@y"])
+        # real_* is the pixel position the sprite draws at: 128 per tile.
+        self.assertEqual(40 * 128, player["@real_x"])
+        self.assertEqual(12 * 128, player["@real_y"])
+
+    def test_the_map_id_is_never_touched(self):
+        # Stream 9 cannot be rebuilt safely, so the map must stay put.
+        app, copy = self._editor_with_save()
+        before = app._current_map_id()
+        with mock.patch.object(save_editor, "messagebox"):
+            app.var_player_x.set("40")
+            app._do_save()
+            app.update()
+        player, _meta = self._saved_streams(copy)
+        self.assertEqual(before, player["@oldMap"])
+
+    def test_respawn_and_teleport_points_are_written_separately(self):
+        # Kernel.pbStartOver revives you at @pokecenter*; @healingSpot is only
+        # where the Teleport move sends you.  Writing one must not disturb the
+        # other, which is exactly what the editor used to do.
+        app, copy = self._editor_with_save()
+        _player, before = self._saved_streams(copy)
+        original_healing = list(before["@healingSpot"])
+        with mock.patch.object(save_editor, "messagebox"):
+            app._respawn_spot = [178, 49, 82]
+            app._do_save()
+            app.update()
+        _player, meta = self._saved_streams(copy)
+        self.assertEqual(178, meta["@pokecenterMapId"])
+        self.assertEqual(49, meta["@pokecenterX"])
+        self.assertEqual(82, meta["@pokecenterY"])
+        self.assertEqual(original_healing, list(meta["@healingSpot"]))
+
+        with mock.patch.object(save_editor, "messagebox"):
+            app._teleport_spot = [2, 26, 18]
+            app._do_save()
+            app.update()
+        _player, meta = self._saved_streams(copy)
+        self.assertEqual([2, 26, 18], list(meta["@healingSpot"]))
+        self.assertEqual(178, meta["@pokecenterMapId"])
+
+    def test_the_respawn_field_shown_is_the_one_the_game_revives_you_at(self):
+        app, _copy = self._editor_with_save()
+        _player, meta = self._saved_streams(_copy)
+        self.assertEqual([meta["@pokecenterMapId"], meta["@pokecenterX"],
+                          meta["@pokecenterY"]], app._respawn_spot)
+        self.assertEqual(list(meta["@healingSpot"]), app._teleport_spot)
+
+    def test_an_untouched_save_does_not_rewrite_the_player_stream(self):
+        # Game_Player holds floats that do not re-serialise byte-for-byte, so
+        # the stream must only be rewritten when the position actually changed.
+        app, copy = self._editor_with_save()
+        with open(copy, "rb") as handle:
+            before = handle.read()
+        with mock.patch.object(save_editor, "messagebox"):
+            app._do_save()
+            app.update()
+        with open(copy, "rb") as handle:
+            self.assertEqual(before, handle.read())
+
+
+class MapViewerTests(unittest.TestCase):
+    """The viewer must say three different things in three different ways."""
+
+    _app = None
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._app is not None:
+            cls._app.destroy()
+            cls._app = None
+
+    def _viewer(self):
+        source = os.path.join(os.path.expanduser("~"), "Saved Games",
+                              "Pokemon Insurgence", "Game.rxdata")
+        if not os.path.isfile(source):
+            self.skipTest("no local Game.rxdata")
+        if not save_editor.MAP_DOORS:
+            self.skipTest("map_meta.txt not generated")
+        if type(self)._app is None:
+            try:
+                app = Editor()
+            except tk.TclError as exc:
+                self.skipTest(f"Tk is unavailable: {exc}")
+            app.withdraw()
+            type(self)._app = app
+        app = type(self)._app
+        tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, tmp, True)
+        copy = os.path.join(tmp, "Game.rxdata")
+        shutil.copy2(source, copy)
+        with mock.patch.object(save_editor, "messagebox"):
+            app._do_load(copy)
+            app.update()
+        app._open_map_viewer()
+        app.update()
+        win = [w for w in app.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+        self.addCleanup(win.destroy)
+        widgets = []
+
+        def walk(widget):
+            widgets.append(widget)
+            for child in widget.winfo_children():
+                walk(child)
+
+        walk(win)
+        return app, win, widgets
+
+    @staticmethod
+    def _marks(canvas, tag="mark"):
+        found = []
+        for item in canvas.find_withtag(tag):
+            kind = canvas.type(item)
+            colour = (canvas.itemcget(item, "fill") if kind in ("polygon", "text")
+                      else canvas.itemcget(item, "outline"))
+            found.append((kind, colour, canvas.itemcget(item, "text") if kind == "text" else ""))
+        return found
+
+    def test_each_point_gets_its_own_colour_and_a_label(self):
+        app, _win, widgets = self._viewer()
+        region = [w for w in widgets if isinstance(w, tk.Canvas)][0]
+        labels = {text: colour for kind, colour, text in self._marks(region) if kind == "text"}
+        name = app.var_trainer_name.get().strip()
+        self.assertEqual(save_editor.Editor.MARK_PLAYER, labels[name])
+        self.assertEqual(save_editor.Editor.MARK_RESPAWN, labels["Respawn"])
+        self.assertEqual(save_editor.Editor.MARK_TELEPORT, labels["Teleport"])
+
+    def test_being_inside_a_place_draws_an_arrow_that_opens_it(self):
+        app, _win, widgets = self._viewer()
+        region = [w for w in widgets if isinstance(w, tk.Canvas)][0]
+        # The save has the player inside Metchi Town's Pokemon Center, so the
+        # town's square must carry an arrow rather than a box.
+        arrows = [i for i in region.find_withtag("mark_player")
+                  if region.type(i) == "polygon"]
+        self.assertEqual(1, len(arrows))
+        points = region.coords(arrows[0])
+        self.assertLess(points[1], points[3])          # apex above its base
+
+        # And on a map that merely contains the player, the door gets the arrow.
+        tree = [w for w in widgets if isinstance(w, save_editor.ttk.Treeview)][0]
+        tree.selection_set("109")
+        app.update()
+        canvas = [w for w in widgets if isinstance(w, tk.Canvas)][1]
+        door = [i for i in canvas.find_withtag("mark_player")
+                if canvas.type(i) == "polygon"]
+        self.assertEqual(1, len(door))
+        apex = canvas.coords(door[0])[:2]
+        canvas.event_generate("<Button-1>", x=int(apex[0]), y=int(apex[1]), when="now")
+        app.update()
+        self.assertEqual(812, app._current_map_id())
+
+    def test_a_selected_tile_is_not_dressed_up_as_the_player(self):
+        app, _win, widgets = self._viewer()
+        canvas = [w for w in widgets if isinstance(w, tk.Canvas)][1]
+        colours = set()
+        for item in canvas.find_withtag("marker"):
+            option = "outline" if canvas.type(item) == "rectangle" else "fill"
+            colours.add(canvas.itemcget(item, option))
+        # The selection used to borrow the player's red box, which made every
+        # town you clicked look like the one you were standing in.
+        self.assertEqual({save_editor.Editor.MARK_SELECT}, colours)
+
+    def test_each_destination_has_its_own_coloured_button(self):
+        _app, _win, widgets = self._viewer()
+        buttons = {w.cget("text"): w.cget("bg") for w in widgets if isinstance(w, tk.Button)}
+        self.assertEqual(save_editor.Editor.MARK_SELECT, buttons["Move Player Here"])
+        self.assertEqual(save_editor.Editor.MARK_RESPAWN, buttons["Set Respawn Point"])
+        self.assertEqual(save_editor.Editor.MARK_TELEPORT, buttons["Set Teleport Point"])
+
+    def test_unused_maps_stay_out_of_the_list_until_asked_for(self):
+        app, _win, widgets = self._viewer()
+        tree = [w for w in widgets if isinstance(w, save_editor.ttk.Treeview)][0]
+        self.assertNotIn("5", tree.get_children())     # the demo Route 1
+        self.assertIn("48", tree.get_children())       # the real one
+        check = [w for w in widgets if isinstance(w, save_editor.ttk.Checkbutton)][0]
+        check.invoke()
+        app.update()
+        self.assertIn("5", tree.get_children())
+        self.assertIn("unused", tree.item("5", "tags"))
 
 
 if __name__ == "__main__":

@@ -95,6 +95,14 @@ def decrypt_file_data(raw, file_key):
 GRAPHICS_SETS = [
     (os.path.join("Graphics", "Battlers"), ["*.png"]),
     (os.path.join("Graphics", "Icons"), ["item*.png", "bagPocket*.png"]),
+    # Map viewer: the two region maps the town-map screen uses, and the trainer
+    # sprites used to mark the player's position.  Characters is 41 MB in full;
+    # the trchar slice is 1.7 MB.
+    (os.path.join("Graphics", "Pictures"), ["mapRegion*.png"]),
+    (os.path.join("Graphics", "Characters"), ["trchar*.png"]),
+    # Needed only by tools/render_maps.py, but small enough to always copy.
+    (os.path.join("Graphics", "Tilesets"), ["*.png"]),
+    (os.path.join("Graphics", "Autotiles"), ["*.png"]),
 ]
 
 
