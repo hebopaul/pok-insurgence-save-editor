@@ -261,6 +261,179 @@ def timestamped_backup_path(path: str, now=None) -> str:
     stamp = (now or datetime.now()).strftime("%Y%m%d-%H%M%S-%f")
     return f"{path}.{stamp}.bak"
 
+
+# ── save backups ──────────────────────────────────────────────────────────────
+# Backups live in their own folder beside the save, and carry everything the
+# Restore window needs in the filename, so there is no sidecar log to fall out
+# of step with the files:
+#
+#     Game.rxdata.20260911-211337-571865.auto.bak
+#     Game.rxdata.20260911-211337-571865.manual.Before Elite Four.bak
+#
+# "auto" is the copy every save takes and is pruned to the newest few; "manual"
+# is a checkpoint the user asked for and is never pruned.
+
+BACKUP_DIR_NAME = "Save Editor Backups"
+AUTO_BACKUP_LIMIT = 10
+BACKUP_LABEL_MAX = 60
+# The characters Windows refuses in a filename, plus control characters below.
+BACKUP_LABEL_BANNED = frozenset('<>:"/\\|?*')
+BACKUP_AUTO = "auto"
+BACKUP_MANUAL = "manual"
+
+# The kind is optional so that backups written before the folder existed - which
+# are plain <save>.<stamp>.bak - still parse.  They came from a save, so they
+# read back as automatic.
+_BACKUP_NAME_RE = re.compile(
+    r"^(?P<save>.+?)"
+    r"\.(?P<stamp>\d{8}-\d{6}-\d{6})"
+    r"(?:\.(?P<kind>auto|manual))?"
+    r"(?:\.(?P<label>.*))?"
+    r"\.bak$",
+    re.DOTALL)
+BACKUP_STAMP_FORMAT = "%Y%m%d-%H%M%S-%f"
+
+
+def backup_dir_for(save_path: str) -> str:
+    """Where this save's backups belong.  Not created here."""
+    return os.path.join(os.path.dirname(os.path.abspath(save_path)), BACKUP_DIR_NAME)
+
+
+def backup_label_is_legal(text) -> bool:
+    """Whether this label can go in a Windows filename as typed.
+
+    Used as you type, so a half-finished label must pass: only characters are
+    judged here, and the trimming of leading/trailing spaces and dots is left to
+    clean_backup_label when the name is actually built.
+    """
+    text = str(text or "")
+    if len(text) > BACKUP_LABEL_MAX:
+        return False
+    return not any(ch in BACKUP_LABEL_BANNED or ord(ch) < 32 for ch in text)
+
+
+def clean_backup_label(text) -> str:
+    """The label as it will appear in a filename, or "" if nothing usable is left.
+
+    Windows silently drops a trailing dot or space from a filename, which would
+    make the name on disk differ from the one the user typed, so those go here.
+    """
+    text = "".join(ch for ch in str(text or "")
+                   if ch not in BACKUP_LABEL_BANNED and ord(ch) >= 32)
+    text = re.sub(r"\s+", " ", text).strip(" .")
+    return text[:BACKUP_LABEL_MAX].strip(" .")
+
+
+def backup_path(save_path: str, kind: str = BACKUP_AUTO, label: str = "", now=None) -> str:
+    """Full path for a new backup of ``save_path``."""
+    if kind not in (BACKUP_AUTO, BACKUP_MANUAL):
+        raise ValueError("backup kind must be %r or %r" % (BACKUP_AUTO, BACKUP_MANUAL))
+    stamp = (now or datetime.now()).strftime(BACKUP_STAMP_FORMAT)
+    name = "%s.%s.%s" % (os.path.basename(save_path), stamp, kind)
+    label = clean_backup_label(label)
+    if label:
+        name += "." + label
+    return os.path.join(backup_dir_for(save_path), name + ".bak")
+
+
+def parse_backup_name(filename: str):
+    """{save, stamp, when, kind, label} for one backup filename, or None.
+
+    ``when`` is a datetime, or None if the stamp will not parse - a file that
+    only looks like one of ours.
+    """
+    match = _BACKUP_NAME_RE.match(os.path.basename(str(filename or "")))
+    if not match:
+        return None
+    try:
+        when = datetime.strptime(match.group("stamp"), BACKUP_STAMP_FORMAT)
+    except ValueError:
+        when = None
+    return {
+        "save": match.group("save"),
+        "stamp": match.group("stamp"),
+        "when": when,
+        "kind": match.group("kind") or BACKUP_AUTO,
+        "label": match.group("label") or "",
+    }
+
+
+def list_backups(save_dir: str) -> list:
+    """Every backup in a save folder's backup directory, newest first.
+
+    Each entry is what parse_backup_name returns plus ``path`` and ``size``.
+    Backups of every save file are included; each one records the save it came
+    from, which is what it has to be restored over.
+    """
+    folder = os.path.join(os.path.abspath(save_dir), BACKUP_DIR_NAME)
+    if not os.path.isdir(folder):
+        return []
+    found = []
+    for name in os.listdir(folder):
+        path = os.path.join(folder, name)
+        if not os.path.isfile(path):
+            continue
+        entry = parse_backup_name(name)
+        if entry is None:
+            continue
+        entry["path"] = path
+        try:
+            entry["size"] = os.path.getsize(path)
+        except OSError:
+            entry["size"] = 0
+        found.append(entry)
+    # The stamp sorts correctly as text, and covers files whose date did not
+    # parse; the filename breaks ties so the order never wobbles.
+    found.sort(key=lambda e: (e["stamp"], os.path.basename(e["path"])), reverse=True)
+    return found
+
+
+def prune_auto_backups(save_path: str, limit: int = AUTO_BACKUP_LIMIT) -> list:
+    """Delete the oldest automatic backups of one save past ``limit``.
+
+    Only this save's automatic backups are counted, so backing up one slot can
+    never throw away another's history, and manual checkpoints are never touched.
+    """
+    save_name = os.path.basename(save_path)
+    folder = os.path.dirname(os.path.abspath(save_path))
+    mine = [e for e in list_backups(folder)
+            if e["kind"] == BACKUP_AUTO and e["save"] == save_name]
+    removed = []
+    for entry in mine[max(0, int(limit)):]:          # list_backups is newest first
+        try:
+            os.remove(entry["path"])
+            removed.append(entry["path"])
+        except OSError:
+            pass
+    return removed
+
+
+def migrate_legacy_backups(save_dir: str) -> int:
+    """Move backups written beside the save into the backup folder.
+
+    Only files matching the editor's own naming is moved, and only within the
+    same directory, so nothing of the game's own is disturbed.
+    """
+    save_dir = os.path.abspath(save_dir)
+    if not os.path.isdir(save_dir):
+        return 0
+    folder = os.path.join(save_dir, BACKUP_DIR_NAME)
+    moved = 0
+    for name in os.listdir(save_dir):
+        source = os.path.join(save_dir, name)
+        if not os.path.isfile(source) or parse_backup_name(name) is None:
+            continue
+        try:
+            os.makedirs(folder, exist_ok=True)
+            target = os.path.join(folder, name)
+            if os.path.exists(target):
+                continue
+            os.replace(source, target)
+            moved += 1
+        except OSError:
+            continue
+    return moved
+
 def _default_level(stage: str, rarity: str) -> int:
     if rarity in ("Legendary", "Mythical"):
         return 50
@@ -654,6 +827,14 @@ SHADOW_MOVE_DATA = _load_shadow_move_data()
 # onMapChange handlers a Fly or a warp would.  See relocate_map_id().
 
 OLD_SEA_MAP_ITEM_ID = 1043      # its sprite is the map icon on the Show Map button
+# Toolbar icons, borrowed from item sprites the game already ships.  These are
+# the encoded ITEM_DATA keys (source id * 2 + 1), which is what _load_item_icon
+# takes - not the raw ids the PNG filenames use.
+LOAD_SAVE_ITEM_ID = 1179        # TM117
+SAVE_ITEM_ID = 417              # Magmarizer
+BACKUP_ITEM_ID = 1353           # EXP Share 2
+RESTORE_ITEM_ID = 103           # Rare Bone
+BUILD_LIBRARY_ITEM_ID = 1571    # Mysterious Scroll
 MAP_IMAGE_DIR = "map_images"
 TOWNMAP_CELL = 16          # region images are 480x320 on a 16px grid
 GAME_TILE = 32             # what a tile measures in the game's own art
@@ -3920,9 +4101,22 @@ class Editor(tk.Tk):
     def _build_ui(self):
         top = ttk.Frame(self, padding=6)
         top.pack(fill="x")
-        ttk.Button(top, text="Load Save",          command=self._ask_load).pack(side="left", padx=4)
-        ttk.Button(top, text="Save (auto-backup)", command=self._do_save).pack(side="left", padx=4)
-        ttk.Button(top, text="Pokemon Build Library", command=lambda: self._open_build_dialog(None)).pack(side="left", padx=4)
+        # Each button wears an item sprite the game already ships.  The cache in
+        # _load_item_icon owns the reference, so none of these are collected, and
+        # a build without extracted icons simply shows the text on its own.
+        for text, item_id, command in (
+                ("Load Save", LOAD_SAVE_ITEM_ID, self._ask_load),
+                ("Save", SAVE_ITEM_ID, self._do_save),
+                ("Backup Save File", BACKUP_ITEM_ID, self._do_backup),
+                ("Restore Save File", RESTORE_ITEM_ID, self._open_restore_dialog),
+                ("Pokemon Build Library", BUILD_LIBRARY_ITEM_ID,
+                 lambda: self._open_build_dialog(None)),
+        ):
+            button = ttk.Button(top, text=text, command=command)
+            icon = self._load_item_icon(item_id, max_size=24)
+            if icon is not None:
+                button.configure(image=icon, compound="left")
+            button.pack(side="left", padx=4)
         self.status = ttk.Label(top, text="No file loaded", foreground="gray")
         self.status.pack(side="left", padx=10)
         ttk.Button(top, text="Dark", width=7, command=lambda: self._set_theme("dark")).pack(side="right", padx=4)
@@ -8119,6 +8313,183 @@ class Editor(tk.Tk):
         if path:
             self._do_load(path)
 
+    # ── backups ──────────────────────────────────────────────────────────────
+
+    def _ask_backup_label(self):
+        """Prompt for a name for this backup.  "" for none, None if cancelled."""
+        win = self._make_popup("Backup Save File", "440x210")
+        body = ttk.Frame(win, padding=12)
+        body.pack(fill="both", expand=True)
+        ttk.Label(body, text="Name this backup, or leave it blank:").pack(anchor="w")
+
+        value = tk.StringVar()
+        # Rejected as you type, the way the EV picker's custom entry does it.
+        check = (win.register(
+            lambda proposed: backup_label_is_legal(proposed) or (win.bell(), False)[1]
+        ), "%P")
+        entry = ttk.Entry(body, textvariable=value, width=52,
+                          validate="key", validatecommand=check)
+        entry.pack(fill="x", pady=(6, 4))
+        entry.focus_set()
+        ttk.Label(body, foreground="gray", justify="left", wraplength=400,
+                  text=("A blank name is fine - the backup is filed under its date and "
+                        f"time instead.  Up to {BACKUP_LABEL_MAX} characters; "
+                        "< > : \" / \\ | ? * cannot be used in a file name.")
+                  ).pack(anchor="w", pady=(0, 6))
+        ttk.Label(body, foreground="gray", justify="left", wraplength=400,
+                  text=("This copies the save file as it is on disk.  Anything you have "
+                        "changed but not saved yet is not included.")).pack(anchor="w")
+
+        result = {"label": None}
+
+        def confirm():
+            result["label"] = clean_backup_label(value.get())
+            win.destroy()
+
+        buttons = ttk.Frame(body)
+        buttons.pack(side="bottom", fill="x", pady=(10, 0))
+        ttk.Button(buttons, text="Cancel", command=win.destroy).pack(side="right")
+        ttk.Button(buttons, text="Back Up", command=confirm).pack(side="right", padx=4)
+        entry.bind("<Return>", lambda _event: confirm())
+        win.bind("<Escape>", lambda _event: win.destroy())
+        win.wait_window()
+        return result["label"]
+
+    def _do_backup(self):
+        """Copy the save to a named checkpoint that is never pruned."""
+        if not self.save_path or not os.path.isfile(self.save_path):
+            messagebox.showerror("No save file",
+                                 "Load a save file before backing it up.", parent=self)
+            return
+        label = self._ask_backup_label()
+        if label is None:                       # cancelled
+            return
+        target = backup_path(self.save_path, BACKUP_MANUAL, label)
+        while os.path.exists(target):
+            target = backup_path(self.save_path, BACKUP_MANUAL, label)
+        try:
+            migrate_legacy_backups(os.path.dirname(os.path.abspath(self.save_path)))
+            os.makedirs(os.path.dirname(target), exist_ok=True)
+            shutil.copy2(self.save_path, target)
+        except Exception as e:
+            messagebox.showerror("Backup error", f"The backup was not created:\n{e}",
+                                 parent=self)
+            return
+        self.status.config(text=f"Backed up → {os.path.basename(target)}",
+                           foreground="green")
+
+    def _open_restore_dialog(self):
+        """List every backup beside this save, and put one back."""
+        save_dir = os.path.dirname(os.path.abspath(
+            self.save_path or os.path.join(DEFAULT_SAVE_DIR, "Game.rxdata")))
+        migrate_legacy_backups(save_dir)
+        entries = list_backups(save_dir)
+
+        win = self._make_popup("Restore Save File", "860x520", resizable=(True, True))
+        body = ttk.Frame(win, padding=10)
+        body.pack(fill="both", expand=True)
+
+        if not entries:
+            ttk.Label(body, justify="left", wraplength=780,
+                      text=("No backups yet.\n\nEvery save takes one automatically, and "
+                            "the Backup Save File button takes a named one you choose.")
+                      ).pack(anchor="w", pady=20)
+            ttk.Button(body, text="Close", command=win.destroy).pack(side="bottom", anchor="e")
+            return
+
+        holder = ttk.Frame(body)
+        holder.pack(fill="both", expand=True)
+        columns = (("name", "Name", 260, "w"), ("save", "Save file", 150, "w"),
+                   ("when", "Date & time", 190, "w"), ("size", "Size", 90, "e"))
+        tree = ttk.Treeview(holder, columns=[c[0] for c in columns],
+                            show="headings", selectmode="browse", height=16)
+        for key, heading, width, anchor in columns:
+            tree.heading(key, text=heading)
+            tree.column(key, width=width, anchor=anchor, stretch=(key == "name"))
+        vsb = ttk.Scrollbar(holder, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=vsb.set)
+        tree.pack(side="left", fill="both", expand=True)
+        vsb.pack(side="left", fill="y")
+
+        for index, entry in enumerate(entries):
+            when = entry["when"].strftime("%d %b %Y  %H:%M:%S") if entry["when"] else entry["stamp"]
+            tree.insert("", "end", iid=str(index), values=(
+                entry["label"] or "Automatic",
+                entry["save"],
+                when,
+                f"{entry['size']:,} B",
+            ), tags=() if entry["label"] else ("auto",))
+        tree.tag_configure("auto", foreground="gray")
+
+        footer = ttk.Frame(body)
+        footer.pack(fill="x", pady=(8, 0))
+        ttk.Label(footer, foreground="gray",
+                  text=(f"{len(entries)} backup{'s' if len(entries) != 1 else ''} in "
+                        f"{BACKUP_DIR_NAME}. Named ones are kept; automatic ones are "
+                        f"pruned to the newest {AUTO_BACKUP_LIMIT} per save.")
+                  ).pack(side="left")
+        ttk.Button(footer, text="Close", command=win.destroy).pack(side="right")
+        restore_button = ttk.Button(footer, text="Restore", state="disabled")
+        restore_button.pack(side="right", padx=4)
+
+        def chosen():
+            selection = tree.selection()
+            return entries[int(selection[0])] if selection else None
+
+        def restore():
+            entry = chosen()
+            if entry and self._restore_backup(entry, parent=win):
+                win.destroy()
+
+        restore_button.configure(command=restore)
+        tree.bind("<<TreeviewSelect>>",
+                  lambda _event: restore_button.configure(
+                      state="normal" if tree.selection() else "disabled"))
+        tree.bind("<Double-1>", lambda _event: restore())
+
+    def _restore_backup(self, entry, parent=None):
+        """Put one backup back over the save it came from.  True if it happened.
+
+        The backup is copied rather than moved, so the same checkpoint can be
+        returned to again, and whatever it replaces is backed up first - a
+        restore should never be the thing that loses a save.
+        """
+        parent = parent or self
+        save_dir = os.path.dirname(os.path.abspath(entry["path"]))
+        if os.path.basename(save_dir) == BACKUP_DIR_NAME:
+            save_dir = os.path.dirname(save_dir)
+        target = os.path.join(save_dir, entry["save"])
+        when = entry["when"].strftime("%d %b %Y at %H:%M:%S") if entry["when"] else entry["stamp"]
+
+        if not messagebox.askyesno(
+                "Restore this backup?",
+                f"Restore \"{entry['label'] or 'Automatic'}\" from {when}?\n\n"
+                f"This overwrites {os.path.basename(target)} with the backup. "
+                "The save being replaced is backed up first, so this can be undone, "
+                "and the backup you picked stays in the list.",
+                parent=parent, default="no"):
+            return False
+
+        try:
+            if os.path.isfile(target):
+                safety = backup_path(target, BACKUP_AUTO)
+                while os.path.exists(safety):
+                    safety = backup_path(target, BACKUP_AUTO)
+                os.makedirs(os.path.dirname(safety), exist_ok=True)
+                shutil.copy2(target, safety)
+                prune_auto_backups(target)
+            shutil.copy2(entry["path"], target)
+        except Exception as e:
+            messagebox.showerror("Restore failed",
+                                 f"The save file was not changed:\n{e}", parent=parent)
+            return False
+
+        self._do_load(target)
+        self.status.config(
+            text=f"Restored {entry['label'] or 'Automatic'} ({when}) → "
+                 f"{os.path.basename(target)}", foreground="green")
+        return True
+
     def _do_load(self, path):
         try:
             with open(path, "rb") as fd:
@@ -8830,10 +9201,12 @@ class Editor(tk.Tk):
             messagebox.showerror("Validation error", f"The proposed save was not written:\n{e}")
             return
 
-        bak = timestamped_backup_path(self.save_path)
+        bak = backup_path(self.save_path, BACKUP_AUTO)
         while os.path.exists(bak):
-            bak = timestamped_backup_path(self.save_path)
+            bak = backup_path(self.save_path, BACKUP_AUTO)
         try:
+            migrate_legacy_backups(os.path.dirname(os.path.abspath(self.save_path)))
+            os.makedirs(os.path.dirname(bak), exist_ok=True)
             shutil.copy2(self.save_path, bak)
         except Exception as e:
             messagebox.showerror("Backup error", f"Save cancelled; backup could not be created:\n{e}")
@@ -8884,6 +9257,10 @@ class Editor(tk.Tk):
             for item in slot_vars:
                 if item is not None:
                     self._remember_identity_values(item[1])
+
+        # Pruned only once the save has actually landed, so a failed write never
+        # costs the user a backup.
+        prune_auto_backups(self.save_path)
 
         self.status.config(
             text=f"Saved!  ({len(result):,} bytes)  Backup → {os.path.basename(bak)}",

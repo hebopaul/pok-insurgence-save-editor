@@ -44,8 +44,11 @@ Grab the latest `.exe` from the [Releases](https://github.com/hebopaul/pok-insur
   item icons, and item details.
 - View Pokemon sprite/type/ability details and move descriptions while editing.
 - Heal Pokemon, restore PP, max IVs, zero EVs, and set all badges with one-click actions.
-- Every save writes a uniquely timestamped backup beside the file, validates the rewritten
-  data before touching your save, and replaces it atomically.
+- Every save writes a uniquely timestamped backup, validates the rewritten data before
+  touching your save, and replaces it atomically.
+- Take named checkpoints with **Backup Save File**, and go back to any of them from
+  **Restore Save File** - restoring copies the backup over your save and backs up whatever it
+  replaces first, so nothing is ever lost in either direction.
 
 ## Usage
 
@@ -57,8 +60,24 @@ On startup, the editor loads the newest `.rxdata` save from:
 %USERPROFILE%\Saved Games\Pokemon Insurgence
 ```
 
-Use **Load Save** to open another `.rxdata` file. Use **Save (auto-backup)** to write changes
-back to the selected file; each save leaves a timestamped `.bak` next to it.
+Use **Load Save** to open another `.rxdata` file, and **Save** to write changes back to it.
+
+### Backups
+
+Backups live in a `Save Editor Backups` folder beside your saves, and carry their date and name
+in the filename - there is no separate index to lose.
+
+- Every **Save** quietly keeps a copy first. These are trimmed to the newest 10 per save file,
+  so they cannot pile up forever.
+- **Backup Save File** takes a checkpoint you name yourself ("before Elite Four"). Named
+  backups are never trimmed. Leave the name blank and it is filed under its date instead.
+  The name goes into a filename, so the characters Windows forbids are refused as you type.
+- **Restore Save File** lists every backup with its name, which save it came from, and when it
+  was taken. Restoring asks first, then copies the backup over that save - the backup stays in
+  the list, and the save being replaced is backed up before it is overwritten.
+
+Backups from older versions of the editor, left loose beside the save, are moved into the
+folder the first time a backup is taken.
 
 **Pokemon Build Library** opens the build browser. Opening it from a Pokemon's own **Build
 Library** button also offers that Pokemon as an unsaved build you can add to the library.

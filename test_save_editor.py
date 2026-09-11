@@ -1,5 +1,6 @@
 import unittest
 import tkinter as tk
+import datetime
 import os
 import re
 import shutil
@@ -995,9 +996,11 @@ class SaveRoundTripTests(unittest.TestCase):
                         with open(copy, "rb") as fd:
                             self.assertEqual(original, fd.read(),
                                              "an untouched save was rewritten")
-                        backups = [f for f in os.listdir(tmp) if f.endswith(".bak")]
+                        # Backups live in their own folder beside the save now.
+                        folder = os.path.join(tmp, save_editor.BACKUP_DIR_NAME)
+                        backups = [f for f in os.listdir(folder) if f.endswith(".bak")]
                         self.assertEqual(1, len(backups))
-                        with open(os.path.join(tmp, backups[0]), "rb") as fd:
+                        with open(os.path.join(folder, backups[0]), "rb") as fd:
                             self.assertEqual(original, fd.read())
 
     def test_every_save_gets_its_own_backup(self):
@@ -1014,7 +1017,8 @@ class SaveRoundTripTests(unittest.TestCase):
                 for _ in range(3):
                     app._do_save()
                     app.update()
-                backups = [f for f in os.listdir(tmp) if f.endswith(".bak")]
+                folder = os.path.join(tmp, save_editor.BACKUP_DIR_NAME)
+                backups = [f for f in os.listdir(folder) if f.endswith(".bak")]
                 self.assertEqual(3, len(backups), "backups must never overwrite each other")
                 self.assertEqual(3, len(set(backups)))
 
@@ -2762,6 +2766,459 @@ class CrossMapTeleportTests(unittest.TestCase):
                 self.assertFalse(app._move_player_to(*destination))
                 self.assertIsNone(app._target_map_id)
                 self.assertTrue(box.showerror.called)
+
+
+class BackupNamingTests(unittest.TestCase):
+    """Everything the Restore list needs is in the filename, so it must survive."""
+
+    WHEN = datetime.datetime(2026, 9, 11, 21, 13, 37, 571865)
+
+    def _round_trip(self, kind, label):
+        path = save_editor.backup_path(os.path.join("C:", "saves", "Game.rxdata"),
+                                       kind, label, now=self.WHEN)
+        parsed = save_editor.parse_backup_name(path)
+        self.assertIsNotNone(parsed, path)
+        return parsed
+
+    def test_an_automatic_backup_round_trips(self):
+        parsed = self._round_trip("auto", "")
+        self.assertEqual("Game.rxdata", parsed["save"])
+        self.assertEqual("auto", parsed["kind"])
+        self.assertEqual("", parsed["label"])
+        self.assertEqual(self.WHEN, parsed["when"])
+
+    def test_a_manual_backup_without_a_label_round_trips(self):
+        parsed = self._round_trip("manual", "")
+        self.assertEqual("manual", parsed["kind"])
+        self.assertEqual("", parsed["label"])
+
+    def test_a_label_round_trips_including_spaces_and_dots(self):
+        for label in ("Before Elite Four", "v1.2 run", "gym_4 (hard)", "a.b.c"):
+            with self.subTest(label=label):
+                self.assertEqual(label, self._round_trip("manual", label)["label"])
+
+    def test_the_backup_lands_in_its_own_folder(self):
+        path = save_editor.backup_path(os.path.join("C:", "saves", "Game.rxdata"),
+                                       "auto", now=self.WHEN)
+        self.assertEqual(save_editor.BACKUP_DIR_NAME,
+                         os.path.basename(os.path.dirname(path)))
+
+    def test_backups_written_before_the_folder_existed_still_parse(self):
+        # These have no kind token; they came from a save, so they read as auto.
+        parsed = save_editor.parse_backup_name("Game.rxdata.20260909-131737-128033.bak")
+        self.assertIsNotNone(parsed)
+        self.assertEqual("Game.rxdata", parsed["save"])
+        self.assertEqual("auto", parsed["kind"])
+        self.assertEqual("", parsed["label"])
+
+    def test_files_that_are_not_ours_are_ignored(self):
+        for name in ("Game.rxdata", "Save_0_Backup_1.rxdata", "notes.bak",
+                     "Game.rxdata.bak", "Game.rxdata.2026-09-09.bak"):
+            with self.subTest(name=name):
+                self.assertIsNone(save_editor.parse_backup_name(name))
+
+    def test_an_unknown_kind_is_refused(self):
+        with self.assertRaises(ValueError):
+            save_editor.backup_path("Game.rxdata", "sideways")
+
+
+class BackupLabelTests(unittest.TestCase):
+    """A label goes straight into a filename, so Windows' rules apply."""
+
+    def test_characters_windows_forbids_are_rejected(self):
+        for bad in '<>:"/\\|?*':
+            with self.subTest(char=bad):
+                self.assertFalse(save_editor.backup_label_is_legal("run" + bad))
+
+    def test_control_characters_are_rejected(self):
+        self.assertFalse(save_editor.backup_label_is_legal("run\x01two"))
+        self.assertFalse(save_editor.backup_label_is_legal("run\ttwo"))
+
+    def test_ordinary_names_are_accepted(self):
+        for good in ("Before Elite Four", "run-2 (hard)", "gym_4", "v1.2",
+                     "x" * save_editor.BACKUP_LABEL_MAX, ""):
+            with self.subTest(label=good):
+                self.assertTrue(save_editor.backup_label_is_legal(good))
+
+    def test_an_over_long_label_is_rejected_as_typed_and_capped_on_use(self):
+        too_long = "x" * (save_editor.BACKUP_LABEL_MAX + 1)
+        self.assertFalse(save_editor.backup_label_is_legal(too_long))
+        self.assertEqual(save_editor.BACKUP_LABEL_MAX,
+                         len(save_editor.clean_backup_label(too_long)))
+
+    def test_trailing_dots_and_spaces_are_trimmed(self):
+        # Windows drops these silently, which would make the name on disk differ
+        # from the one the user typed.
+        self.assertEqual("run", save_editor.clean_backup_label("  run.. "))
+        self.assertEqual("", save_editor.clean_backup_label("   "))
+        self.assertEqual("", save_editor.clean_backup_label("..."))
+
+    def test_cleaning_collapses_runs_of_whitespace(self):
+        self.assertEqual("a b", save_editor.clean_backup_label("a    b"))
+
+
+class BackupFolderTests(unittest.TestCase):
+    """Listing, pruning and migrating, all on a throwaway folder."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self.folder = os.path.join(self.tmp, save_editor.BACKUP_DIR_NAME)
+        os.makedirs(self.folder, exist_ok=True)
+
+    def _write(self, save, index, kind, label="", where=None):
+        when = datetime.datetime(2026, 1, 1) + datetime.timedelta(minutes=index)
+        path = save_editor.backup_path(os.path.join(self.tmp, save), kind, label, now=when)
+        if where is not None:
+            path = os.path.join(where, os.path.basename(path))
+        with open(path, "wb") as fd:
+            fd.write(b"x" * (index + 1))
+        return path
+
+    def test_listing_is_newest_first_and_covers_every_save(self):
+        self._write("Game.rxdata", 0, "auto")
+        self._write("Game_1.rxdata", 5, "manual", "later")
+        self._write("Game.rxdata", 2, "manual", "middle")
+        found = save_editor.list_backups(self.tmp)
+        self.assertEqual(3, len(found))
+        self.assertEqual(["later", "middle", ""], [e["label"] for e in found])
+        self.assertEqual({"Game.rxdata", "Game_1.rxdata"}, {e["save"] for e in found})
+        self.assertTrue(all(e["size"] for e in found))
+
+    def test_listing_a_folder_with_no_backups_is_empty_not_an_error(self):
+        self.assertEqual([], save_editor.list_backups(os.path.join(self.tmp, "nope")))
+
+    def test_pruning_keeps_the_newest_automatic_backups(self):
+        written = [self._write("Game.rxdata", i, "auto") for i in range(13)]
+        save_editor.prune_auto_backups(os.path.join(self.tmp, "Game.rxdata"))
+        left = save_editor.list_backups(self.tmp)
+        self.assertEqual(save_editor.AUTO_BACKUP_LIMIT, len(left))
+        # _write stamps them in ascending order, so the survivors are the tail.
+        survivors = {os.path.basename(e["path"]) for e in left}
+        self.assertEqual({os.path.basename(p)
+                          for p in written[-save_editor.AUTO_BACKUP_LIMIT:]}, survivors)
+
+    def test_pruning_never_touches_a_named_backup(self):
+        for i in range(13):
+            self._write("Game.rxdata", i, "auto")
+        for i in range(3):
+            self._write("Game.rxdata", 100 + i, "manual", "keep %d" % i)
+        save_editor.prune_auto_backups(os.path.join(self.tmp, "Game.rxdata"))
+        left = save_editor.list_backups(self.tmp)
+        self.assertEqual(3, len([e for e in left if e["kind"] == "manual"]))
+        self.assertEqual(save_editor.AUTO_BACKUP_LIMIT,
+                         len([e for e in left if e["kind"] == "auto"]))
+
+    def test_pruning_one_save_leaves_another_saves_history_alone(self):
+        for i in range(13):
+            self._write("Game.rxdata", i, "auto")
+        for i in range(4):
+            self._write("Game_1.rxdata", i, "auto")
+        save_editor.prune_auto_backups(os.path.join(self.tmp, "Game.rxdata"))
+        left = save_editor.list_backups(self.tmp)
+        self.assertEqual(4, len([e for e in left if e["save"] == "Game_1.rxdata"]))
+
+    def test_backups_left_beside_the_save_are_moved_into_the_folder(self):
+        legacy = os.path.join(self.tmp, "Game.rxdata.20260909-131737-128033.bak")
+        with open(legacy, "wb") as fd:
+            fd.write(b"old")
+        with open(os.path.join(self.tmp, "Game.rxdata"), "wb") as fd:
+            fd.write(b"save")
+        moved = save_editor.migrate_legacy_backups(self.tmp)
+        self.assertEqual(1, moved)
+        self.assertFalse(os.path.exists(legacy))
+        self.assertTrue(os.path.isfile(os.path.join(self.folder, os.path.basename(legacy))))
+        # The save itself, and anything not ours, stays put.
+        self.assertTrue(os.path.isfile(os.path.join(self.tmp, "Game.rxdata")))
+
+    def test_migration_is_safe_to_repeat(self):
+        with open(os.path.join(self.tmp, "Game.rxdata.20260909-131737-128033.bak"), "wb") as fd:
+            fd.write(b"old")
+        self.assertEqual(1, save_editor.migrate_legacy_backups(self.tmp))
+        self.assertEqual(0, save_editor.migrate_legacy_backups(self.tmp))
+
+
+class BackupRestoreTests(unittest.TestCase):
+    """The two buttons, driven through the editor against a real save."""
+
+    _app = None
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._app is not None:
+            cls._app.destroy()
+            cls._app = None
+
+    def _editor(self):
+        if type(self)._app is None:
+            try:
+                app = Editor()
+            except tk.TclError as exc:
+                self.skipTest(f"Tk is unavailable: {exc}")
+            app.withdraw()
+            type(self)._app = app
+        return type(self)._app
+
+    def _loaded(self, tmp):
+        base = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
+        source = os.path.join(base, "Game.rxdata")
+        if not os.path.isfile(source):
+            self.skipTest("no local Game.rxdata")
+        copy = os.path.join(tmp, "Game.rxdata")
+        shutil.copy2(source, copy)
+        app = self._editor()
+        app._do_load(copy)
+        app.update()
+        return app, copy
+
+    def test_the_backup_button_writes_one_named_copy(self):
+        with mock.patch.object(save_editor, "messagebox"):
+            with tempfile.TemporaryDirectory() as tmp:
+                app, copy = self._loaded(tmp)
+                with mock.patch.object(Editor, "_ask_backup_label",
+                                       return_value="Before Elite Four"):
+                    app._do_backup()
+                app.update()
+                found = save_editor.list_backups(tmp)
+                self.assertEqual(1, len(found))
+                self.assertEqual("manual", found[0]["kind"])
+                self.assertEqual("Before Elite Four", found[0]["label"])
+                with open(found[0]["path"], "rb") as a, open(copy, "rb") as b:
+                    self.assertEqual(b.read(), a.read())
+
+    def test_cancelling_the_prompt_writes_nothing(self):
+        with mock.patch.object(save_editor, "messagebox"):
+            with tempfile.TemporaryDirectory() as tmp:
+                app, _copy = self._loaded(tmp)
+                with mock.patch.object(Editor, "_ask_backup_label", return_value=None):
+                    app._do_backup()
+                app.update()
+                self.assertEqual([], save_editor.list_backups(tmp))
+
+    def test_saving_repeatedly_prunes_automatic_backups_but_not_named_ones(self):
+        with mock.patch.object(save_editor, "messagebox"):
+            with tempfile.TemporaryDirectory() as tmp:
+                app, _copy = self._loaded(tmp)
+                with mock.patch.object(Editor, "_ask_backup_label", return_value="keep me"):
+                    app._do_backup()
+                for _ in range(save_editor.AUTO_BACKUP_LIMIT + 2):
+                    app._do_save()
+                    app.update()
+                found = save_editor.list_backups(tmp)
+                auto = [e for e in found if e["kind"] == "auto"]
+                manual = [e for e in found if e["kind"] == "manual"]
+                self.assertEqual(save_editor.AUTO_BACKUP_LIMIT, len(auto))
+                self.assertEqual(["keep me"], [e["label"] for e in manual])
+
+    def test_restoring_puts_the_bytes_back_and_keeps_the_backup(self):
+        with mock.patch.object(save_editor, "messagebox") as box:
+            with tempfile.TemporaryDirectory() as tmp:
+                app, copy = self._loaded(tmp)
+                with open(copy, "rb") as fd:
+                    original = fd.read()
+                with mock.patch.object(Editor, "_ask_backup_label", return_value="checkpoint"):
+                    app._do_backup()
+                checkpoint = save_editor.list_backups(tmp)[0]
+
+                app.var_money.set("12345")
+                app._do_save()
+                app.update()
+                with open(copy, "rb") as fd:
+                    self.assertNotEqual(original, fd.read())
+
+                box.askyesno.return_value = True
+                self.assertTrue(app._restore_backup(checkpoint))
+                app.update()
+                with open(copy, "rb") as fd:
+                    self.assertEqual(original, fd.read(), "the save was not restored")
+                self.assertTrue(os.path.isfile(checkpoint["path"]),
+                                "restoring must copy, not consume, the backup")
+
+    def test_the_save_being_replaced_is_backed_up_first(self):
+        with mock.patch.object(save_editor, "messagebox") as box:
+            with tempfile.TemporaryDirectory() as tmp:
+                app, copy = self._loaded(tmp)
+                with mock.patch.object(Editor, "_ask_backup_label", return_value="checkpoint"):
+                    app._do_backup()
+                checkpoint = save_editor.list_backups(tmp)[0]
+                app.var_money.set("4242")
+                app._do_save()
+                app.update()
+                with open(copy, "rb") as fd:
+                    about_to_be_replaced = fd.read()
+
+                box.askyesno.return_value = True
+                app._restore_backup(checkpoint)
+                app.update()
+                def contents(path):
+                    with open(path, "rb") as fd:
+                        return fd.read()
+
+                rescued = [e for e in save_editor.list_backups(tmp)
+                           if e["kind"] == "auto"
+                           and contents(e["path"]) == about_to_be_replaced]
+                self.assertTrue(rescued, "the replaced save was not preserved anywhere")
+
+    def test_declining_the_confirmation_changes_nothing(self):
+        with mock.patch.object(save_editor, "messagebox") as box:
+            with tempfile.TemporaryDirectory() as tmp:
+                app, copy = self._loaded(tmp)
+                with mock.patch.object(Editor, "_ask_backup_label", return_value="checkpoint"):
+                    app._do_backup()
+                checkpoint = save_editor.list_backups(tmp)[0]
+                app.var_money.set("777")
+                app._do_save()
+                app.update()
+                with open(copy, "rb") as fd:
+                    before = fd.read()
+
+                box.askyesno.return_value = False
+                self.assertFalse(app._restore_backup(checkpoint))
+                with open(copy, "rb") as fd:
+                    self.assertEqual(before, fd.read())
+
+    def test_restoring_reloads_the_editor_from_the_restored_file(self):
+        with mock.patch.object(save_editor, "messagebox") as box:
+            with tempfile.TemporaryDirectory() as tmp:
+                app, _copy = self._loaded(tmp)
+                money = app.var_money.get()
+                with mock.patch.object(Editor, "_ask_backup_label", return_value="checkpoint"):
+                    app._do_backup()
+                checkpoint = save_editor.list_backups(tmp)[0]
+                app.var_money.set("31337")
+                app._do_save()
+                app.update()
+                self.assertEqual("31337", app.var_money.get())
+
+                box.askyesno.return_value = True
+                app._restore_backup(checkpoint)
+                app.update()
+                self.assertEqual(money, app.var_money.get(),
+                                 "the UI still shows the save it replaced")
+
+    def test_the_restore_window_lists_every_backup(self):
+        with mock.patch.object(save_editor, "messagebox"):
+            with tempfile.TemporaryDirectory() as tmp:
+                app, _copy = self._loaded(tmp)
+                for label in ("one", "two"):
+                    with mock.patch.object(Editor, "_ask_backup_label", return_value=label):
+                        app._do_backup()
+                app._do_save()
+                app.update()
+                expected = save_editor.list_backups(tmp)
+
+                app._open_restore_dialog()
+                app.update()
+                win = [w for w in app.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+                self.addCleanup(win.destroy)
+                widgets = []
+
+                def walk(widget):
+                    widgets.append(widget)
+                    for child in widget.winfo_children():
+                        walk(child)
+
+                walk(win)
+                tree = [w for w in widgets if isinstance(w, save_editor.ttk.Treeview)][0]
+                rows = tree.get_children()
+                self.assertEqual(len(expected), len(rows))
+                # Newest first, and an unnamed backup reads as "Automatic".
+                first = tree.item(rows[0], "values")
+                self.assertEqual(expected[0]["label"] or "Automatic", first[0])
+                self.assertEqual("Game.rxdata", first[1])
+
+                restore = next(w for w in widgets
+                               if isinstance(w, save_editor.ttk.Button)
+                               and w.cget("text") == "Restore")
+                self.assertEqual("disabled", str(restore.cget("state")))
+                tree.selection_set(rows[0])
+                app.update()
+                self.assertEqual("normal", str(restore.cget("state")))
+
+    def test_the_restore_window_says_so_when_there_is_nothing_to_restore(self):
+        with mock.patch.object(save_editor, "messagebox"):
+            with tempfile.TemporaryDirectory() as tmp:
+                app, _copy = self._loaded(tmp)
+                app._open_restore_dialog()
+                app.update()
+                win = [w for w in app.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+                self.addCleanup(win.destroy)
+                widgets = []
+
+                def walk(widget):
+                    widgets.append(widget)
+                    for child in widget.winfo_children():
+                        walk(child)
+
+                walk(win)
+                self.assertEqual([], [w for w in widgets
+                                      if isinstance(w, save_editor.ttk.Treeview)])
+                text = " ".join(str(w.cget("text")) for w in widgets
+                                if isinstance(w, save_editor.ttk.Label))
+                self.assertIn("No backups yet", text)
+
+
+class ToolbarIconTests(unittest.TestCase):
+    """Every top-row button carries the item sprite it was assigned."""
+
+    BUTTONS = (
+        ("Load Save", save_editor.LOAD_SAVE_ITEM_ID, "TM117"),
+        ("Save", save_editor.SAVE_ITEM_ID, "Magmarizer"),
+        ("Backup Save File", save_editor.BACKUP_ITEM_ID, "EXP Share 2"),
+        ("Restore Save File", save_editor.RESTORE_ITEM_ID, "Rare Bone"),
+        ("Pokemon Build Library", save_editor.BUILD_LIBRARY_ITEM_ID, "Mysterious Scroll"),
+    )
+
+    def test_each_icon_id_is_the_item_it_claims_to_be(self):
+        for text, item_id, name in self.BUTTONS:
+            with self.subTest(button=text):
+                self.assertEqual(name, ITEM_DATA.get(item_id, {}).get("name"))
+
+    def test_the_save_button_no_longer_explains_itself(self):
+        # The automatic backup is unchanged; only the label lost "(auto-backup)".
+        try:
+            app = Editor()
+        except tk.TclError as exc:
+            self.skipTest(f"Tk is unavailable: {exc}")
+        self.addCleanup(app.destroy)
+        app.withdraw()
+        app.update()
+        labels = {str(w.cget("text")) for w in self._walk(app)
+                  if isinstance(w, save_editor.ttk.Button)}
+        self.assertIn("Save", labels)
+        self.assertNotIn("Save (auto-backup)", labels)
+
+    def test_every_toolbar_button_shows_its_icon_beside_the_text(self):
+        try:
+            app = Editor()
+        except tk.TclError as exc:
+            self.skipTest(f"Tk is unavailable: {exc}")
+        self.addCleanup(app.destroy)
+        app.withdraw()
+        app.update()
+        if not os.path.isdir(save_editor.resource_path(
+                os.path.join("game_resources", "Graphics", "Icons"))):
+            self.skipTest("item icons not extracted")
+        found = {str(w.cget("text")): w for w in self._walk(app)
+                 if isinstance(w, save_editor.ttk.Button)}
+        for text, _item_id, _name in self.BUTTONS:
+            with self.subTest(button=text):
+                button = found.get(text)
+                self.assertIsNotNone(button, f"no {text} button")
+                self.assertTrue(str(button.cget("image")))
+                self.assertEqual("left", str(button.cget("compound")))
+
+    @staticmethod
+    def _walk(root):
+        found = []
+
+        def walk(widget):
+            found.append(widget)
+            for child in widget.winfo_children():
+                walk(child)
+
+        walk(root)
+        return found
 
 if __name__ == "__main__":
     unittest.main()
