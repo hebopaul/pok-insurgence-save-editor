@@ -2187,6 +2187,125 @@ class FormBuildTests(unittest.TestCase):
         self.assertGreater(save_editor.build_score("Species: Mega Charizard X" + spread),
                            save_editor.build_score("Species: Charizard" + spread))
 
+class ClassicWidgetThemeTests(unittest.TestCase):
+    """ttk styling never reaches tk.Text, tk.Listbox or tk.Canvas."""
+
+    _app = None
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._app is not None:
+            cls._app.destroy()
+            cls._app = None
+
+    def _editor(self, mode="dark"):
+        if type(self)._app is None:
+            try:
+                app = Editor()
+            except tk.TclError as exc:
+                self.skipTest(f"Tk is unavailable: {exc}")
+            app.withdraw()
+            type(self)._app = app
+        app = type(self)._app
+        app._set_theme(mode)
+        app.update()
+        return app
+
+    @staticmethod
+    def _widgets(root):
+        found = []
+
+        def walk(widget):
+            found.append(widget)
+            for child in widget.winfo_children():
+                walk(child)
+
+        walk(root)
+        return found
+
+    def test_the_raw_build_editor_follows_the_theme(self):
+        app = self._editor("dark")
+        app._open_build_dialog(None)
+        app.update()
+        win = [w for w in app.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+        self.addCleanup(win.destroy)
+        editor = [w for w in self._widgets(win) if isinstance(w, tk.Text)][0]
+        self.assertEqual(app._palette["field"], editor.cget("bg"))
+        self.assertEqual(app._palette["text"], str(editor.cget("fg")))
+        # The caret has to be visible against the new background too.
+        self.assertEqual(app._palette["text"], str(editor.cget("insertbackground")))
+
+    def test_the_region_map_canvas_follows_the_theme(self):
+        app = self._editor("dark")
+        if not isinstance(app.game_player, save_editor.RubyObject):
+            app.game_player = save_editor.RubyObject()
+            app.game_player.attributes = {"@oldMap": 2, "@x": 0, "@y": 0}
+        with mock.patch.object(save_editor, "messagebox"):
+            app._open_map_viewer()
+        app.update()
+        win = [w for w in app.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+        self.addCleanup(win.destroy)
+        region = [w for w in self._widgets(win) if isinstance(w, tk.Canvas)][0]
+        self.assertEqual(app._palette["bg"], region.cget("bg"))
+
+    def test_switching_theme_repaints_widgets_that_are_already_open(self):
+        app = self._editor("light")
+        app._open_build_dialog(None)
+        app.update()
+        win = [w for w in app.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+        self.addCleanup(win.destroy)
+        editor = [w for w in self._widgets(win) if isinstance(w, tk.Text)][0]
+        light = editor.cget("bg")
+        app._set_theme("dark")
+        app.update()
+        self.assertNotEqual(light, editor.cget("bg"))
+        self.assertEqual(app._palette["field"], editor.cget("bg"))
+
+    def test_a_closed_widget_is_dropped_from_the_registry(self):
+        app = self._editor("dark")
+        app._open_build_dialog(None)
+        app.update()
+        win = [w for w in app.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+        self.assertTrue(app._field_widgets)
+        win.destroy()
+        app.update()
+        app._set_theme("light")      # must not raise on the dead widget
+        app.update()
+        self.assertEqual(set(), {w for w in app._field_widgets if not w.winfo_exists()})
+
+
+class ShowMapIconTests(unittest.TestCase):
+    """The Show Map button carries the Old Sea Map sprite."""
+
+    def test_the_item_the_icon_comes_from_is_the_old_sea_map(self):
+        item = save_editor.ITEM_DATA.get(save_editor.OLD_SEA_MAP_ITEM_ID, {})
+        self.assertEqual("Old Sea Map", item.get("name"))
+
+    def test_the_button_shows_the_icon_beside_its_text(self):
+        try:
+            app = Editor()
+        except tk.TclError as exc:
+            self.skipTest(f"Tk is unavailable: {exc}")
+        self.addCleanup(app.destroy)
+        app.withdraw()
+        app.update()
+        found = []
+
+        def walk(widget):
+            found.append(widget)
+            for child in widget.winfo_children():
+                walk(child)
+
+        walk(app)
+        buttons = [w for w in found
+                   if isinstance(w, save_editor.ttk.Button) and w.cget("text") == "Show Map"]
+        self.assertEqual(1, len(buttons))
+        if not os.path.isdir(save_editor.resource_path(
+                os.path.join("game_resources", "Graphics", "Icons"))):
+            self.skipTest("item icons not extracted")
+        self.assertTrue(str(buttons[0].cget("image")))
+        self.assertEqual("left", str(buttons[0].cget("compound")))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -642,6 +642,7 @@ SHADOW_MOVE_DATA = _load_shadow_move_data()
 # would leave the previous map's tiles under a new ID.  Cross-map relocation is
 # offered through the respawn point instead, which is plain parseable data.
 
+OLD_SEA_MAP_ITEM_ID = 1043      # its sprite is the map icon on the Show Map button
 MAP_IMAGE_DIR = "map_images"
 TOWNMAP_CELL = 16          # region images are 480x320 on a 16px grid
 GAME_TILE = 32             # what a tile measures in the game's own art
@@ -2616,6 +2617,9 @@ class Editor(tk.Tk):
         self._box_render_order = []
         self._suspend_box_render = False
         self._scroll_canvases: set = set()
+        # tk.Text and tk.Listbox are classic widgets: ttk styles do not touch
+        # them, so they stay white on a dark theme unless coloured by hand.
+        self._field_widgets: set = set()
         self._pokemon_sprite_cache = {}
         self._species_choices = tuple(self._species_label(sid) for sid in sorted(PKMN_DATA))
         self._move_choices = tuple(f"{mid} — {data.get('name', 'Unknown')}" for mid, data in sorted(MOVE_DATA.items()))
@@ -2696,6 +2700,7 @@ class Editor(tk.Tk):
                 popup.wm_attributes("-topmost", True)
                 listbox = tk.Listbox(popup, activestyle="dotbox", exportselection=False)
                 listbox.pack(fill="both", expand=True)
+                self._make_field(listbox)
                 listbox.bind("<ButtonRelease-1>", choose)
                 listbox.bind("<Motion>", lambda e: (listbox.selection_clear(0, tk.END),
                                                     listbox.selection_set(listbox.nearest(e.y))))
@@ -3077,6 +3082,14 @@ class Editor(tk.Tk):
                 canvas.configure(bg=p["bg"])
             except tk.TclError:
                 pass
+        for widget in list(self._field_widgets):
+            try:
+                if widget.winfo_exists():
+                    self._paint_field(widget)
+                else:
+                    self._field_widgets.discard(widget)
+            except tk.TclError:
+                self._field_widgets.discard(widget)
         live_info_buttons = []
         for canvas in self._info_buttons:
             try:
@@ -3151,6 +3164,29 @@ class Editor(tk.Tk):
         if self._palette:
             try:
                 canvas.configure(bg=self._palette["bg"])
+            except tk.TclError:
+                pass
+
+    def _make_field(self, widget):
+        """Colour a classic Tk text widget and keep it in step with the theme."""
+        self._field_widgets.add(widget)
+        self._paint_field(widget)
+
+    def _paint_field(self, widget):
+        palette = self._palette
+        if not palette:
+            return
+        # Set each option on its own: a Listbox has no insertion cursor, and a
+        # Text has no activestyle, so one configure() call would fail for both.
+        for option, value in (("bg", palette["field"]),
+                              ("fg", palette["text"]),
+                              ("insertbackground", palette["text"]),
+                              ("selectbackground", palette["select"]),
+                              ("selectforeground", palette["select_text"]),
+                              ("highlightbackground", palette["border"]),
+                              ("highlightcolor", palette["accent"])):
+            try:
+                widget.configure(**{option: value})
             except tk.TclError:
                 pass
 
@@ -3769,8 +3805,13 @@ class Editor(tk.Tk):
         ttk.Entry(location, textvariable=self.var_player_x, width=6).grid(row=0, column=3, sticky="w", padx=(2, 8))
         ttk.Label(location, text="Y:").grid(row=0, column=4, sticky="e")
         ttk.Entry(location, textvariable=self.var_player_y, width=6).grid(row=0, column=5, sticky="w", padx=(2, 10))
-        ttk.Button(location, text="Show Map",
-                   command=self._open_map_viewer).grid(row=0, column=6, sticky="w")
+        # The Old Sea Map's own sprite, which reads as "map" at a glance.  The
+        # cache in _load_item_icon owns the reference, so it is not collected.
+        map_icon = self._load_item_icon(OLD_SEA_MAP_ITEM_ID, max_size=36)
+        show_map = ttk.Button(location, text="Show Map", command=self._open_map_viewer)
+        if map_icon is not None:
+            show_map.configure(image=map_icon, compound="left")
+        show_map.grid(row=0, column=6, sticky="w")
 
         # Two separate destinations, which the game keeps separate too.
         ttk.Label(location, text="Respawn at:", width=13, anchor="e").grid(row=1, column=0, sticky="e", pady=2)
@@ -3906,6 +3947,7 @@ class Editor(tk.Tk):
                      state="readonly").pack(anchor="w", pady=(6, 4))
         region_canvas = tk.Canvas(region_tab, width=480, height=320, highlightthickness=0)
         region_canvas.pack(fill="both", expand=True)
+        self._make_scrollable(region_canvas)
         region_hint = ttk.Label(region_tab, foreground="gray", wraplength=470, justify="left",
                                 text="Click a marked square. Only places the game lists on "
                                      "its town map appear here - use All Maps for the rest.")
@@ -5231,6 +5273,7 @@ class Editor(tk.Tk):
         info_canvas.bind("<Configure>", lambda e: info_canvas.itemconfigure(info_window, width=e.width))
         info_canvas.configure(yscrollcommand=info_scroll.set)
         info_canvas.pack(side="left", fill="both", expand=True); info_scroll.pack(side="right", fill="y")
+        self._make_scrollable(info_canvas)
 
         # Buttons that must not run while the editor holds uncommitted edits.
         raw_gated = []
@@ -5249,9 +5292,11 @@ class Editor(tk.Tk):
                        "your own build file. Separate several builds with a --- line.").pack(
                            side="bottom", fill="x", pady=(4, 2))
 
-        editor = tk.Text(raw_outer, wrap="word", height=10, undo=True)
+        editor = tk.Text(raw_outer, wrap="word", height=10, undo=True,
+                         relief="flat", borderwidth=6)
         raw_scroll = ttk.Scrollbar(raw_outer, orient="vertical", command=editor.yview)
         editor.configure(yscrollcommand=raw_scroll.set)
+        self._make_field(editor)
         editor.pack(side="left", fill="both", expand=True); raw_scroll.pack(side="right", fill="y")
 
         # Entry 0 is the unsaved Pokemon, when there is one; the rest mirror the
