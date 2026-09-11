@@ -81,8 +81,8 @@ splitting it into separate library entries.
 
 Editing one of the built-in builds **overrides** it rather than duplicating it: every build
 carries a hidden id, and your version is written to your own file under the same id, so the list
-shows one row, not two. `pokemon_builds.txt` is never written to. To keep both, copy the text
-into **New Empty Build** instead, which earns a new id.
+shows one row, not two. `gen_resources/pokemon_builds.txt` is never written to. To keep both,
+copy the text into **New Empty Build** instead, which earns a new id.
 
 ## Building
 
@@ -100,9 +100,12 @@ pip install rubymarshal
 python save_editor.py
 ```
 
-The checkout includes every generated data file the editor needs, so it runs and edits saves
-straight away. Pokemon sprites and item icons are **not** included - they belong to the game,
-not to this project - so those panels stay blank until you supply them yourself (see below).
+The checkout includes every generated data file the editor needs, in `gen_resources/`, so it
+runs and edits saves straight away. That folder holds only derived data - species, moves, items,
+abilities, learnsets, forms, the build library and the map index - all rebuilt from the game's
+own files by the generator scripts, never edited by hand. Pokemon sprites and item icons are
+**not** included - they belong to the game, not to this project - so those panels stay blank
+until you supply them yourself (see below).
 
 ## Game Resources
 
@@ -132,7 +135,7 @@ The viewer needs one generated data file, which is committed and already in the 
 Regenerate it only if the game updates:
 
 ```bash
-python tools/gen_map_index.py        # writes map_meta.txt
+python tools/gen_map_index.py        # writes gen_resources/map_meta.txt
 ```
 
 It records each map's parent, every door and the direction you walk through it, and which maps

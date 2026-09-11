@@ -44,10 +44,20 @@ class Ruby18Writer(Writer):
 
 from rubymarshal.classes import RubyObject
 
+# Everything generated from the game's own files and shipped with the editor
+# lives here, so the project root holds source rather than derived data.
+GEN_DIR = "gen_resources"
+
+
 def resource_path(relative: str) -> str:
     """Resolve paths for both normal runs and PyInstaller bundles."""
     base = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, relative)
+
+
+def data_path(name: str) -> str:
+    """Resolve one of the generated data files in gen_resources/."""
+    return resource_path(os.path.join(GEN_DIR, name))
 
 def get_latest_save_file() -> str:
     base_dir = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
@@ -321,7 +331,7 @@ def _display_stats_to_game(values) -> list:
     return result
 
 def _load_pokemon_data():
-    path = resource_path("pokemon_data.txt")
+    path = data_path("pokemon_data.txt")
     data = {}
     if not os.path.exists(path):
         return data
@@ -375,7 +385,7 @@ def _load_pokemon_data():
     return data
 
 def _load_form_data():
-    path = resource_path("form_data.txt")
+    path = data_path("form_data.txt")
     data = {}
     if not os.path.exists(path):
         return data
@@ -397,7 +407,7 @@ def _load_form_data():
     return {sid: sorted(forms.items()) for sid, forms in data.items()}
 
 def _load_form_override_data():
-    path = resource_path("form_override_data.txt")
+    path = data_path("form_override_data.txt")
     data = {}
     if not os.path.exists(path):
         return data
@@ -429,9 +439,9 @@ POCKET_NAMES = ["Pocket 0","Items","Medicine","Poke Balls","TMs & HMs",
 # ── item data ─────────────────────────────────────────────────────────────────
 
 def _load_item_data():
-    item_file = resource_path("item_data.txt")
+    item_file = data_path("item_data.txt")
     if not os.path.exists(item_file):
-        item_file = resource_path("item_ids.txt")
+        item_file = data_path("item_ids.txt")
     data:  dict[int, dict] = {}
     names: dict[int, str] = {}
     cats:  dict[int, str] = {}
@@ -491,7 +501,7 @@ def _load_item_data():
     return data, names, cats
 
 def _load_ability_data():
-    path = resource_path("ability_data.txt")
+    path = data_path("ability_data.txt")
     by_id = {}
     by_name = {}
     if not os.path.exists(path):
@@ -527,7 +537,7 @@ POKEMON_DATA = {
 }
 
 def _load_move_data():
-    path = resource_path("move_data.txt")
+    path = data_path("move_data.txt")
     data = {}
     if not os.path.exists(path):
         return data
@@ -555,7 +565,7 @@ def _load_move_data():
     return data
 
 def _load_learnset_data():
-    path = resource_path("learnset_data.txt")
+    path = data_path("learnset_data.txt")
     data = {}
     if not os.path.exists(path):
         return data
@@ -580,7 +590,7 @@ def _load_learnset_data():
     return data
 
 def _load_shadow_move_data():
-    path = resource_path("shadow_move_data.txt")
+    path = data_path("shadow_move_data.txt")
     data = {}
     if not os.path.exists(path):
         return data
@@ -602,7 +612,7 @@ def _load_shadow_move_data():
 MOVE_DATA        = _load_move_data()
 def _load_teachable_data():
     """Species -> moves learnable only by TM, HM or tutor (from Data/tm.dat)."""
-    path = resource_path("teachable_data.txt")
+    path = data_path("teachable_data.txt")
     data = {}
     if not os.path.exists(path):
         return data
@@ -739,7 +749,7 @@ def _load_map_meta():
     unused   maps the game cannot reach and cannot draw: Insurgence still
              carries the whole Pokemon Essentials sample project
     """
-    path = resource_path("map_meta.txt")
+    path = data_path("map_meta.txt")
     if not os.path.exists(path):
         return {}, {}, frozenset()
     try:
@@ -935,7 +945,7 @@ def _load_species_names():
     (Ghost/Dragon, Spirit Call).  This is what lets the editor say - and read -
     "Delta Charmander" instead.
     """
-    path = resource_path("species_names.txt")
+    path = data_path("species_names.txt")
     if not os.path.exists(path):
         return {}
     names = {}
@@ -1546,7 +1556,7 @@ def _load_build_library():
     A user block whose id matches a bundled one takes its place, keeping the
     bundled ordering so an edited build does not jump to the end of the list.
     """
-    bundled = _read_build_blocks(resource_path("pokemon_builds.txt"))
+    bundled = _read_build_blocks(data_path("pokemon_builds.txt"))
     personal = _read_build_blocks(user_builds_path())
 
     texts, ids, sources = [], [], []

@@ -1132,7 +1132,7 @@ class BuildLibraryTests(unittest.TestCase):
     def _bundled_builds():
         # Only the shipped file: the user's own saved builds are their data, and
         # must not be able to fail the suite.
-        return save_editor._read_build_blocks(resource_path("pokemon_builds.txt"))
+        return save_editor._read_build_blocks(save_editor.data_path("pokemon_builds.txt"))
 
     def test_the_bundled_library_is_field_only_and_fully_resolvable(self):
         self.assertTrue(self._bundled_builds(), "bundled build library failed to load")
@@ -1163,7 +1163,7 @@ class UserBuildLibraryTests(unittest.TestCase):
     def test_saved_builds_land_outside_the_read_only_bundle(self):
         # The bundled file lives inside the PyInstaller archive at runtime, so
         # the user's own library must never resolve to the same path.
-        self.assertNotEqual(os.path.abspath(save_editor.resource_path("pokemon_builds.txt")),
+        self.assertNotEqual(os.path.abspath(save_editor.data_path("pokemon_builds.txt")),
                             os.path.abspath(save_editor.user_builds_path()))
 
     def test_appending_a_build_makes_it_visible_to_the_library(self):
