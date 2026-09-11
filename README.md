@@ -37,8 +37,9 @@ Grab the latest `.exe` from the [Releases](https://github.com/hebopaul/pok-insur
   marker is you - and each has its own button. When a marker sits *inside* somewhere, on the
   Pokemon Center you are standing in rather than the town around it, it becomes an arrow on
   the door that leads there, pointing the way you would walk through it; click the arrow to
-  follow it. Position can be changed anywhere on the map the save was made on, and any other
-  map can be set as a respawn or Teleport point.
+  follow it. **Move Player Here** works on any map, not just the one the save was made on;
+  the viewer will not silently drop you inside a wall, and the respawn and Teleport points
+  can be set anywhere too.
 - Manage the bag by pocket, with searchable item selection, visible game IDs, quantities,
   item icons, and item details.
 - View Pokemon sprite/type/ability details and move descriptions while editing.
@@ -138,9 +139,10 @@ Regenerate it only if the game updates:
 python tools/gen_map_index.py        # writes gen_resources/map_meta.txt
 ```
 
-It records each map's parent, every door and the direction you walk through it, and which maps
-are unused leftovers. Reading it back costs nothing at startup; deriving the same facts from the
-832 `Map###.rxdata` files takes the better part of a minute.
+It records each map's parent, every door and the direction you walk through it, which maps are
+unused leftovers, and one bit per tile saying whether the player could stand there. Reading it
+back costs nothing at startup; deriving the same facts from the 832 `Map###.rxdata` files takes
+the better part of a minute.
 
 The viewer also draws pre-rendered PNGs, so generate them once after extracting resources:
 
@@ -162,9 +164,17 @@ viewer still opens and says which command to run.
 - Save files are Ruby Marshal streams.
 - Nature, gender, ability, and shiny edits use Insurgence's native override fields, preserving the Pokemon's PID and its other PID-derived traits.
 - Level and stat fields are written directly; the game may recalculate some derived values after loading.
-- The player's map cannot be changed. The save stores the whole map - tiles, events and all -
-  and the game loads it verbatim rather than rebuilding it, so only the X/Y position within
-  that map is safe to edit. Use the respawn point to relocate across maps.
+- Moving the player to another map works by asking the game to rebuild it. The save stores the
+  whole map - tiles, events and all - and `PokemonLoad` normally uses it verbatim, so changing
+  the map id alone would load the new map's name over the old map's tiles. It also sets
+  `$PokemonGlobal.safesave`, which is the flag that makes the game re-run
+  `$MapFactory.setup($game_map.map_id)` on load and build the destination from
+  `Data/Map###.rxdata` instead. The same load then runs the handlers a Fly or a warp would,
+  so encounters, weather, music and any following Pokemon all catch up by themselves.
+- Because arriving inside a wall can leave you unable to walk out, the editor checks the
+  destination tile against the game's own passability rules and asks before allowing one that
+  nothing can stand on. It also clears the surf/dive state and any bridge you were standing on,
+  which is what the game does on an ordinary transfer.
 - The save keeps two separate destinations, and so does the editor. **Respawn at** is
   `@pokecenterMapId`, where `Kernel.pbStartOver` revives you after whiting out; **Teleport to**
   is `@healingSpot`, where the Teleport move sends you. They are usually different maps.

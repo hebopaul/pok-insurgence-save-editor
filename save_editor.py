@@ -4,7 +4,7 @@ Pokemon Insurgence Save Editor
 """
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-import os, shutil, re, sys, time, copy, tempfile, json, hashlib, uuid
+import os, shutil, re, sys, time, copy, tempfile, json, hashlib, uuid, zlib, base64
 from datetime import datetime
 
 from rubymarshal.reader import loads
@@ -635,12 +635,23 @@ TEACHABLE_DATA   = _load_teachable_data()
 SHADOW_MOVE_DATA = _load_shadow_move_data()
 
 # ── maps ──────────────────────────────────────────────────────────────────────
-# The player's position is editable, but only within the map the save was made
-# on.  PokemonLoad does "$game_map = $MapFactory.map" with no setup() call, so
-# the map that loads is the one serialised in stream 9 - tiles, events and all.
-# That stream cannot even be parsed (object cycles), so changing its @map_id
-# would leave the previous map's tiles under a new ID.  Cross-map relocation is
-# offered through the respawn point instead, which is plain parseable data.
+# PokemonLoad does "$game_map = $MapFactory.map" with no setup() call, so the
+# map a save loads into is the Game_Map frozen inside stream 9 - tiles, events
+# and all - and that stream cannot even be parsed (Ruby object cycles).  Which
+# is why relocating the player used to look impossible.
+#
+# It never needed parsing.  The same routine re-runs setup(), which rebuilds the
+# map, its tileset and every one of its events from Data/Map###.rxdata, whenever
+# the save was written as a "safe save":
+#
+#     if !magicNumberMatches || $PokemonGlobal.safesave
+#       $MapFactory.setup($game_map.map_id)   # calls setMapChanged
+#
+# So moving between maps needs exactly two edits: the Game_Map's own @map_id - a
+# single Fixnum that splices cleanly, because Marshal back-links are counted in
+# objects rather than bytes - and $PokemonGlobal.safesave, which sits in a stream
+# that parses normally.  The game rebuilds the rest itself, running the same
+# onMapChange handlers a Fly or a warp would.  See relocate_map_id().
 
 OLD_SEA_MAP_ITEM_ID = 1043      # its sprite is the map icon on the Show Map button
 MAP_IMAGE_DIR = "map_images"
@@ -708,6 +719,50 @@ def _load_town_map():
     return regions
 
 
+def _load_map_metadata():
+    """metadata.dat as the game reads it: one list of fields per map id.
+
+    Field numbers match the game's Metadata* constants, so entry[1] is Outdoor,
+    [3] Bicycle, [4] BicycleAlways, [5] HealingSpot and [7] MapPosition.
+    """
+    path = resource_path(os.path.join("game_resources", "Data", "metadata.dat"))
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "rb") as stream:
+            table = loads(stream.read())
+    except Exception:
+        return []
+    return table if isinstance(table, list) else []
+
+
+MAP_METADATA = _load_map_metadata()
+METADATA_OUTDOOR = 1
+METADATA_BICYCLE = 3
+METADATA_BICYCLE_ALWAYS = 4
+
+
+def map_metadata(map_id, field):
+    """One metadata field for a map, or None when it is not set."""
+    try:
+        entry = MAP_METADATA[int(map_id)]
+    except (TypeError, ValueError, IndexError):
+        return None
+    if not isinstance(entry, list) or field >= len(entry):
+        return None
+    return entry[field]
+
+
+def map_allows_bicycle(map_id):
+    """pbCanUseBike?: an explicit Bicycle flag, else whether the map is outdoors."""
+    if map_metadata(map_id, METADATA_BICYCLE_ALWAYS):
+        return True
+    value = map_metadata(map_id, METADATA_BICYCLE)
+    if value is None:
+        value = map_metadata(map_id, METADATA_OUTDOOR)
+    return bool(value)
+
+
 def _load_map_positions():
     """(region, cell_x, cell_y) -> [map_id, ...] from metadata.dat.
 
@@ -715,16 +770,8 @@ def _load_map_positions():
     town-map square in metadata entry 7 (MapPosition).  That is what makes the
     routes between towns clickable rather than dead space.
     """
-    path = resource_path(os.path.join("game_resources", "Data", "metadata.dat"))
-    if not os.path.exists(path):
-        return {}
-    try:
-        with open(path, "rb") as stream:
-            table = loads(stream.read())
-    except Exception:
-        return {}
     cells = {}
-    for map_id, entry in enumerate(table if isinstance(table, list) else []):
+    for map_id, entry in enumerate(MAP_METADATA):
         if map_id == 0 or not isinstance(entry, list) or len(entry) < 8:
             continue
         position = entry[7]
@@ -739,7 +786,7 @@ def _load_map_positions():
 
 
 def _load_map_meta():
-    """(parents, doors, unused) as precomputed by tools/gen_map_index.py.
+    """(parents, doors, unused, passable) as precomputed by tools/gen_map_index.py.
 
     All three come out of the 832 Map###.rxdata files, which take the better
     part of a minute to parse - far too long to do at startup - so they are
@@ -749,15 +796,18 @@ def _load_map_meta():
     doors    map_id -> {(x, y): (target_map_id, direction)}
     unused   maps the game cannot reach and cannot draw: Insurgence still
              carries the whole Pokemon Essentials sample project
+    passable map_id -> [width, height, packed bits], one bit per tile, set
+             where the player could stand.  Left compressed here and unpacked
+             per map on demand: all 832 at once is 3.2 million tiles.
     """
     path = data_path("map_meta.txt")
     if not os.path.exists(path):
-        return {}, {}, frozenset()
+        return {}, {}, frozenset(), {}
     try:
         with open(path, encoding="utf-8") as stream:
             data = json.load(stream)
     except (ValueError, OSError):
-        return {}, {}, frozenset()
+        return {}, {}, frozenset(), {}
 
     parents = {}
     for key, value in (data.get("parents") or {}).items():
@@ -788,13 +838,69 @@ def _load_map_meta():
             unused.add(int(value))
         except (TypeError, ValueError):
             continue
-    return parents, doors, frozenset(unused)
+    passable = {}
+    for key, entry in (data.get("passable") or {}).items():
+        try:
+            passable[int(key)] = (int(entry[0]), int(entry[1]), str(entry[2]))
+        except (TypeError, ValueError, IndexError):
+            continue
+    return parents, doors, frozenset(unused), passable
 
 
 MAP_NAMES = _load_map_names()
 TOWN_MAP_REGIONS = _load_town_map()
 MAP_POSITIONS = _load_map_positions()
-MAP_PARENTS, MAP_DOORS, UNUSED_MAPS = _load_map_meta()
+MAP_PARENTS, MAP_DOORS, UNUSED_MAPS, MAP_PASSABLE = _load_map_meta()
+_PASSABLE_CACHE = {}
+
+
+def map_size(map_id):
+    """(width, height) of a map in tiles, or None if it is not in the index."""
+    try:
+        entry = MAP_PASSABLE.get(int(map_id))
+    except (TypeError, ValueError):
+        return None
+    return (entry[0], entry[1]) if entry else None
+
+
+def _passable_bits(map_id):
+    """The unpacked passability bitmap for one map, cached after first use."""
+    if map_id in _PASSABLE_CACHE:
+        return _PASSABLE_CACHE[map_id]
+    entry = MAP_PASSABLE.get(map_id)
+    bits = None
+    if entry:
+        try:
+            bits = zlib.decompress(base64.b64decode(entry[2]))
+        except Exception:
+            bits = None
+    _PASSABLE_CACHE[map_id] = bits
+    return bits
+
+
+def map_tile_is_standable(map_id, x, y):
+    """Could the player stand on this tile?  True when we cannot tell.
+
+    This is what keeps a relocation from dropping the player inside a wall,
+    where they would be stuck with no way out but another edit.  A map that is
+    not in the index is allowed through: being unable to answer is not the same
+    as knowing the answer is no.
+    """
+    try:
+        map_id, x, y = int(map_id), int(x), int(y)
+    except (TypeError, ValueError):
+        return True
+    size = map_size(map_id)
+    if size is None:
+        return True
+    width, height = size
+    if not (0 <= x < width and 0 <= y < height):
+        return False
+    bits = _passable_bits(map_id)
+    if bits is None:
+        return True
+    index = y * width + x
+    return bool(bits[index >> 3] & (1 << (index & 7)))
 
 # Reverse of MAP_POSITIONS, so placing a map on the town map is a lookup.
 MAP_CELL = {map_id: cell for cell, ids in MAP_POSITIONS.items() for map_id in ids}
@@ -1778,6 +1884,10 @@ class _MarshalScanner:
     def __init__(self, raw: bytes, offset: int):
         self.raw = raw
         self.pos = offset
+        # Symbols are interned per stream and referred to afterwards by index,
+        # so every literal has to be recorded even though its bytes are only
+        # skipped - otherwise a ";n" back-link names the wrong ivar.
+        self.symbols = []
 
     def _byte(self) -> int:
         if self.pos >= len(self.raw):
@@ -1816,8 +1926,32 @@ class _MarshalScanner:
             self._value()
             self._value()
 
-    def _attributes(self):
-        self._pairs(self._long())
+    def _symbol(self):
+        """Read one value that has to be a symbol; return its text, or None."""
+        token = self._byte()
+        if token == 0x3A:                          # ':' - a symbol spelled out
+            length = self._long()
+            text = self.raw[self.pos:self.pos + length].decode("utf-8", "replace")
+            self._skip(length)
+            self.symbols.append(text)
+            return text
+        if token == 0x3B:                          # ';' - one already seen
+            index = self._long()
+            return self.symbols[index] if 0 <= index < len(self.symbols) else None
+        self.pos -= 1                              # not a symbol; walk it anyway
+        self._value()
+        return None
+
+    def _attributes(self, owner=None):
+        for _ in range(self._long()):
+            name = self._symbol()
+            start = self.pos
+            self._value()
+            if name is not None:
+                self._ivar(owner, name, start, self.pos)
+
+    def _ivar(self, owner, name, start, end):
+        """Hook: ``owner``'s instance variable ``name`` occupies [start, end)."""
 
     def _value(self):
         token = bytes([self._byte()])
@@ -1825,7 +1959,12 @@ class _MarshalScanner:
             return
         if token == b"i":
             self._long()
-        elif token in (b":", b'"', b"f", b"c", b"m", b"M"):
+        elif token == b":":
+            length = self._long()
+            self.symbols.append(
+                self.raw[self.pos:self.pos + length].decode("utf-8", "replace"))
+            self._skip(length)
+        elif token in (b'"', b"f", b"c", b"m", b"M"):
             self._blob()
         elif token in (b";", b"@"):
             self._long()
@@ -1847,16 +1986,14 @@ class _MarshalScanner:
             self._value()
             self._attributes()
         elif token == b"o":
-            self._value()                 # class symbol
-            self._attributes()
+            self._attributes(self._symbol())     # class symbol, then ivars
         elif token == b"S":
-            self._value()                 # class symbol
-            self._pairs(self._long())
+            self._attributes(self._symbol())     # struct: same shape
         elif token == b"u":
-            self._value()                 # class symbol
+            self._symbol()                # class symbol
             self._blob()
         elif token in (b"U", b"e", b"C", b"d"):
-            self._value()                 # class symbol
+            self._symbol()                # class symbol
             self._value()
         else:
             raise ValueError("unknown Marshal token %r" % token)
@@ -1896,6 +2033,90 @@ def split_streams(raw: bytes):
         return positions
     # Unrecognised layout: fall back to the header scan rather than dropping data.
     return [i for i in range(len(raw) - 1) if raw[i] == 0x04 and raw[i + 1] == 0x08]
+
+
+class _MapIdFinder(_MarshalScanner):
+    """Find the live Game_Map's @map_id inside a PokemonMapFactory stream.
+
+    Every Game_Event carries an @map_id too, and each one holds a reference back
+    to its Game_Map - that cycle is what stops the stream parsing - so the ivars
+    are filtered by the class that owns them.  The Game_Map itself is only
+    written once; the events' copies are object back-links.
+    """
+
+    def __init__(self, raw: bytes, offset: int):
+        super().__init__(raw, offset)
+        self.top_class = None
+        self.map_index = None
+        self.spans = []              # every Game_Map @map_id, in @maps order
+
+    def _ivar(self, owner, name, start, end):
+        if owner == "PokemonMapFactory":
+            self.top_class = owner
+            if name == "@mapIndex":
+                self.map_index = _marshal_fixnum_at(self.raw, start, end)
+        elif owner == "Game_Map" and name == "@map_id":
+            self.spans.append((start, end))
+
+
+def _marshal_fixnum_at(raw: bytes, start: int, end: int):
+    """The value of the Fixnum occupying raw[start:end], or None."""
+    if raw[start:start + 1] != b"i":
+        return None
+    try:
+        scanner = _MarshalScanner(raw, start + 1)
+        value = scanner._long()
+    except (ValueError, IndexError):
+        return None
+    return value if scanner.pos == end else None
+
+
+def marshal_fixnum(value: int) -> bytes:
+    """One Fixnum in Marshal 4.8 form, without the two-byte stream header."""
+    return writes(int(value), cls=Ruby18Writer)[2:]
+
+
+def find_map_id_span(raw: bytes, start: int, end: int):
+    """(map_id, value_start, value_end) for the map a save loads into.
+
+    ``start``/``end`` bound the PokemonMapFactory stream.  Returns None when the
+    stream is not shaped the way the game writes it, so an unfamiliar save
+    disables relocation instead of being corrupted by a guess.
+    """
+    if raw[start:start + 2] != MARSHAL_HEADER:
+        return None
+    finder = _MapIdFinder(raw, start + 2)
+    try:
+        finder._value()
+    except (ValueError, IndexError):
+        return None
+    if finder.pos != end or finder.top_class != "PokemonMapFactory" or not finder.spans:
+        return None
+    # PokemonMapFactory#map falls back to 0 for a missing or negative index.
+    index = finder.map_index if isinstance(finder.map_index, int) else 0
+    if not 0 <= index < len(finder.spans):
+        index = 0
+    span_start, span_end = finder.spans[index]
+    map_id = _marshal_fixnum_at(raw, span_start, span_end)
+    if map_id is None:
+        return None
+    return map_id, span_start, span_end
+
+
+def relocate_map_id(raw: bytes, start: int, end: int, map_id: int):
+    """The PokemonMapFactory stream rewritten to load ``map_id`` instead.
+
+    Only the one Fixnum changes.  Its encoded length may change with it, which
+    is harmless: Marshal's symbol and object back-links are counted in objects,
+    not bytes, so everything around it still resolves.  The caller must also set
+    $PokemonGlobal.safesave, or the game will load this map id with the previous
+    map's tiles still attached to it.
+    """
+    found = find_map_id_span(raw, start, end)
+    if found is None:
+        raise ValueError("this save's map stream is not in the expected format")
+    _current, span_start, span_end = found
+    return raw[start:span_start] + marshal_fixnum(map_id) + raw[span_end:end]
 
 def find_pid(nature_i, shiny, trainer_id, secret_id):
     if shiny:
@@ -2562,6 +2783,15 @@ class Editor(tk.Tk):
         self.bag_idx      = None
         self.player_idx   = None
         self.meta_idx     = None
+        # Stream 9: the PokemonMapFactory, which holds the map a save loads into.
+        self.factory_idx  = None
+        self.mapid_int_idx = None
+        self.map_meta     = None      # PokemonMapMetadata: bridges, erased events
+        self.map_meta_idx = None
+        self._map_span    = None      # byte range of the Game_Map's @map_id
+        self._loaded_map_id = None
+        self._target_map_id = None    # set only when the user moves maps
+        self._map_dirty   = False
         self.storage      = None
         self.storage_idx  = None
         self.storage_error = ""
@@ -3794,8 +4024,8 @@ class Editor(tk.Tk):
             ttk.Label(world, text=label + ":", width=17, anchor="e").grid(row=r, column=col, sticky="e", pady=3, padx=4)
             ttk.Label(world, textvariable=var, width=26, anchor="w").grid(row=r, column=col + 1, sticky="w", pady=3, padx=4)
 
-        # Player position: editable X/Y on the map the save was made on, plus the
-        # respawn point, which is the only cross-map relocation that is safe.
+        # Player position: which map, where on it, and the two places the game
+        # sends you back to.  All four are editable through the map viewer.
         location = ttk.LabelFrame(world, text="Player Position", padding=6)
         location.grid(row=4, column=0, columnspan=4, sticky="ew", padx=4, pady=(8, 2))
         ttk.Label(location, text="Current map:", width=13, anchor="e").grid(row=0, column=0, sticky="e", pady=2)
@@ -3827,9 +4057,97 @@ class Editor(tk.Tk):
                   foreground="gray").grid(row=2, column=2, columnspan=5, sticky="w")
 
     def _current_map_id(self):
+        """The map this save loads into, counting an unsaved relocation.
+
+        The authority is the Game_Map inside the PokemonMapFactory stream, which
+        is what PokemonLoad hands to $game_map.  Game_Player's @oldMap only
+        tracks it for the onLeaveTile event and is the fallback for a save whose
+        factory stream we could not read.
+        """
+        if self._target_map_id is not None:
+            return int(self._target_map_id)
+        if self._loaded_map_id is not None:
+            return int(self._loaded_map_id)
         gp = self.game_player.attributes if isinstance(self.game_player, RubyObject) else {}
         value = gp.get("@oldMap")
         return int(value) if isinstance(value, int) else None
+
+    def _can_relocate(self):
+        """Whether this save has everything a map change needs to be written.
+
+        The map stream has to be one we can find the id in, and the two streams
+        that make the game act on it - Game_Player and PokemonGlobalMetadata -
+        have to be rewritable, or the new id would load the old map's tiles.
+        """
+        return (self._map_span is not None and self.factory_idx is not None
+                and self.player_idx is not None and self.meta_idx is not None
+                and isinstance(self.global_meta, RubyObject))
+
+    def _refresh_player_location(self):
+        """Redraw the Current map caption, flagging an unwritten relocation."""
+        map_id = self._current_map_id()
+        if map_id is None:
+            self.var_player_location.set("-")
+            return
+        pending = "  (pending)" if self._target_map_id is not None else ""
+        self.var_player_location.set(map_display_name(map_id) + pending)
+
+    def _move_player_to(self, map_id, x, y, parent=None):
+        """Point the save at one tile, on any map.  True if it was accepted.
+
+        Within the current map this is still just X and Y.  Across maps it also
+        rewrites the Game_Map's @map_id and has the game rebuild that map on
+        load - see relocate_map_id - so the checks here are the ones that keep
+        somebody out of a map the game cannot open or a tile they cannot leave.
+        """
+        parent = parent or self
+        try:
+            map_id, x, y = int(map_id), int(x), int(y)
+        except (TypeError, ValueError):
+            return False
+        changing = map_id != self._current_map_id()
+
+        if changing and not self._can_relocate():
+            messagebox.showerror(
+                "Cannot change maps",
+                "The map data in this save is not laid out the way the editor "
+                "knows how to rewrite, so the player can only be moved within "
+                "the map they are already on.", parent=parent)
+            return False
+        if changing and map_size(map_id) is None:
+            messagebox.showerror(
+                "Cannot go there",
+                f"{map_display_name(map_id)} has no map file of its own, so the "
+                "game would refuse to load the save.", parent=parent)
+            return False
+        if changing and map_id in UNUSED_MAPS and not messagebox.askyesno(
+                "Unused map",
+                f"{map_display_name(map_id)} is left-over Pokemon Essentials "
+                "sample content. The game cannot reach it and draws it against "
+                "a tileset that no longer matches.\n\nGo there anyway?",
+                parent=parent, default="no"):
+            return False
+        if not map_tile_is_standable(map_id, x, y) and not messagebox.askyesno(
+                "Nothing can stand there",
+                f"X {x} Y {y} on {map_display_name(map_id)} is solid, or past "
+                "the edge of the map.\n\nThe player would arrive stuck inside "
+                "it, possibly with no way to walk out.\n\nUse it anyway?",
+                parent=parent, default="no"):
+            return False
+
+        self.var_player_x.set(str(x))
+        self.var_player_y.set(str(y))
+        if changing:
+            # Back to None rather than to the id when the user picks their own
+            # map again, so an undone move writes nothing.
+            self._target_map_id = None if map_id == self._loaded_map_id else map_id
+        self._refresh_player_location()
+        where = f"X {x} Y {y}"
+        if changing:
+            where += f" on {map_display_name(map_id)}"
+        self.status.config(text=f"Player moved to {where}. Click Save to write.",
+                           foreground="blue")
+        return True
 
     # Marker colours.  Four different things used to share one red box, which is
     # why every town you clicked looked like it was where you were standing.
@@ -3918,11 +4236,16 @@ class Editor(tk.Tk):
                 return None
 
         def marks():
-            """The three save-backed points, in draw order."""
+            """The three save-backed points, in draw order.
+
+            The player's map is read fresh every time: relocating them is one of
+            the things this window does, so it is not a constant.
+            """
             found = []
-            if current_map is not None and player_tile() is not None:
+            here = self._current_map_id()
+            if here is not None and player_tile() is not None:
                 found.append(("player", self.MARK_PLAYER, player_name,
-                              current_map, player_tile()))
+                              here, player_tile()))
             if self._respawn_spot:
                 found.append(("respawn", self.MARK_RESPAWN, "Respawn",
                               int(self._respawn_spot[0]),
@@ -4228,7 +4551,8 @@ class Editor(tk.Tk):
             state["tile"] = None
             state["offset"] = map_image_offset(map_id)
             title_var.set(map_display_name(map_id)
-                          + ("   (current map)" if map_id == current_map else ""))
+                          + ("   (current map)"
+                             if map_id == self._current_map_id() else ""))
             for button in (move_button, respawn_button, teleport_button):
                 set_action(button, False)
             draw_map()
@@ -4352,13 +4676,21 @@ class Editor(tk.Tk):
             canvas.create_line(x0, y0 + size, x0 + size, y0, fill=colour, tags="marker")
 
         def select_tile(tx, ty):
-            state["tile"] = (int(tx), int(ty))
+            tx, ty = int(tx), int(ty)
+            state["tile"] = (tx, ty)
             canvas.delete("marker")
-            mark_tile(int(tx), int(ty))
-            set_action(move_button, state["map_id"] == current_map)
+            mark_tile(tx, ty)
+            map_id = state["map_id"]
+            set_action(move_button, self._can_relocate())
             set_action(respawn_button, True)
             set_action(teleport_button, True)
-            status_var.set(f"Selected tile  X {int(tx)}  Y {int(ty)}")
+            note = ""
+            if not map_tile_is_standable(map_id, tx, ty):
+                # Better to say so now than to strand the player in a wall.
+                note = "  -  nothing can stand here"
+            elif not self._can_relocate():
+                note = "  -  this save's map data is not in a format we can rewrite"
+            status_var.set(f"Selected tile  X {tx}  Y {ty}{note}")
 
         def on_map_motion(event):
             if state["image"] is None:
@@ -4393,12 +4725,8 @@ class Editor(tk.Tk):
             tx, ty = state["tile"]
             map_id = int(state["map_id"])
             if kind == "player":
-                if map_id != current_map:
+                if not self._move_player_to(map_id, tx, ty, parent=win):
                     return
-                self.var_player_x.set(str(tx)); self.var_player_y.set(str(ty))
-                self.status.config(
-                    text=f"Player position set to X {tx} Y {ty}. Click Save to write.",
-                    foreground="blue")
             elif kind == "respawn":
                 self._respawn_spot = [map_id, tx, ty]
                 self.var_respawn.set(self._spot_text(self._respawn_spot))
@@ -7803,8 +8131,10 @@ class Editor(tk.Tk):
             messagebox.showerror("Error", "No Marshal streams found."); return
 
         trainer = bag = storage = game_system = game_player = global_meta = None
-        bag_idx = storage_idx = player_idx = meta_idx = None
+        map_meta = None
+        bag_idx = storage_idx = player_idx = meta_idx = map_meta_idx = None
         play_time_frames = None
+        int_streams = []
         stream_errors = []
         for idx, start in enumerate(positions):
             end = positions[idx+1] if idx+1 < len(positions) else len(raw)
@@ -7816,8 +8146,10 @@ class Editor(tk.Tk):
                 # explained instead of showing an empty PC Boxes tab.
                 stream_errors.append(f"stream {idx} @ {start}: {type(e).__name__}: {e}")
                 continue
-            if isinstance(obj, int) and play_time_frames is None:
-                play_time_frames = obj
+            if isinstance(obj, int):
+                int_streams.append(idx)
+                if play_time_frames is None:
+                    play_time_frames = obj
                 continue
             if not isinstance(obj, RubyObject): continue
             cn = obj.ruby_class_name
@@ -7833,9 +8165,23 @@ class Editor(tk.Tk):
                 game_player = obj; player_idx = idx
             elif cn == "PokemonGlobalMetadata":
                 global_meta = obj; meta_idx = idx
+            elif cn == "PokemonMapMetadata":
+                map_meta = obj; map_meta_idx = idx
 
         if trainer is None:
             messagebox.showerror("Error", "PokeBattle_Trainer not found."); return
+
+        # The PokemonMapFactory stream is found by shape rather than by index:
+        # it is the one stream that never parses, so there is no object to match
+        # a class name against.  Failing to find it disables relocation and
+        # nothing else.
+        factory_idx = map_span = None
+        for idx, start in enumerate(positions):
+            end = positions[idx+1] if idx+1 < len(positions) else len(raw)
+            found = find_map_id_span(raw, start, end)
+            if found is not None:
+                factory_idx, map_span = idx, found
+                break
 
         self.raw         = raw
         self.positions   = positions
@@ -7844,6 +8190,17 @@ class Editor(tk.Tk):
         self.storage     = storage; self.storage_idx = storage_idx
         self.player_idx  = player_idx
         self.meta_idx    = meta_idx
+        self.map_meta    = map_meta
+        self.map_meta_idx = map_meta_idx
+        self.factory_idx = factory_idx
+        self._map_span   = map_span[1:] if map_span else None
+        self._loaded_map_id = map_span[0] if map_span else None
+        self._target_map_id = None
+        self._map_dirty  = False
+        # pbSave dumps $game_map.map_id on its own as well.  The game ignores it
+        # on load, but its load screen shows that map's name beside "Continue",
+        # so a relocation that skipped it would advertise the wrong place.
+        self.mapid_int_idx = int_streams[1] if len(int_streams) > 1 else None
         self.storage_error = "" if storage is not None else (
             "; ".join(stream_errors) if stream_errors else "no PokemonStorage stream in this file")
         self.game_system = game_system
@@ -7908,7 +8265,7 @@ class Editor(tk.Tk):
         current_box = self.storage.attributes.get("@currentBox", None) if isinstance(self.storage, RubyObject) else None
         self.var_current_box.set(f"Box {current_box + 1}" if isinstance(current_box, int) else "-")
         if gp:
-            self.var_player_location.set(map_display_name(gp.get("@oldMap", "?")))
+            self._refresh_player_location()
             x, y = gp.get("@x", 0), gp.get("@y", 0)
             self.var_player_x.set(str(x))
             self.var_player_y.set(str(y))
@@ -8142,6 +8499,9 @@ class Editor(tk.Tk):
                 self._loaded_location = (str(x), str(y))
                 self._location_dirty = True
 
+        if gp is not None and self._target_map_id is not None:
+            self._apply_map_change(gp, int(self._target_map_id))
+
         meta = self.global_meta.attributes if isinstance(self.global_meta, RubyObject) else None
         if meta is None:
             return
@@ -8164,6 +8524,54 @@ class Editor(tk.Tk):
                 meta["@healingSpot"] = [int(value) for value in self._teleport_spot]
             self._loaded_teleport = list(self._teleport_spot)
             self._location_dirty = True
+
+    def _apply_map_change(self, gp, map_id):
+        """Stage everything a relocation needs outside the map stream itself.
+
+        The map stream carries only the id; the game rebuilds the map from it,
+        but only because of the safesave flag written here.  The rest mirrors
+        what Kernel.pbCancelVehicles does on an ordinary warp, because arriving
+        on dry land still surfing leaves the player in the water sprite with no
+        water under them.
+        """
+        gp["@oldMap"] = map_id                     # keeps onLeaveTile in step
+        meta = self.global_meta.attributes if isinstance(self.global_meta, RubyObject) else None
+        if meta is None:
+            raise ValueError("this save has no PokemonGlobalMetadata stream, so "
+                             "the map change cannot be flagged for the game")
+        # PokemonLoad only re-runs $MapFactory.setup when this is set.  Without
+        # it the new id loads with the old map's tiles and events attached.
+        meta["@safesave"] = True
+        for flag in ("@surfing", "@diving"):
+            if flag in meta:
+                meta[flag] = False
+        if meta.get("@bicycle") and not map_allows_bicycle(map_id):
+            meta["@bicycle"] = False
+        # A follower is stored with the map it is standing on; the game would
+        # drag it across on the first scene change, but leaving it on the old
+        # map until then makes it flicker in somewhere it no longer is.
+        followers = meta.get("@dependentEvents")
+        if isinstance(followers, list):
+            for entry in followers:
+                if isinstance(entry, list) and len(entry) >= 5:
+                    entry[2] = map_id
+                    entry[3] = int(gp.get("@x", 0) or 0)
+                    entry[4] = int(gp.get("@y", 0) or 0)
+
+        # PokemonMapMetadata is the state of the map you were standing on.  The
+        # game clears it on a transfer (pbBridgeOff, and $PokemonMap.clear in the
+        # onMapChange handler), but on load that handler runs before $PokemonMap
+        # has been assigned, so nothing would clear it for us.  A leftover bridge
+        # in particular changes which tiles are walkable.
+        if isinstance(self.map_meta, RubyObject):
+            local = self.map_meta.attributes
+            if local.get("@bridge"):
+                local["@bridge"] = 0
+            for flag in ("@strengthUsed", "@blackFluteUsed", "@whiteFluteUsed"):
+                if local.get(flag):
+                    local[flag] = False
+        self._location_dirty = True
+        self._map_dirty = True
 
     def _apply_party(self):
         party = self.trainer.attributes.get("@party", [])
@@ -8349,6 +8757,11 @@ class Editor(tk.Tk):
             try:    meta_bytes = writes(self.global_meta, cls=Ruby18Writer)
             except Exception as e:
                 messagebox.showerror("Serialization error", f"Global metadata: {e}"); return
+        map_meta_bytes = None
+        if self._map_dirty and self.map_meta is not None and self.map_meta_idx is not None:
+            try:    map_meta_bytes = writes(self.map_meta, cls=Ruby18Writer)
+            except Exception as e:
+                messagebox.showerror("Serialization error", f"Map metadata: {e}"); return
 
         trainer_end = positions[1] if len(positions) > 1 else len(raw)
         replacements = [(positions[0], trainer_end, trainer_bytes)]
@@ -8360,11 +8773,28 @@ class Editor(tk.Tk):
             ss = positions[self.storage_idx]
             se = positions[self.storage_idx+1] if self.storage_idx+1 < len(positions) else len(raw)
             replacements.append((ss, se, storage_bytes))
-        for index, payload in ((self.player_idx, player_bytes), (self.meta_idx, meta_bytes)):
+        for index, payload in ((self.player_idx, player_bytes), (self.meta_idx, meta_bytes),
+                               (self.map_meta_idx, map_meta_bytes)):
             if index is not None and payload:
                 start = positions[index]
                 end = positions[index+1] if index+1 < len(positions) else len(raw)
                 replacements.append((start, end, payload))
+
+        # The map itself: one Fixnum inside a stream nothing can parse, plus the
+        # loose copy pbSave writes for its own load screen.
+        if self._map_dirty and self._target_map_id is not None and self.factory_idx is not None:
+            target = int(self._target_map_id)
+            fs = positions[self.factory_idx]
+            fe = positions[self.factory_idx+1] if self.factory_idx+1 < len(positions) else len(raw)
+            try:
+                replacements.append((fs, fe, relocate_map_id(raw, fs, fe, target)))
+            except ValueError as e:
+                messagebox.showerror("Map error", f"The map was not changed:\n{e}"); return
+            if self.mapid_int_idx is not None:
+                ms = positions[self.mapid_int_idx]
+                me = (positions[self.mapid_int_idx+1]
+                      if self.mapid_int_idx+1 < len(positions) else len(raw))
+                replacements.append((ms, me, writes(target, cls=Ruby18Writer)))
 
         replacements.sort(key=lambda x: x[0])
         result = b""; cursor = 0
@@ -8380,9 +8810,22 @@ class Editor(tk.Tk):
             if storage_bytes is not None: loads(storage_bytes)
             if player_bytes is not None: loads(player_bytes)
             if meta_bytes is not None: loads(meta_bytes)
+            if map_meta_bytes is not None: loads(map_meta_bytes)
             verified_positions = split_streams(result)
             if not verified_positions or verified_positions[0] != 0:
                 raise ValueError("result is not a valid concatenated Ruby Marshal save")
+            if len(verified_positions) != len(positions):
+                raise ValueError("the rewritten save has %d streams, not %d"
+                                 % (len(verified_positions), len(positions)))
+            # A spliced map id changes that stream's length, so read it back out
+            # of the finished bytes rather than trusting the splice.
+            if self._map_dirty and self.factory_idx is not None:
+                fs = verified_positions[self.factory_idx]
+                fe = (verified_positions[self.factory_idx+1]
+                      if self.factory_idx+1 < len(verified_positions) else len(result))
+                check = find_map_id_span(result, fs, fe)
+                if not check or check[0] != int(self._target_map_id):
+                    raise ValueError("the new map id did not read back correctly")
         except Exception as e:
             messagebox.showerror("Validation error", f"The proposed save was not written:\n{e}")
             return
@@ -8423,6 +8866,17 @@ class Editor(tk.Tk):
         self.raw = result
         self.positions = split_streams(result)
         self._location_dirty = False
+        if self._map_dirty and self.factory_idx is not None:
+            # The span moved with the splice, so re-find it before the next save.
+            fs = self.positions[self.factory_idx]
+            fe = (self.positions[self.factory_idx+1]
+                  if self.factory_idx+1 < len(self.positions) else len(result))
+            found = find_map_id_span(result, fs, fe)
+            self._loaded_map_id = found[0] if found else self._target_map_id
+            self._map_span = found[1:] if found else None
+        self._target_map_id = None
+        self._map_dirty = False
+        self._refresh_player_location()
         for v in self.pkmn_vars:
             if isinstance(v.get("_pkmn_obj"), RubyObject):
                 self._remember_identity_values(v)

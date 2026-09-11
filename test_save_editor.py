@@ -2307,5 +2307,461 @@ class ShowMapIconTests(unittest.TestCase):
         self.assertEqual("left", str(buttons[0].cget("compound")))
 
 
+
+class MarshalSymbolTableTests(unittest.TestCase):
+    """The stream walker has to name ivars, not just count their bytes.
+
+    Symbols are interned per stream and referred to by index afterwards, so a
+    walker that skips the literals silently attributes every later ivar to the
+    wrong name - which is how @map_id first came back as "no such field".
+    """
+
+    def _walk(self, obj):
+        raw = writes(obj, cls=save_editor.Ruby18Writer)
+        scanner = save_editor._MarshalScanner(raw, 2)
+        scanner._value()
+        return scanner
+
+    def test_every_symbol_literal_is_recorded_in_order(self):
+        obj = RubyObject("Thing")
+        obj.attributes = {"@alpha": 1, "@beta": 2, "@gamma": 3}
+        scanner = self._walk(obj)
+        for name in ("Thing", "@alpha", "@beta", "@gamma"):
+            self.assertIn(name, scanner.symbols)
+
+    def test_a_back_linked_symbol_resolves_to_the_same_name(self):
+        # Two objects of one class: the second class name is a ";" back-link.
+        inner = RubyObject("Leaf"); inner.attributes = {"@value": 1}
+        other = RubyObject("Leaf"); other.attributes = {"@value": 2}
+        outer = RubyObject("Branch"); outer.attributes = {"@kids": [inner, other]}
+        seen = []
+
+        class Recorder(save_editor._MarshalScanner):
+            def _ivar(self, owner, name, start, end):
+                seen.append((owner, name))
+
+        raw = writes(outer, cls=save_editor.Ruby18Writer)
+        recorder = Recorder(raw, 2)
+        recorder._value()
+        # Reported innermost first: an ivar's byte range is only known once its
+        # value has been walked.  Both Leaves must still be named "Leaf", which
+        # is the point - the second one's class symbol is a ";" back-link.
+        self.assertEqual([("Leaf", "@value"), ("Leaf", "@value"), ("Branch", "@kids")],
+                         seen)
+
+    def test_walking_still_measures_the_stream_exactly(self):
+        obj = RubyObject("Thing")
+        obj.attributes = {"@a": [1, 2, 3], "@b": {"k": "v"}, "@c": None}
+        raw = writes(obj, cls=save_editor.Ruby18Writer)
+        self.assertEqual(len(raw), save_editor.marshal_stream_end(raw, 0))
+
+
+class MapIdSpanTests(unittest.TestCase):
+    """Finding - and replacing - the map id inside the unparseable stream."""
+
+    @staticmethod
+    def _factory(map_id, map_index=0, maps=None):
+        """A PokemonMapFactory shaped like the game's, small enough to read."""
+        maps = maps if maps is not None else [map_id]
+        built = []
+        for index, mid in enumerate(maps):
+            game_map = RubyObject("Game_Map")
+            event = RubyObject("Game_Event")
+            # Game_Event carries an @map_id too; it must not be mistaken for
+            # the Game_Map's own.
+            event.attributes = {"@map_id": mid, "@id": index}
+            game_map.attributes = {"@events": {1: event}, "@map_id": mid,
+                                   "@tileset_name": "whatever"}
+            built.append(game_map)
+        factory = RubyObject("PokemonMapFactory")
+        factory.attributes = {"@fixup": False, "@maps": built, "@mapIndex": map_index}
+        return writes(factory, cls=save_editor.Ruby18Writer)
+
+    def test_it_finds_the_game_maps_own_id_not_an_events(self):
+        raw = self._factory(812)
+        found = save_editor.find_map_id_span(raw, 0, len(raw))
+        self.assertIsNotNone(found)
+        self.assertEqual(812, found[0])
+
+    def test_it_follows_map_index_into_the_maps_array(self):
+        raw = self._factory(0, map_index=1, maps=[400, 401, 402])
+        self.assertEqual(401, save_editor.find_map_id_span(raw, 0, len(raw))[0])
+
+    def test_a_stream_of_another_shape_is_refused(self):
+        other = RubyObject("Game_Player")
+        other.attributes = {"@x": 1, "@y": 2}
+        raw = writes(other, cls=save_editor.Ruby18Writer)
+        self.assertIsNone(save_editor.find_map_id_span(raw, 0, len(raw)))
+        with self.assertRaises(ValueError):
+            save_editor.relocate_map_id(raw, 0, len(raw), 5)
+
+    def test_rewriting_to_the_same_id_changes_nothing(self):
+        raw = self._factory(812)
+        self.assertEqual(raw, save_editor.relocate_map_id(raw, 0, len(raw), 812))
+
+    def test_the_rewrite_survives_the_fixnum_changing_length(self):
+        # 122 is a one-byte Fixnum, 123 takes two and 812 takes three, so these
+        # cover shrinking and growing the stream around the back-links.
+        raw = self._factory(812)
+        for target in (1, 122, 123, 812, 5000):
+            with self.subTest(target=target):
+                new = save_editor.relocate_map_id(raw, 0, len(raw), target)
+                self.assertEqual(len(new), save_editor.marshal_stream_end(new, 0))
+                self.assertEqual(target, save_editor.find_map_id_span(new, 0, len(new))[0])
+
+    def test_only_the_map_id_bytes_move(self):
+        raw = self._factory(812)
+        _value, start, end = save_editor.find_map_id_span(raw, 0, len(raw))
+        new = save_editor.relocate_map_id(raw, 0, len(raw), 7)
+        self.assertEqual(raw[:start], new[:start])
+        self.assertEqual(raw[end:], new[len(new) - (len(raw) - end):])
+
+
+class RealSaveMapStreamTests(unittest.TestCase):
+    """The same thing against the files the game actually wrote."""
+
+    @staticmethod
+    def _save_files():
+        base = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
+        if not os.path.isdir(base):
+            return []
+        return [os.path.join(base, f) for f in sorted(os.listdir(base))
+                if f.lower().endswith(".rxdata")]
+
+    def test_every_local_save_yields_a_map_the_game_knows(self):
+        files = self._save_files()
+        if not files:
+            self.skipTest("no local .rxdata save files")
+        for path in files:
+            with self.subTest(save=os.path.basename(path)):
+                with open(path, "rb") as fd:
+                    raw = fd.read()
+                positions = save_editor.split_streams(raw)
+                found = None
+                for idx, start in enumerate(positions):
+                    end = positions[idx+1] if idx+1 < len(positions) else len(raw)
+                    found = save_editor.find_map_id_span(raw, start, end)
+                    if found:
+                        break
+                self.assertIsNotNone(found, "no PokemonMapFactory stream")
+                self.assertIn(found[0], MAP_NAMES)
+
+    def test_relocating_a_real_save_leaves_every_other_stream_alone(self):
+        files = self._save_files()
+        if not files:
+            self.skipTest("no local .rxdata save files")
+        with open(files[0], "rb") as fd:
+            raw = fd.read()
+        positions = save_editor.split_streams(raw)
+        factory = next(i for i, s in enumerate(positions)
+                       if save_editor.find_map_id_span(
+                           raw, s, positions[i+1] if i+1 < len(positions) else len(raw)))
+        start = positions[factory]
+        end = positions[factory+1] if factory+1 < len(positions) else len(raw)
+        spliced = raw[:start] + save_editor.relocate_map_id(raw, start, end, 109) + raw[end:]
+        after = save_editor.split_streams(spliced)
+        self.assertEqual(len(positions), len(after))
+        for idx in range(len(positions)):
+            if idx == factory:
+                continue
+            with self.subTest(stream=idx):
+                a = positions[idx], positions[idx+1] if idx+1 < len(positions) else len(raw)
+                b = after[idx], after[idx+1] if idx+1 < len(after) else len(spliced)
+                self.assertEqual(raw[a[0]:a[1]], spliced[b[0]:b[1]])
+        self.assertEqual(109, save_editor.find_map_id_span(
+            spliced, after[factory],
+            after[factory+1] if factory+1 < len(after) else len(spliced))[0])
+
+
+class MapPassabilityTests(unittest.TestCase):
+    """The data that stops a relocation stranding the player inside a wall."""
+
+    def test_maps_carry_a_size_and_a_bitmap(self):
+        if not save_editor.MAP_PASSABLE:
+            self.skipTest("map_meta.txt has no passability section")
+        self.assertGreater(len(save_editor.MAP_PASSABLE), 700)
+        for map_id, (width, height, bits) in list(save_editor.MAP_PASSABLE.items())[:20]:
+            with self.subTest(map=map_id):
+                self.assertGreater(width, 0)
+                self.assertGreater(height, 0)
+                self.assertTrue(bits)
+
+    def test_a_tile_outside_the_map_is_never_standable(self):
+        if not save_editor.MAP_PASSABLE:
+            self.skipTest("map_meta.txt has no passability section")
+        map_id = next(iter(sorted(save_editor.MAP_PASSABLE)))
+        width, height = save_editor.map_size(map_id)
+        self.assertFalse(save_editor.map_tile_is_standable(map_id, width, 0))
+        self.assertFalse(save_editor.map_tile_is_standable(map_id, 0, height))
+        self.assertFalse(save_editor.map_tile_is_standable(map_id, -1, 0))
+
+    def test_an_unknown_map_is_allowed_rather_than_blocked(self):
+        # Not being able to answer is not the same as answering no.
+        self.assertIsNone(save_editor.map_size(999999))
+        self.assertTrue(save_editor.map_tile_is_standable(999999, 5, 5))
+
+    def test_every_place_on_the_town_map_has_somewhere_to_stand(self):
+        """A handful of maps really are solid, so check the ones that count.
+
+        Telnor Town Forest, Blacmap, Oscar Top, FLASH_ARCEUS and Space are
+        cutscene backdrops, and map 51 "Dungeon" ships empty because the game
+        generates its tiles at runtime in an onMapCreate handler.  Anywhere the
+        player can genuinely walk to has to decode as walkable, or the check
+        that guards a relocation would be rejecting real destinations.
+        """
+        if not save_editor.MAP_PASSABLE:
+            self.skipTest("map_meta.txt has no passability section")
+        empty = []
+        for map_id in sorted(save_editor.MAP_CELL):
+            if map_id in save_editor.UNUSED_MAPS:
+                continue
+            bits = save_editor._passable_bits(map_id)
+            if bits is not None and not any(bits):
+                empty.append(map_id)
+        self.assertEqual([], empty, "these town-map places decode as solid rock")
+
+    def test_the_maps_that_are_solid_throughout_are_the_known_few(self):
+        if not save_editor.MAP_PASSABLE:
+            self.skipTest("map_meta.txt has no passability section")
+        empty = [m for m in sorted(save_editor.MAP_PASSABLE)
+                 if save_editor._passable_bits(m) is not None
+                 and not any(save_editor._passable_bits(m))]
+        self.assertLess(len(empty), 12,
+                        "a decoding change has made real maps look impassable")
+
+    def test_bicycle_rules_follow_the_games_own_order(self):
+        if not save_editor.MAP_METADATA:
+            self.skipTest("metadata.dat not extracted")
+        # pbCanUseBike?: BicycleAlways wins, then Bicycle, then Outdoor.
+        with mock.patch.object(save_editor, "MAP_METADATA",
+                               [None, [None, False, None, None, True],
+                                [None, False, None, False, False],
+                                [None, True, None, None, None]]):
+            self.assertTrue(save_editor.map_allows_bicycle(1))   # BicycleAlways
+            self.assertFalse(save_editor.map_allows_bicycle(2))  # explicit Bicycle
+            self.assertTrue(save_editor.map_allows_bicycle(3))   # falls back to Outdoor
+
+
+class CrossMapTeleportTests(unittest.TestCase):
+    """Moving the player to another map, through the editor, end to end."""
+
+    _app = None
+
+    @classmethod
+    def tearDownClass(cls):
+        if cls._app is not None:
+            cls._app.destroy()
+            cls._app = None
+
+    def _editor(self):
+        if type(self)._app is None:
+            try:
+                app = Editor()
+            except tk.TclError as exc:
+                self.skipTest(f"Tk is unavailable: {exc}")
+            app.withdraw()
+            type(self)._app = app
+        return type(self)._app
+
+    @staticmethod
+    def _save_file():
+        base = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
+        if not os.path.isdir(base):
+            return None
+        found = [os.path.join(base, f) for f in sorted(os.listdir(base))
+                 if f.lower().endswith(".rxdata")]
+        return found[0] if found else None
+
+    @staticmethod
+    def _somewhere_else(app):
+        """A map the player is not on, with a tile they could stand on."""
+        for map_id in sorted(save_editor.MAP_PASSABLE):
+            if map_id == app._loaded_map_id or map_id in save_editor.UNUSED_MAPS:
+                continue
+            width, height = save_editor.map_size(map_id)
+            for y in range(height):
+                for x in range(width):
+                    if save_editor.map_tile_is_standable(map_id, x, y):
+                        return map_id, x, y
+        return None
+
+    def _loaded(self, tmp):
+        path = self._save_file()
+        if path is None:
+            self.skipTest("no local .rxdata save files")
+        copy = os.path.join(tmp, os.path.basename(path))
+        shutil.copy2(path, copy)
+        app = self._editor()
+        app._do_load(copy)
+        app.update()
+        return app, copy
+
+    def test_a_save_reports_the_map_from_its_factory_stream(self):
+        with mock.patch.object(save_editor, "messagebox"):
+            with tempfile.TemporaryDirectory() as tmp:
+                app, _copy = self._loaded(tmp)
+                self.assertTrue(app._can_relocate())
+                self.assertIsNotNone(app._loaded_map_id)
+                self.assertIsNone(app._target_map_id)
+                self.assertEqual(app._loaded_map_id, app._current_map_id())
+
+    def test_moving_within_the_same_map_does_not_touch_the_map_stream(self):
+        with mock.patch.object(save_editor, "messagebox"):
+            with tempfile.TemporaryDirectory() as tmp:
+                app, copy = self._loaded(tmp)
+                with open(copy, "rb") as fd:
+                    before = fd.read()
+                here = app._current_map_id()
+                x, y = int(app.var_player_x.get()), int(app.var_player_y.get())
+                self.assertTrue(app._move_player_to(here, x + 1, y))
+                self.assertIsNone(app._target_map_id)
+                app._do_save()
+                app.update()
+                with open(copy, "rb") as fd:
+                    after = fd.read()
+                positions, later = (save_editor.split_streams(before),
+                                    save_editor.split_streams(after))
+                factory = app.factory_idx
+                self.assertEqual(before[positions[factory]:positions[factory+1]],
+                                 after[later[factory]:later[factory+1]])
+
+    def test_moving_to_another_map_rewrites_the_id_and_arms_the_rebuild(self):
+        with mock.patch.object(save_editor, "messagebox"):
+            with tempfile.TemporaryDirectory() as tmp:
+                app, copy = self._loaded(tmp)
+                destination = self._somewhere_else(app)
+                if destination is None:
+                    self.skipTest("no other map with a standable tile")
+                map_id, x, y = destination
+                self.assertTrue(app._move_player_to(map_id, x, y))
+                self.assertEqual(map_id, app._target_map_id)
+                self.assertIn("(pending)", app.var_player_location.get())
+
+                app._do_save()
+                app.update()
+                with open(copy, "rb") as fd:
+                    after = fd.read()
+                positions = save_editor.split_streams(after)
+
+                def stream(idx):
+                    end = positions[idx+1] if idx+1 < len(positions) else len(after)
+                    return after[positions[idx]:end]
+
+                found = save_editor.find_map_id_span(
+                    after, positions[app.factory_idx],
+                    positions[app.factory_idx+1] if app.factory_idx+1 < len(positions)
+                    else len(after))
+                self.assertEqual(map_id, found[0], "the map stream still names the old map")
+                # Without safesave the game loads that id with the old tiles.
+                meta = loads(stream(app.meta_idx)).attributes
+                self.assertIs(True, meta["@safesave"])
+                self.assertFalse(meta.get("@surfing"))
+                self.assertFalse(meta.get("@diving"))
+                player = loads(stream(app.player_idx)).attributes
+                self.assertEqual((x, y), (player["@x"], player["@y"]))
+                self.assertEqual((x * 128, y * 128), (player["@real_x"], player["@real_y"]))
+                self.assertEqual(map_id, player["@oldMap"])
+                if app.mapid_int_idx is not None:
+                    self.assertEqual(map_id, loads(stream(app.mapid_int_idx)))
+
+                # And the editor must read its own file back the same way.
+                app._do_load(copy)
+                app.update()
+                self.assertEqual(map_id, app._loaded_map_id)
+                self.assertIsNone(app._target_map_id)
+                self.assertNotIn("(pending)", app.var_player_location.get())
+
+    def test_going_back_to_the_starting_map_cancels_the_move(self):
+        with mock.patch.object(save_editor, "messagebox"):
+            with tempfile.TemporaryDirectory() as tmp:
+                app, _copy = self._loaded(tmp)
+                destination = self._somewhere_else(app)
+                if destination is None:
+                    self.skipTest("no other map with a standable tile")
+                home = app._loaded_map_id
+                x, y = int(app.var_player_x.get()), int(app.var_player_y.get())
+                app._move_player_to(destination[0], destination[1], destination[2])
+                self.assertIsNotNone(app._target_map_id)
+                app._move_player_to(home, x, y)
+                self.assertIsNone(app._target_map_id, "an undone move must write nothing")
+                self.assertNotIn("(pending)", app.var_player_location.get())
+
+    def test_a_map_with_no_file_is_refused(self):
+        with mock.patch.object(save_editor, "messagebox") as box:
+            with tempfile.TemporaryDirectory() as tmp:
+                app, _copy = self._loaded(tmp)
+                self.assertFalse(app._move_player_to(999999, 5, 5))
+                self.assertIsNone(app._target_map_id)
+                self.assertTrue(box.showerror.called)
+
+    def test_a_solid_tile_needs_confirming(self):
+        with mock.patch.object(save_editor, "messagebox") as box:
+            with tempfile.TemporaryDirectory() as tmp:
+                app, _copy = self._loaded(tmp)
+                here = app._current_map_id()
+                width, height = save_editor.map_size(here)
+                solid = next(((x, y) for y in range(height) for x in range(width)
+                              if not save_editor.map_tile_is_standable(here, x, y)), None)
+                if solid is None:
+                    self.skipTest("this map has no solid tile")
+                box.askyesno.return_value = False
+                self.assertFalse(app._move_player_to(here, *solid))
+                box.askyesno.return_value = True
+                self.assertTrue(app._move_player_to(here, *solid))
+
+    def test_the_viewer_offers_move_player_here_on_a_different_map(self):
+        """The button used to be grey on every map but the player's own."""
+        with mock.patch.object(save_editor, "messagebox"):
+            with tempfile.TemporaryDirectory() as tmp:
+                app, _copy = self._loaded(tmp)
+                destination = self._somewhere_else(app)
+                if destination is None:
+                    self.skipTest("no other map with a standable tile")
+                map_id, x, y = destination
+                app._open_map_viewer()
+                app.update()
+                win = [w for w in app.winfo_children() if isinstance(w, tk.Toplevel)][-1]
+                self.addCleanup(win.destroy)
+
+                widgets = []
+
+                def walk(widget):
+                    widgets.append(widget)
+                    for child in widget.winfo_children():
+                        walk(child)
+
+                walk(win)
+                move = next(w for w in widgets if isinstance(w, tk.Button)
+                            and w.cget("text") == "Move Player Here")
+                tree = [w for w in widgets if isinstance(w, save_editor.ttk.Treeview)][0]
+                # The viewer opens on the player's own tile, already selected.
+                self.assertEqual("normal", str(move.cget("state")))
+
+                # Changing map drops the selection, so the button goes grey.
+                tree.selection_set(str(map_id))
+                app.update()
+                self.assertEqual("disabled", str(move.cget("state")))
+
+                # And picking a tile there is accepted, which is the part that
+                # used to be impossible: the rule for offering the move was
+                # "the map the player is on" rather than "this save can be
+                # relocated at all".
+                self.assertTrue(app._can_relocate())
+                self.assertTrue(app._move_player_to(map_id, x, y, parent=win))
+                self.assertEqual(map_id, app._target_map_id)
+
+    def test_relocation_is_refused_when_the_map_stream_is_unreadable(self):
+        with mock.patch.object(save_editor, "messagebox") as box:
+            with tempfile.TemporaryDirectory() as tmp:
+                app, _copy = self._loaded(tmp)
+                destination = self._somewhere_else(app)
+                if destination is None:
+                    self.skipTest("no other map with a standable tile")
+                app._map_span = None            # as if the stream were unfamiliar
+                self.assertFalse(app._can_relocate())
+                self.assertFalse(app._move_player_to(*destination))
+                self.assertIsNone(app._target_map_id)
+                self.assertTrue(box.showerror.called)
+
 if __name__ == "__main__":
     unittest.main()
