@@ -2,6 +2,10 @@
 
 A small Windows desktop GUI for editing `Game.rxdata` save files from [Pokemon Insurgence](https://pokemon-insurgence.com/).
 
+It works with saves from both **Insurgence 2.x** (the mkxp-z release) and the older
+**Insurgence 1.x** (1.2.7). The editor detects which kind of save you open and writes it back in
+the same format.
+
 ## Download
 
 Grab the latest `.exe` from the [Releases](https://github.com/hebopaul/pok-insurgence-save-editor/releases) page. No installation is required.
@@ -54,13 +58,23 @@ Grab the latest `.exe` from the [Releases](https://github.com/hebopaul/pok-insur
 
 Double-click `Pokemon Insurgence Save Editor.exe` to launch it.
 
-On startup, the editor loads the newest `.rxdata` save from:
+On startup, the editor opens the most recently written `Game*.rxdata` save from either game's
+save folder:
 
 ```text
-%USERPROFILE%\Saved Games\Pokemon Insurgence
+%APPDATA%\Pokemon Insurgence                  Insurgence 2.x
+%USERPROFILE%\Saved Games\Pokemon Insurgence  Insurgence 1.x
 ```
 
+Insurgence 2 copies your 1.x saves into its own folder the first time it starts. It leaves the
+originals where they were, so both folders can hold a `Game.rxdata`. The status bar says which
+kind of save is loaded (*Insurgence 2 save* or *Insurgence 1.x save*).
+
 Use **Load Save** to open another `.rxdata` file, and **Save** to write changes back to it.
+
+If something goes wrong inside a button or wizard, the editor shows the error in a dialog
+instead of quietly doing nothing. That error never reaches your save file on its own. Your save
+changes only when you press **Save**.
 
 ### Backups
 
@@ -136,6 +150,11 @@ installation. Point `setup_resources.py` at the folder the game is installed in:
 python setup_resources.py "G:\Games\Insurgence"
 ```
 
+Either version's installation works. Insurgence 2 changed the engine but not the game data:
+every `.dat` file, map and sprite the editor uses is identical to 1.2.7. So one set of
+resources serves both kinds of save. If the folder holds both installs, the one with the
+shorter path is used.
+
 It finds `Game.rgssad`, decrypts the `Data/` files out of it, copies the sprites and item
 icons it needs from the installation's `Graphics/` folder, and writes everything to
 `game_resources/` in the layout the build expects. It takes a few seconds and is safe to
@@ -180,7 +199,18 @@ viewer still opens and says which command to run.
 
 ## Notes
 
-- Save files are Ruby Marshal streams.
+- Save files are Ruby Marshal streams: 15 of them, back to back. Insurgence 1.x ran on 32-bit
+  Ruby 1.8 and Insurgence 2 runs on 64-bit Ruby 3.1 (mkxp-z). The streams, classes and fields
+  are the same in both. The differences:
+  - every 2.x string carries a UTF-8 encoding tag, while 1.x strings are bare bytes;
+  - floats are written as Ruby 3's shortest text (`4.8` rather than `4.7999999999999998`);
+  - `Time` values carry a few extra fields.
+
+  The editor writes each save back in its own format, so names you type stay correctly encoded.
+  Untouched saves of either kind still round-trip byte for byte.
+- Genedyr, Thanarus, Ascenadan and Fendraugr (#723-726) are unfinished in the game itself. It
+  ships no sprites for them, so the editor shows the game's "?" placeholder. MISSINGNO (#722) is
+  a real species in the game's data.
 - Nature, gender, ability, and shiny edits use Insurgence's native override fields, preserving the Pokemon's PID and its other PID-derived traits.
 - Level and stat fields are written directly; the game may recalculate some derived values after loading.
 - Moving the player to another map works by asking the game to rebuild it. The save stores the

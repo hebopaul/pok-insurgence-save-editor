@@ -11,8 +11,20 @@ from rubymarshal.reader import loads
 from rubymarshal.writer import writes
 
 from rubymarshal.writer import Writer
-from rubymarshal.constants import TYPE_FIXNUM, TYPE_BIGNUM
+from rubymarshal.constants import TYPE_FIXNUM, TYPE_BIGNUM, TYPE_FLOAT, TYPE_IVAR
+from rubymarshal.classes import RubyString
 import math
+import decimal
+import copyreg
+
+# RubyString forwards unknown attributes to self.text through __getattr__. The
+# copy module builds a copy without running __init__ and then probes it for
+# __setstate__, so `.text` is missing, __getattr__ asks for `.text`, and that
+# recurses until RecursionError. Every Insurgence 2 Pokemon has RubyString
+# names, so deep-copying one (the template _create_pokemon_obj clones for Add
+# Pokemon and Import to PC) crashed. A reducer rebuilds the copy through
+# __init__ instead; copy.deepcopy still deep-copies the args and keeps the memo.
+copyreg.pickle(RubyString, lambda s: (RubyString, (s.text, s.attributes)))
 
 class Ruby18Writer(Writer):
     def write_int(self, obj):
@@ -34,13 +46,129 @@ class Ruby18Writer(Writer):
         if not self.must_write(obj): return
         super().write_bytes(obj)
 
+    # An encoded string is ONE Ruby object: `I` + `"payload` + its ivars.  The
+    # stock writer registers the string, then passes a freshly encoded `bytes`
+    # temporary to write_bytes, and the override above registers that as well.
+    # The result is two link slots per string, so every later link index is off
+    # by one. Worse, once Python reuses a freed temporary's id(), it writes
+    # `I@<n>`, an ivar wrapper around a link, which Ruby cannot read. Ruby 1.8
+    # saves never contain encoded strings, but every Insurgence 2 string is one.
+    # So the payload is written raw here.
+    def _write_encoded(self, payload: bytes, attributes: dict):
+        self.fd.write(TYPE_IVAR)
+        Writer.write_bytes(self, payload)
+        self.write_attributes(attributes)
+
     def write_string(self, obj):
         if not self.must_write(obj): return
-        super().write_string(obj)
+        self._write_encoded(obj.encode("utf-8"), {"E": True})
+
+    def write_ruby_string(self, obj):
+        if not self.must_write(obj): return
+        attributes = obj.attributes or {"E": True}
+        if "E" in attributes:
+            encoding = "utf-8" if attributes["E"] else "latin-1"
+        elif "encoding" in attributes:
+            encoding = ds(attributes["encoding"])
+        else:
+            encoding = "utf-8"
+        self._write_encoded(obj.text.encode(encoding), attributes)
 
     def write_float(self, obj):
         if not self.must_write(obj): return
         super().write_float(obj)
+
+
+def ruby3_float_text(value: float) -> str:
+    """Format a float exactly as Ruby 2+/3's Marshal (`w_float`) does.
+
+    It writes the shortest round-trip digits (Python's repr uses the same
+    algorithm), using an exponent only when the point would fall outside them:
+    255.0 -> "255", 4.8 -> "4.8", 100.0 -> "1e2", 0.0001 -> "0.0001".
+    Ruby 1.8 used "%.17g" and appended mantissa bytes, and the stock writer
+    imitates that, so an Insurgence 2 save would not round-trip byte for byte.
+    """
+    if math.isinf(value):
+        return "-inf" if value < 0 else "inf"
+    if math.isnan(value):
+        return "nan"
+    if value == 0.0:
+        return "-0" if math.copysign(1.0, value) < 0 else "0"
+    sign, digit_tuple, exponent = decimal.Decimal(repr(value)).as_tuple()
+    digits = "".join(map(str, digit_tuple))
+    decpt = len(digits) + exponent              # where the point sits in `digits`
+    digits = digits.rstrip("0")
+    out = "-" if sign else ""
+    if decpt < -3 or decpt > len(digits):
+        out += digits[0]
+        if len(digits) > 1:
+            out += "." + digits[1:]
+        out += f"e{decpt - 1}"
+    elif decpt > 0:
+        out += digits[:decpt]
+        if len(digits) > decpt:
+            out += "." + digits[decpt:]
+    else:
+        out += "0." + "0" * -decpt + digits
+    return out
+
+
+class Ruby3Writer(Ruby18Writer):
+    """Writer for Insurgence 2 saves (mkxp-z, 64-bit Ruby 3.1).
+
+    The Fixnum range is unchanged. Ruby 3 on x64 still writes `i` only within
+    +-2^30 (it tests the *tagged* VALUE against 31 bits), so the Bignum handling
+    inherited from Ruby18Writer is right. Only float text differs.
+    """
+    def write_float(self, obj):
+        if not self.must_write(obj): return
+        data = ruby3_float_text(obj).encode("ascii")
+        self.fd.write(TYPE_FLOAT)
+        self.write_long(len(data))
+        self.fd.write(data)
+
+
+# Insurgence 1.x ran on RGSS1 with 32-bit Ruby 1.8, which has no string
+# encodings: text is a bare `"` string, read back as `bytes`. Insurgence 2 runs
+# on mkxp-z with Ruby 3.1, where every string carries a UTF-8 tag, read back as
+# RubyString.  Apart from Time's extra ivars and float text, the object graph is
+# identical (same 15 streams, classes and attributes), so one editor serves both.
+# It just has to write strings back in the format the file already uses.
+SAVE_FORMAT_V1 = "v1"
+SAVE_FORMAT_V2 = "v2"
+SAVE_FORMAT_LABELS = {SAVE_FORMAT_V1: "Insurgence 1.x save", SAVE_FORMAT_V2: "Insurgence 2 save"}
+SAVE_FORMAT_WRITERS = {SAVE_FORMAT_V1: Ruby18Writer, SAVE_FORMAT_V2: Ruby3Writer}
+
+
+def detect_save_format(trainer) -> str:
+    """v2 if the trainer's strings are encoding-tagged, otherwise v1."""
+    attrs = getattr(trainer, "attributes", None) or {}
+    candidates = [attrs.get("@name")]
+    candidates += [p.attributes.get("@name") for p in attrs.get("@party", []) or []
+                   if isinstance(p, RubyObject)]
+    for value in candidates:
+        if isinstance(value, RubyString):
+            return SAVE_FORMAT_V2
+        if isinstance(value, (bytes, bytearray)):
+            return SAVE_FORMAT_V1
+    return SAVE_FORMAT_V1
+
+
+def make_ruby_string(text: str, save_format: str):
+    """A new string attribute in the representation `save_format` uses."""
+    if save_format == SAVE_FORMAT_V2:
+        return RubyString(text, {"E": True})
+    return text.encode("utf-8")
+
+
+def copy_ruby_string(value):
+    """A distinct copy of a save string. Assigning the same object twice makes the
+    writer emit a link, so both owners would share (and mutate) one Ruby string."""
+    if isinstance(value, RubyString):
+        return RubyString(value.text, dict(value.attributes or {}))
+    if isinstance(value, (bytes, bytearray)):
+        return bytes(bytearray(value))
+    return value
 
 from rubymarshal.classes import RubyObject
 
@@ -59,20 +187,32 @@ def data_path(name: str) -> str:
     """Resolve one of the generated data files in gen_resources/."""
     return resource_path(os.path.join(GEN_DIR, name))
 
+# Insurgence 2 (mkxp-z) keeps saves in %APPDATA%\<dataPathApp>.  Its first launch
+# copies the 1.x saves there from Saved Games and leaves migrated_from.txt behind.
+# 1.x itself still uses Saved Games, so both folders are live.
+SAVE_DIR_V2 = os.path.join(
+    os.environ.get("APPDATA") or os.path.join(os.path.expanduser("~"), "AppData", "Roaming"),
+    "Pokemon Insurgence")
+SAVE_DIR_V1 = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
+SAVE_DIRS = (SAVE_DIR_V2, SAVE_DIR_V1)
+
+
 def get_latest_save_file() -> str:
-    base_dir = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
-    if not os.path.isdir(base_dir):
-        return ""
-    # Only load actual save slots, not the game's automatic backups
-    rx_files = [
-        os.path.join(base_dir, f) for f in os.listdir(base_dir) 
-        if f.lower().startswith("game") and f.lower().endswith(".rxdata")
-    ]
+    """The most recently written save slot across both games' save folders."""
+    rx_files = []
+    for base_dir in SAVE_DIRS:
+        if not os.path.isdir(base_dir):
+            continue
+        # Only load actual save slots, not the game's automatic backups
+        rx_files += [
+            os.path.join(base_dir, f) for f in os.listdir(base_dir)
+            if f.lower().startswith("game") and f.lower().endswith(".rxdata")
+        ]
     if not rx_files:
         return ""
     return max(rx_files, key=os.path.getmtime)
 
-DEFAULT_SAVE_DIR = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
+DEFAULT_SAVE_DIR = next((d for d in SAVE_DIRS if os.path.isdir(d)), SAVE_DIR_V1)
 
 STATS   = ["HP", "Atk", "Def", "SpA", "SpD", "Spe"]
 MAX_LEVEL = 120
@@ -2928,6 +3068,26 @@ def pocket_for_item(internet_id: int) -> int:
 # ── main editor ───────────────────────────────────────────────────────────────
 
 class Editor(tk.Tk):
+    # Class-level so helpers still work on an Editor whose __init__ never ran
+    # (tests build those). tk.Tk.__getattr__ would recurse on a missing name.
+    save_format = SAVE_FORMAT_V1
+
+    def report_callback_exception(self, exc, val, tb):
+        """Show errors raised inside button/wizard callbacks.
+
+        Tk's default prints them to stderr, which the windowed build doesn't
+        have, so a failing callback (e.g. the Add Pokemon wizard's last step)
+        just did nothing."""
+        import traceback
+        traceback.print_exception(exc, val, tb)
+        try:
+            messagebox.showerror("Unexpected error",
+                                 f"{exc.__name__}: {val}\n\nThe file on disk has not been "
+                                 "touched; check the edit before saving.",
+                                 parent=self)
+        except Exception:
+            pass
+
     def __init__(self):
         super().__init__()
         self.title("Pokemon Insurgence Save Editor")
@@ -2981,6 +3141,7 @@ class Editor(tk.Tk):
         self.global_meta  = None
         self.play_time_frames = None
         self.save_path    = get_latest_save_file() or os.path.join(DEFAULT_SAVE_DIR, "Game.rxdata")
+        self.save_format  = SAVE_FORMAT_V1
         self.trainer_id   = 0
         self.secret_id    = 0
 
@@ -3559,7 +3720,13 @@ class Editor(tk.Tk):
         return win
 
     def _on_mousewheel(self, e, horizontal: bool = False):
-        w = self.winfo_containing(e.x_root, e.y_root)
+        try:
+            w = self.winfo_containing(e.x_root, e.y_root)
+        except (KeyError, tk.TclError):
+            # Under the pointer is a widget Tk made without a Python wrapper,
+            # e.g. a ttk.Combobox's open list (".!combobox.popdown.f.l"), so
+            # nametowidget fails. Its own class binding already scrolls it.
+            return
         while w is not None:
             if w in self._scroll_canvases:
                 amount = int(-1 * (e.delta / 120))
@@ -3772,7 +3939,13 @@ class Editor(tk.Tk):
             resource_path(os.path.join("game_resources", "Graphics", "Battlers")),
             os.path.join(r"G:\Games\Insurgence\Pokemon Insurgence 1.2.7 Core", "Graphics", "Battlers"),
         ]
-        return [os.path.join(base, name) for base in dirs for name in names]
+        paths = [os.path.join(base, name) for base in dirs for name in names]
+        if species_id:
+            # Genedyr, Thanarus, Ascenadan and Fendraugr (723-726) are unfinished:
+            # the game ships no battler for them, and their party icons are just a
+            # "?" glyph. Show the game's own "?" battler instead of a blank panel.
+            paths += [os.path.join(base, "000.png") for base in dirs]
+        return paths
 
     def _load_pokemon_sprite(self, species_id: int, form: int = 0, max_size: int = 96):
         for path in self._pokemon_sprite_paths(species_id, form):
@@ -5404,7 +5577,7 @@ class Editor(tk.Tk):
             apply_pokemon_form(a, build["form"])
         a["@iv"] = _display_stats_to_game(build["ivs"])
         if fields.get("nickname", "").strip():
-            a["@name"] = fields["nickname"].strip().encode("utf-8")
+            a["@name"] = self._new_str(fields["nickname"].strip())
         if "happiness" in fields: a["@happiness"] = min(255, max(0, int(fields["happiness"])))
         if "item" in fields:
             wanted = fields["item"].casefold()
@@ -7373,10 +7546,12 @@ class Editor(tk.Tk):
         nature_index = max(0, min(24, int(nature_index)))
         pid      = find_pid(nature_index, False, self.trainer_id, self.secret_id)
 
-        ot_name     = b""
+        ot_name     = self._new_str("")
         combined_id = 0
         if self.trainer:
-            ot_name     = self.trainer.attributes.get("@name", b"") or b""
+            trainer_name = self.trainer.attributes.get("@name")
+            if trainer_name is not None:
+                ot_name = copy_ruby_string(trainer_name)
             combined_id = self.trainer_id | (self.secret_id << 16)
 
         # Deep-copy a real Pokémon from the save as a structural template.
@@ -7402,7 +7577,7 @@ class Editor(tk.Tk):
 
         a = pkmn.attributes
         a["@species"]      = species_id
-        a["@name"]         = name_str.encode("utf-8")
+        a["@name"]         = self._new_str(name_str)
         a["@personalID"]   = pid
         a["@hp"]           = total_hp
         a["@totalhp"]      = total_hp
@@ -8579,6 +8754,7 @@ class Editor(tk.Tk):
         self.global_meta = global_meta
         self.play_time_frames = play_time_frames
         self.save_path   = path
+        self.save_format = detect_save_format(trainer)
 
         ta = trainer.attributes
         full_id = ta.get("@id", 0) or 0
@@ -8589,8 +8765,19 @@ class Editor(tk.Tk):
         self._fill_party()
         self._populate_bag()
         self._populate_boxes()
-        self.status.config(text=f"Loaded: {os.path.basename(path)}  ({len(raw):,} bytes)",
+        self.status.config(text=f"Loaded: {os.path.basename(path)}  ({len(raw):,} bytes, "
+                                f"{SAVE_FORMAT_LABELS[self.save_format]})",
                            foreground="green")
+
+    # ── save format (Insurgence 1.x vs 2) ─────────────────────────────────────
+
+    @property
+    def writer_cls(self):
+        return SAVE_FORMAT_WRITERS.get(self.save_format, Ruby18Writer)
+
+    def _new_str(self, text: str):
+        """A string attribute in the loaded save's own representation."""
+        return make_ruby_string(text, self.save_format)
 
     # ── fill UI ───────────────────────────────────────────────────────────────
 
@@ -9002,7 +9189,7 @@ class Editor(tk.Tk):
 
             nick = v["nickname"].get()
             if nick and nick != ds(a.get("@name", b"")):
-                a["@name"] = nick.encode("utf-8")
+                a["@name"] = self._new_str(nick)
 
     def _apply_bag(self):
         if not isinstance(self.bag, RubyObject): return
@@ -9048,7 +9235,7 @@ class Editor(tk.Tk):
 
                 nick = sv["nickname"].get()
                 if nick and nick != ds(a.get("@name", b"")):
-                    a["@name"] = nick.encode("utf-8")
+                    a["@name"] = self._new_str(nick)
 
                 nat_name = sv["nature_idx"].get()
                 nat_i    = nature_index_from_value(nat_name, pokemon_nature(a))
@@ -9102,17 +9289,17 @@ class Editor(tk.Tk):
         raw = self.raw
 
         try:
-            trainer_bytes = writes(self.trainer, cls=Ruby18Writer)
+            trainer_bytes = writes(self.trainer, cls=self.writer_cls)
         except Exception as e:
             messagebox.showerror("Serialization error", f"Trainer: {e}"); return
 
         bag_bytes = storage_bytes = None
         if self.bag is not None and self.bag_idx is not None:
-            try:    bag_bytes     = writes(self.bag, cls=Ruby18Writer)
+            try:    bag_bytes     = writes(self.bag, cls=self.writer_cls)
             except Exception as e:
                 messagebox.showerror("Serialization error", f"Bag: {e}"); return
         if self.storage is not None and self.storage_idx is not None:
-            try:    storage_bytes = writes(self.storage, cls=Ruby18Writer)
+            try:    storage_bytes = writes(self.storage, cls=self.writer_cls)
             except Exception as e:
                 messagebox.showerror("Serialization error", f"Storage: {e}"); return
 
@@ -9121,16 +9308,16 @@ class Editor(tk.Tk):
         # editing the parsed objects alone would be silently discarded.
         player_bytes = meta_bytes = None
         if self._location_dirty and self.game_player is not None and self.player_idx is not None:
-            try:    player_bytes = writes(self.game_player, cls=Ruby18Writer)
+            try:    player_bytes = writes(self.game_player, cls=self.writer_cls)
             except Exception as e:
                 messagebox.showerror("Serialization error", f"Player: {e}"); return
         if self._location_dirty and self.global_meta is not None and self.meta_idx is not None:
-            try:    meta_bytes = writes(self.global_meta, cls=Ruby18Writer)
+            try:    meta_bytes = writes(self.global_meta, cls=self.writer_cls)
             except Exception as e:
                 messagebox.showerror("Serialization error", f"Global metadata: {e}"); return
         map_meta_bytes = None
         if self._map_dirty and self.map_meta is not None and self.map_meta_idx is not None:
-            try:    map_meta_bytes = writes(self.map_meta, cls=Ruby18Writer)
+            try:    map_meta_bytes = writes(self.map_meta, cls=self.writer_cls)
             except Exception as e:
                 messagebox.showerror("Serialization error", f"Map metadata: {e}"); return
 
@@ -9165,7 +9352,7 @@ class Editor(tk.Tk):
                 ms = positions[self.mapid_int_idx]
                 me = (positions[self.mapid_int_idx+1]
                       if self.mapid_int_idx+1 < len(positions) else len(raw))
-                replacements.append((ms, me, writes(target, cls=Ruby18Writer)))
+                replacements.append((ms, me, writes(target, cls=self.writer_cls)))
 
         replacements.sort(key=lambda x: x[0])
         result = b""; cursor = 0

@@ -8,7 +8,7 @@ import tempfile
 from types import SimpleNamespace
 from unittest import mock
 
-from rubymarshal.classes import RubyObject
+from rubymarshal.classes import RubyObject, RubyString
 from rubymarshal.reader import loads
 from rubymarshal.writer import writes
 
@@ -901,16 +901,116 @@ class StreamSplittingTests(unittest.TestCase):
         self.assertEqual(split_streams(raw), [0])
 
 
+def _local_save_files():
+    """Every .rxdata in both games' save folders (Insurgence 2 and 1.x)."""
+    found = []
+    for base in save_editor.SAVE_DIRS:
+        if os.path.isdir(base):
+            found += [os.path.join(base, f) for f in sorted(os.listdir(base))
+                      if f.lower().endswith(".rxdata")]
+    return found
+
+
+class SaveFormatTests(unittest.TestCase):
+    """Insurgence 1.x (Ruby 1.8) and 2 (mkxp-z, Ruby 3.1) saves are both editable.
+
+    The object graph is the same in both. What differs is that 2 tags every
+    string with an encoding (`I"..."` + `:E`) and writes floats Ruby 3's way.
+    """
+
+    def test_ruby3_float_text_matches_marshal(self):
+        cases = [   # a list, not a dict: 0.0 and -0.0 are equal keys
+            (255.0, "255"), (4.8, "4.8"), (100.0, "1e2"), (0.0001, "0.0001"),
+            (0.00001, "1e-5"), (-2.5, "-2.5"), (0.0, "0"), (-0.0, "-0"),
+            (1.5e300, "1.5e300"), (0.5, "0.5"),
+            (123456789012345680000.0, "1.2345678901234568e20"),
+            (float("inf"), "inf"), (float("-inf"), "-inf"),
+        ]
+        for value, text in cases:
+            with self.subTest(value=value):
+                self.assertEqual(save_editor.ruby3_float_text(value), text)
+                self.assertEqual(loads(writes(value, cls=save_editor.Ruby3Writer)), value)
+
+    def test_encoded_string_layout(self):
+        obj = RubyObject("X", {"@a": RubyString("Hi", {"E": True})})
+        self.assertEqual(writes(obj, cls=save_editor.Ruby3Writer),
+                         b'\x04\x08o:\x06X\x06:\x07@aI"\x07Hi\x06:\x06ET')
+
+    def test_equal_strings_stay_distinct_and_links_point_right(self):
+        # Two different strings that happen to be equal must not be merged, and
+        # a real repeat must link to the right object index. The old writer
+        # registered every encoded string twice and emitted `I@<n>`.
+        a = RubyString("a", {"E": True})
+        b = RubyString("a", {"E": True})
+        raw = writes([a, b, a], cls=save_editor.Ruby3Writer)
+        self.assertEqual(raw, b'\x04\x08[\x08I"\x06a\x06:\x06ETI"\x06a\x06;\x00T@\x06')
+        self.assertNotIn(b"I@", raw)
+        back = loads(raw)
+        self.assertEqual([str(x) for x in back], ["a", "a", "a"])
+        self.assertIs(back[0], back[2])
+        self.assertIsNot(back[0], back[1])
+
+    def test_v1_strings_are_still_bare(self):
+        self.assertEqual(writes(RubyObject("X", {"@a": b"Hi"}), cls=Ruby18Writer),
+                         b'\x04\x08o:\x06X\x06:\x07@a"\x07Hi')
+
+    def test_format_detection(self):
+        v1 = RubyObject("PokeBattle_Trainer", {"@name": b"Red", "@party": []})
+        v2 = RubyObject("PokeBattle_Trainer", {"@name": RubyString("Red", {"E": True}),
+                                               "@party": []})
+        self.assertEqual(save_editor.detect_save_format(v1), save_editor.SAVE_FORMAT_V1)
+        self.assertEqual(save_editor.detect_save_format(v2), save_editor.SAVE_FORMAT_V2)
+        self.assertIs(save_editor.SAVE_FORMAT_WRITERS[save_editor.SAVE_FORMAT_V2],
+                      save_editor.Ruby3Writer)
+
+    def test_new_strings_follow_the_save_format(self):
+        self.assertEqual(save_editor.make_ruby_string("Flabébé", save_editor.SAVE_FORMAT_V1),
+                         "Flabébé".encode("utf-8"))
+        made = save_editor.make_ruby_string("Flabébé", save_editor.SAVE_FORMAT_V2)
+        self.assertIsInstance(made, RubyString)
+        back = loads(writes(made, cls=save_editor.Ruby3Writer))
+        self.assertEqual(str(back), "Flabébé")
+        self.assertEqual(back.attributes, {"E": True})
+
+    def test_deepcopy_of_encoded_strings(self):
+        # copy.deepcopy used to recurse forever on RubyString (its __getattr__
+        # forwards to .text, which a half-built copy lacks). Add Pokemon and
+        # Import to PC both deep-copy a template Pokemon.
+        import copy
+        name = RubyString("Red", {"E": True})
+        pkmn = RubyObject("PokeBattle_Pokemon", {"@name": name, "@ot": name})
+        dup = copy.deepcopy(pkmn).attributes
+        self.assertIsInstance(dup["@name"], RubyString)
+        self.assertEqual(str(dup["@name"]), "Red")
+        self.assertEqual(dup["@name"].attributes, {"E": True})
+        self.assertIsNot(dup["@name"], name)
+        self.assertIs(dup["@name"], dup["@ot"])     # sharing inside the copy is kept
+
+    def test_copied_strings_are_new_objects(self):
+        for value in (b"Red", RubyString("Red", {"E": True})):
+            with self.subTest(kind=type(value).__name__):
+                dup = save_editor.copy_ruby_string(value)
+                self.assertIsNot(dup, value)
+                self.assertEqual(dup, value)
+
+
+class MouseWheelTests(unittest.TestCase):
+    def test_wheel_over_an_open_combobox_list_is_ignored(self):
+        # winfo_containing() raises KeyError('popdown') for a Combobox's open
+        # list: Tk creates it without a Python wrapper.
+        def containing(x, y):
+            raise KeyError("popdown")
+        fake = SimpleNamespace(winfo_containing=containing, _scroll_canvases=set())
+        event = SimpleNamespace(x_root=0, y_root=0, delta=-120)
+        Editor._on_mousewheel(fake, event)          # must not raise
+
+
 class RealSaveFileTests(unittest.TestCase):
     """Opt-in checks against real save files, when any are available locally."""
 
     @staticmethod
     def _save_files():
-        base = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
-        if not os.path.isdir(base):
-            return []
-        return [os.path.join(base, f) for f in sorted(os.listdir(base))
-                if f.lower().endswith(".rxdata")]
+        return _local_save_files()
 
     def test_pc_storage_is_readable_in_every_local_save(self):
         files = self._save_files()
@@ -948,11 +1048,7 @@ class SaveRoundTripTests(unittest.TestCase):
 
     @staticmethod
     def _save_files():
-        base = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
-        if not os.path.isdir(base):
-            return []
-        return [os.path.join(base, f) for f in sorted(os.listdir(base))
-                if f.lower().endswith(".rxdata")]
+        return _local_save_files()
 
     _app = None
 
@@ -1002,6 +1098,69 @@ class SaveRoundTripTests(unittest.TestCase):
                         self.assertEqual(1, len(backups))
                         with open(os.path.join(folder, backups[0]), "rb") as fd:
                             self.assertEqual(original, fd.read())
+
+    def test_v2_nickname_edit_is_written_as_an_encoded_string(self):
+        # Ruby 3 would treat a bare (ASCII-8BIT) name with non-ASCII bytes as
+        # incompatible with the game's UTF-8 text, so edits must keep the tag.
+        files = [p for p in _local_save_files()
+                 if os.path.dirname(p) == save_editor.SAVE_DIR_V2
+                 and os.path.basename(p).lower().startswith("game")]
+        if not files:
+            self.skipTest("no local Insurgence 2 save")
+        with mock.patch.object(save_editor, "messagebox"):
+            app = self._editor()
+            with tempfile.TemporaryDirectory() as tmp:
+                copy = os.path.join(tmp, os.path.basename(files[0]))
+                shutil.copy2(files[0], copy)
+                app._do_load(copy)
+                app.update()
+                if app.save_format != save_editor.SAVE_FORMAT_V2:
+                    self.skipTest("the Insurgence 2 folder holds a 1.x-format save")
+                app.pkmn_vars[0]["nickname"].set("Zoé")
+                app._do_save()
+                app.update()
+                app._do_load(copy)
+                app.update()
+                name = app.trainer.attributes["@party"][0].attributes["@name"]
+                self.assertIsInstance(name, RubyString)
+                self.assertEqual(str(name), "Zoé")
+                self.assertEqual(name.attributes, {"E": True})
+
+    def test_v2_created_pokemon_survives_a_save(self):
+        # Creating a Pokemon deep-copies one from the save as a template, which
+        # crashed on Insurgence 2 saves (RecursionError) before RubyString was
+        # registered with copyreg.
+        files = [p for p in _local_save_files()
+                 if os.path.dirname(p) == save_editor.SAVE_DIR_V2
+                 and os.path.basename(p).lower().startswith("game")]
+        if not files:
+            self.skipTest("no local Insurgence 2 save")
+        with mock.patch.object(save_editor, "messagebox"):
+            app = self._editor()
+            with tempfile.TemporaryDirectory() as tmp:
+                copy_path = os.path.join(tmp, os.path.basename(files[0]))
+                shutil.copy2(files[0], copy_path)
+                app._do_load(copy_path)
+                app.update()
+                if app.save_format != save_editor.SAVE_FORMAT_V2:
+                    self.skipTest("the Insurgence 2 folder holds a 1.x-format save")
+                pkmn = app._create_pokemon_obj(25, level=20)
+                a = pkmn.attributes
+                self.assertIsInstance(a["@name"], RubyString)
+                self.assertIsInstance(a["@ot"], RubyString)
+                self.assertIsNot(a["@ot"], app.trainer.attributes["@name"])
+
+                box = app.storage.attributes["@boxes"][-1]
+                slots = box.attributes["@pokemon"]
+                free = next(i for i, p in enumerate(slots) if not isinstance(p, RubyObject))
+                slots[free] = pkmn
+                app._do_save()
+                app.update()
+                app._do_load(copy_path)
+                app.update()
+                back = app.storage.attributes["@boxes"][-1].attributes["@pokemon"][free]
+                self.assertEqual(back.attributes["@species"], 25)
+                self.assertEqual(str(back.attributes["@name"]), str(a["@name"]))
 
     def test_every_save_gets_its_own_backup(self):
         files = self._save_files()
@@ -1207,11 +1366,7 @@ class BuildExportTests(unittest.TestCase):
 
     @staticmethod
     def _save_files():
-        base = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
-        if not os.path.isdir(base):
-            return []
-        return [os.path.join(base, f) for f in sorted(os.listdir(base))
-                if f.lower().endswith(".rxdata")]
+        return _local_save_files()
 
     def _loaded_slot(self):
         files = self._save_files()
@@ -2426,11 +2581,7 @@ class RealSaveMapStreamTests(unittest.TestCase):
 
     @staticmethod
     def _save_files():
-        base = os.path.join(os.path.expanduser("~"), "Saved Games", "Pokemon Insurgence")
-        if not os.path.isdir(base):
-            return []
-        return [os.path.join(base, f) for f in sorted(os.listdir(base))
-                if f.lower().endswith(".rxdata")]
+        return _local_save_files()
 
     def test_every_local_save_yields_a_map_the_game_knows(self):
         files = self._save_files()
